@@ -26,12 +26,22 @@ export async function Header() {
           >
             Projects
           </Link>
-          <Link
-            href="/ansible"
-            className="text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
-          >
-            Ansible
-          </Link>
+          {session?.user && (
+            <>
+              <Link
+                href="/admin"
+                className="text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                Admin
+              </Link>
+              <Link
+                href="/ansible"
+                className="text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
+              >
+                Ansible
+              </Link>
+            </>
+          )}
           {session?.user ? (
             <form
               action={async () => {
