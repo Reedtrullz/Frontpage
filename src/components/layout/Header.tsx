@@ -23,6 +23,12 @@ export function Header() {
           >
             Projects
           </Link>
+          <Link
+            href="/ansible"
+            className="text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            Ansible
+          </Link>
         </div>
       </nav>
     </header>
