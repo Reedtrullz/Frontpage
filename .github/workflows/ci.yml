@@ -28,14 +28,15 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci --include=optional \
-           && npm install --no-save --no-package-lock \
-                lightningcss-linux-x64-gnu \
-                @tailwindcss/oxide-linux-x64-gnu \
-                @rolldown/binding-linux-x64-gnu \
-                @unrs/resolver-binding-linux-x64-gnu \
-                @img/sharp-linux-x64 \
-                @img/sharp-libvips-linux-x64
+      - run: |
+          npm ci --include=optional
+          npm install --no-save --no-package-lock \
+            lightningcss-linux-x64-gnu \
+            @tailwindcss/oxide-linux-x64-gnu \
+            @rolldown/binding-linux-x64-gnu \
+            @unrs/resolver-binding-linux-x64-gnu \
+            @img/sharp-linux-x64 \
+            @img/sharp-libvips-linux-x64
       - run: npm run lint
       - run: npm run build
         env:
