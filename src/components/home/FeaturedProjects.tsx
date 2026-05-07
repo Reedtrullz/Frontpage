@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { ProjectCard } from "@/components/projects/ProjectCard";
-import { projects } from "@/data/projects";
+import type { Project } from "@/data/projects";
 
-export function FeaturedProjects() {
+interface FeaturedProjectsProps {
+  projects: Project[];
+}
+
+export function FeaturedProjects({ projects }: FeaturedProjectsProps) {
   const featured = projects.filter((p) => p.featured);
 
   return (

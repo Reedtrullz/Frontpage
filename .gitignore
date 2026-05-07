@@ -43,6 +43,9 @@ next-env.d.ts
 # commandcode
 .commandcode/
 
+# runtime data (generated at build time)
+public/data/
+
 # ansible
 .vault_pass.txt
 group_vars/

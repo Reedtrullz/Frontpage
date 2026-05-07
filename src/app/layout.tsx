@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
-import { personal } from "@/data/personal";
+import { getPersonal } from "@/lib/data";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -20,16 +20,20 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: `${personal.name} — ${personal.title}`,
-  description: personal.bio,
-};
+export function generateMetadata(): Metadata {
+  const p = getPersonal();
+  return {
+    title: `${p.name} — ${p.title}`,
+    description: p.bio,
+  };
+}
 
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const p = getPersonal();
   return (
     <html
       lang="en"
@@ -38,7 +42,7 @@ export default function RootLayout({
       <body className="min-h-full bg-zinc-950 text-zinc-100 flex flex-col">
         <Header />
         <main className="flex-1">{children}</main>
-        <Footer name={personal.name} socials={personal.socials} />
+        <Footer name={p.name} socials={p.socials} />
       </body>
     </html>
   );

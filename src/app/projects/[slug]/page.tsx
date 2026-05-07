@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { projects } from "@/data/projects";
+import { getProjects, getProject } from "@/lib/data";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TechBadge } from "@/components/ui/TechBadge";
 import type { Metadata } from "next";
@@ -10,12 +10,12 @@ interface Props {
 }
 
 export function generateStaticParams() {
-  return projects.map((p) => ({ slug: p.slug }));
+  return getProjects().map((p) => ({ slug: p.slug }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const project = projects.find((p) => p.slug === slug);
+  const project = getProject(slug);
   if (!project) return { title: "Not Found" };
   return {
     title: `${project.name} — Project`,
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function ProjectDetail({ params }: Props) {
   const { slug } = await params;
-  const project = projects.find((p) => p.slug === slug);
+  const project = getProject(slug);
 
   if (!project) notFound();
 

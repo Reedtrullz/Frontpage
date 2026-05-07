@@ -52,6 +52,13 @@
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
           VERSION: "{{ image_tag }}"
+          DATA_DIR: "/data"
+          AUTH_SECRET: "{{ vault_auth_secret }}"
+          AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
+          AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          GITHUB_TOKEN: "{{ vault_github_token }}"
+        volumes:
+          - "{{ docker_volume_data | default('frontpage_data') }}:/data"
 
     - name: Wait for application to become healthy
       uri:
@@ -93,6 +100,13 @@
           NODE_ENV: production
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
+          DATA_DIR: "/data"
+          AUTH_SECRET: "{{ vault_auth_secret }}"
+          AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
+          AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          GITHUB_TOKEN: "{{ vault_github_token }}"
+        volumes:
+          - "{{ docker_volume_data | default('frontpage_data') }}:/data"
       when:
         - health_check is not succeeded or health_check.json.status != "healthy"
         - previous_image != "none"

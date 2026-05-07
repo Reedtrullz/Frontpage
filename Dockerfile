@@ -42,9 +42,10 @@ WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0 \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    DATA_DIR=/data
 
-RUN mkdir -p /app/.next && chown -R node:node /app
+RUN mkdir -p /app/.next /data && chown -R node:node /app /data
 
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
