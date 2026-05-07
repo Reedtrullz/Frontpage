@@ -1,0 +1,183 @@
+[
+  {
+    "slug": "heimdall",
+    "name": "Heimdall",
+    "shortDescription": "Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.",
+    "longDescription": "Heimdall is a professional-grade dashboard for THORChain bond providers. It tracks total bonded RUNE with USD valuation, real-time RUNE price, weighted APY calculations with benchmark comparison, and portfolio health scoring (A–F grade).\n\nNode health monitoring covers active/standby/ready status, bond amount and rank tracking, slash points and jail status, churn-out risk assessment, and node operator fee impact analysis. The rewards dashboard shows P&L with initial bond tracking, and the LP section tracks liquidity positions across THORChain pools.",
+    "tags": [
+      "thorchain",
+      "dashboard",
+      "defi",
+      "monitoring",
+      "bonds"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "TypeScript",
+      "Tailwind CSS 4",
+      "Vitest",
+      "Playwright"
+    ],
+    "status": "active",
+    "category": "defi",
+    "repoUrl": "https://github.com/Reedtrullz/Heimdall",
+    "featured": true
+  },
+  {
+    "slug": "thorarb",
+    "name": "THORArb",
+    "shortDescription": "Arbitrage trading platform for $THOR token across THORChain, UniSwap, SushiSwap, and vTHOR Pool with a real-time web dashboard.",
+    "longDescription": "THORArb is a professional arbitrage bot that monitors $THOR token prices across four DEX venues: UniSwap V3 (THOR/ETH), SushiSwap V2 (THOR/ETH), THORChain (THOR/RUNE), and vTHOR Pool (vTHOR/RUNE) with redemption rate tracking.\n\nIt features intelligent arbitrage detection with gas cost, slippage, and liquidity accounting. Dual execution modes let you run manually (review opportunities) or auto-execute profitable trades. A real-time web dashboard shows live price cards, arbitrage opportunity rankings, and trade history.",
+    "tags": [
+      "thorchain",
+      "arbitrage",
+      "defi",
+      "trading",
+      "uniswap",
+      "sushiswap"
+    ],
+    "techStack": [
+      "TypeScript",
+      "Node.js",
+      "ethers.js",
+      "REST APIs"
+    ],
+    "status": "completed",
+    "category": "bot",
+    "repoUrl": "https://github.com/Reedtrullz/THORArb",
+    "featured": true
+  },
+  {
+    "slug": "inebotten",
+    "name": "inebotten",
+    "shortDescription": "Multi-purpose Discord bot for community management, automation, and THORChain-related utilities.",
+    "longDescription": "inebotten is a Discord bot built for community infrastructure. It handles automated moderation tasks, provides THORChain network information, runs scheduled announcements, and integrates with various APIs for real-time data.\n\nBuilt with discord.js, it supports slash commands, event handling, and modular plugin architecture across two deployment versions.",
+    "tags": [
+      "discord",
+      "bot",
+      "automation",
+      "community",
+      "thorchain"
+    ],
+    "techStack": [
+      "TypeScript",
+      "discord.js",
+      "Node.js"
+    ],
+    "status": "active",
+    "category": "bot",
+    "featured": true
+  },
+  {
+    "slug": "thornode-watcher",
+    "name": "THORNode Watcher",
+    "shortDescription": "Automated bond tracking and THORNode monitoring tool using headless browser automation.",
+    "longDescription": "THORNode Watcher is a Puppeteer-based monitoring tool that automatically tracks bond data from THORNodes. It scrapes and logs bond amounts, node status, and churn data on a schedule, providing historical tracking for bond provider decision-making.",
+    "tags": [
+      "thorchain",
+      "monitoring",
+      "puppeteer",
+      "nodes",
+      "automation"
+    ],
+    "techStack": [
+      "JavaScript",
+      "Puppeteer",
+      "Node.js"
+    ],
+    "status": "completed",
+    "category": "tooling",
+    "featured": false
+  },
+  {
+    "slug": "thorchain-wiki",
+    "name": "THORChain Wiki",
+    "shortDescription": "Comprehensive knowledge base and data explorer for the THORChain ecosystem with charts, search, and live data.",
+    "longDescription": "THORChain Wiki is a Next.js-powered knowledge hub for the THORChain ecosystem. It features full-text search powered by lunr.js, interactive charts with Recharts, live network data via SWR, and organized documentation on THORChain concepts, RUNE economics, and protocol mechanics.",
+    "tags": [
+      "thorchain",
+      "wiki",
+      "documentation",
+      "charts",
+      "data"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "React 19",
+      "Recharts",
+      "lunr",
+      "SWR",
+      "date-fns"
+    ],
+    "status": "active",
+    "category": "wiki",
+    "repoUrl": "https://github.com/Reedtrullz/thorchain-wiki",
+    "featured": false
+  },
+  {
+    "slug": "thor-maya-swap",
+    "name": "thor-maya-swap",
+    "shortDescription": "Frontend interface for cross-chain swaps between THORChain and Maya Protocol with real-time quotes.",
+    "longDescription": "A Next.js frontend application for cross-chain token swaps across THORChain and Maya Protocol. It provides real-time swap quotes, wallet connection, transaction tracking, and a clean swap interface. Uses React Query for data fetching and Zustand for client state management.",
+    "tags": [
+      "thorchain",
+      "maya",
+      "swap",
+      "frontend",
+      "cross-chain",
+      "defi"
+    ],
+    "techStack": [
+      "Next.js 15",
+      "React 19",
+      "Zustand",
+      "React Query",
+      "Tailwind"
+    ],
+    "status": "in-progress",
+    "category": "frontend",
+    "repoUrl": "https://github.com/Reedtrullz/thor-maya-swap-frontend",
+    "featured": false
+  },
+  {
+    "slug": "harmony-sync",
+    "name": "Harmony Sync",
+    "shortDescription": "Full-stack application with backend services, mobile app, and ML models for synchronized data workflows.",
+    "longDescription": "Harmony Sync is a full-stack application spanning backend services, a mobile client, and machine learning models. It orchestrates synchronized data workflows across platforms with a focus on reliability and real-time updates.",
+    "tags": [
+      "full-stack",
+      "mobile",
+      "machine-learning",
+      "sync"
+    ],
+    "techStack": [
+      "Node.js",
+      "React Native",
+      "Python",
+      "TypeScript"
+    ],
+    "status": "in-progress",
+    "category": "tooling",
+    "featured": false
+  },
+  {
+    "slug": "frontpage",
+    "name": "Frontpage",
+    "shortDescription": "This site — a personal portfolio and project database detailing what I build and why.",
+    "longDescription": "Frontpage is the website you're viewing right now. It serves as both a personal introduction and a curated database of all my projects. Built with Next.js 16, TypeScript, and Tailwind CSS 4, it features a terminal-inspired design and a Heimdall-influenced card dashboard for showcasing projects.",
+    "tags": [
+      "portfolio",
+      "nextjs",
+      "tailwind",
+      "personal-site"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "TypeScript",
+      "Tailwind CSS 4"
+    ],
+    "status": "active",
+    "category": "frontend",
+    "featured": false
+  }
+]
