@@ -8,7 +8,7 @@ interface HeroProps {
 }
 
 const phrases = [
-  "Full-Stack Developer",
+  "Full-Stack Vibecoder",
   "DeFi Builder",
   "THORChain Enthusiast",
   "Automation Addict",

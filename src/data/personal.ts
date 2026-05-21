@@ -15,7 +15,7 @@ export interface PersonalData {
 
 export const personal: PersonalData = {
   name: "Reidar",
-  title: "Full-Stack Developer & DeFi Builder",
+  title: "Full-Stack Vibecoder",
   location: "Norway",
   bio: "I build web applications, trading infrastructure, and DeFi tooling — mostly around THORChain and cross-chain liquidity. I like systems that work without babysitting.",
   whatIDo: [
