@@ -17,10 +17,19 @@ function ensureDataDir() {
 function readJSON<T>(filename: string, fallback: T): T {
   ensureDataDir();
   const p = path.join(DATA_DIR, filename);
-  if (fs.existsSync(p)) {
+  const versionFile = path.join(DATA_DIR, ".data_version");
+  const currentVersion = process.env.VERSION || "dev";
+
+  // Invalidate cached data when the app version changes
+  let cachedVersion = "";
+  try { cachedVersion = fs.readFileSync(versionFile, "utf-8").trim(); } catch {}
+
+  if (fs.existsSync(p) && cachedVersion === currentVersion) {
     return JSON.parse(fs.readFileSync(p, "utf-8")) as T;
   }
+
   fs.writeFileSync(p, JSON.stringify(fallback, null, 2));
+  fs.writeFileSync(versionFile, currentVersion);
   return fallback;
 }
 
