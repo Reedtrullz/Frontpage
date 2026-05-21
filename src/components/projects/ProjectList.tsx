@@ -22,6 +22,10 @@ const Tags = [
   "swap",
   "monitoring",
   "mobile",
+  "aviation",
+  "hermes",
+  "macos",
+  "pwa",
 ];
 
 interface ProjectListProps {

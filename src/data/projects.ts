@@ -112,6 +112,49 @@ export const projects: Project[] = [
     featured: false,
   },
   {
+    slug: "vifty",
+    name: "Vifty",
+    shortDescription:
+      "Native macOS fan control utility for Apple Silicon MacBook Pros with menu bar monitoring and daemon-based SMC control.",
+    longDescription:
+      "Vifty is a native macOS fan control app for Apple Silicon MacBook Pros. It reads temperature sensors via SMC and HID, displays them in a menu bar utility, and steers fan speeds through a privileged XPC daemon that survives app restarts.\n\nThree fan modes are supported: Auto (restore system control), Fixed RPM, and Temperature Curve (3-point). The live temperature panel shows all SMC and HID sensors with source labels. A standalone ViftyHelper CLI enables direct SMC key reads and fan writes from the terminal.\n\nSafety features include RPM clamping, auto-restore on sensor loss, an unclean-exit recovery marker, and hardware validation that refuses manual control on non-MacBook-Pro hardware.",
+    tags: ["macos", "fan-control", "swift", "menu-bar", "utility"],
+    techStack: ["Swift 6", "SwiftUI", "XPC", "IOKit", "SMC"],
+    status: "active",
+    category: "tooling",
+    repoUrl: "https://github.com/Reedtrullz/Vifty",
+    featured: false,
+  },
+  {
+    slug: "hermes-antigravity-auth",
+    name: "Hermes Antigravity Auth",
+    shortDescription:
+      "Google OAuth plugin for Hermes Agent — access Claude Opus 4.6, Sonnet 4.6, and Gemini models via Google Antigravity.",
+    longDescription:
+      "Hermes Antigravity Auth is a Python plugin for Hermes Agent that enables access to Claude and Gemini models through Google's Antigravity OAuth gateway. It handles PKCE OAuth authentication, request transformation (OpenAI → Gemini format), multi-account load balancing with health-score-based rotation, and session recovery from interrupted tool calls.\n\nThe plugin monkey-patches Hermes' internal HTTP client via httpx event hooks to inject Antigravity-specific headers. It supports dual quota pools (Antigravity headers + Gemini CLI headers), per-account device fingerprints, and proactive token refresh via a background watchdog thread. Claude thinking blocks are stripped from outgoing requests, and tool schemas are sanitized for Antigravity compatibility.",
+    tags: ["hermes", "oauth", "claude", "gemini", "plugin", "antigravity"],
+    techStack: ["Python", "httpx", "PKCE OAuth", "YAML", "pytest"],
+    status: "active",
+    category: "infra",
+    repoUrl: "https://github.com/Reedtrullz/hermes-antigravity-auth",
+    featured: false,
+  },
+  {
+    slug: "rfmc",
+    name: "RFMC / VirtualCDU",
+    shortDescription:
+      "Web-based Boeing 737 NG CDU/FMC trainer with Airbus A320 MCDU support, cockpit-mode instruments, and optional MSFS bridge.",
+    longDescription:
+      "RFMC is a browser-based avionics procedure trainer for learning CDU/MCDU flows, route setup, cockpit scanning, navigation-display interpretation, and trainer-level autoflight concepts. It covers the Boeing 737 NG CDU/FMC with over 16 page foundations (IDENT through DIR INTC) and scoped Airbus A320 MCDU pages.\n\nCockpit mode includes CDU/MCDU hardware-style panels, Navigation Display and PFD presentations, MCP/FCU visual controls, and task modes for focused practice. The app runs as an offline PWA with touch-first controls and kiosk-mode support for installed iPad and desktop use.\n\nAn optional MSFS bridge connects to PMDG 737 via SimConnect for live data, while standalone mode keeps state in the frontend. Over 845 unit tests and Playwright visual regression baselines validate display accuracy across multiple viewport presets.",
+    tags: ["aviation", "fmc", "boeing", "airbus", "simulation", "training", "pwa"],
+    techStack: ["React 18", "TypeScript", "Vite", "Zustand", "Node.js", "WebSocket"],
+    status: "active",
+    category: "tooling",
+    repoUrl: "https://github.com/Reedtrullz/RFMC",
+    liveUrl: "https://fmc.reidar.tech",
+    featured: true,
+  },
+  {
     slug: "frontpage",
     name: "Frontpage",
     shortDescription:
