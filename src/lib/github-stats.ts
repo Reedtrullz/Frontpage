@@ -97,14 +97,14 @@ function emptyStats(): GitHubStats {
 
 /** Extract owner/repo pairs from a list of project repoUrls */
 export function extractRepoPairs(
-  projects: { repoUrl?: string }[],
+  projects: { repoUrl?: string; slug?: string }[],
 ): { owner: string; repo: string; slug: string }[] {
   const pairs: { owner: string; repo: string; slug: string }[] = [];
   for (const p of projects) {
     if (!p.repoUrl) continue;
     const parsed = parseRepoUrl(p.repoUrl);
     if (parsed) {
-      pairs.push({ ...parsed, slug: (p as any).slug ?? "" });
+      pairs.push({ ...parsed, slug: p.slug ?? "" });
     }
   }
   return pairs;
