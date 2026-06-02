@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: "All projects — DeFi, bots, frontends, and tooling.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function ProjectsPage() {
   const projects = getProjects();
   return <ProjectList projects={projects} />;

@@ -4,6 +4,8 @@ import { FeaturedProjects } from "@/components/home/FeaturedProjects";
 import { getPersonal } from "@/lib/data";
 import { getProjects } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
 export default function Home() {
   const personal = getPersonal();
   const projects = getProjects();

@@ -5,6 +5,8 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TechBadge } from "@/components/ui/TechBadge";
 import type { Metadata } from "next";
 
+export const dynamic = "force-dynamic";
+
 interface Props {
   params: Promise<{ slug: string }>;
 }

@@ -14,18 +14,37 @@ function ensureDataDir() {
   }
 }
 
+function quarantineCorruptFile(filePath: string): void {
+  const timestamp = Date.now();
+  let suffix = 0;
+  let corruptPath = `${filePath}.corrupt.${timestamp}`;
+  while (fs.existsSync(corruptPath)) {
+    suffix += 1;
+    corruptPath = `${filePath}.corrupt.${timestamp}.${suffix}`;
+  }
+  fs.renameSync(filePath, corruptPath);
+}
+
 function readJSON<T>(filename: string, fallback: T): T {
   ensureDataDir();
   const p = path.join(DATA_DIR, filename);
   const versionFile = path.join(DATA_DIR, ".data_version");
   const currentVersion = process.env.VERSION || "dev";
 
-  // Invalidate cached data when the app version changes
-  let cachedVersion = "";
-  try { cachedVersion = fs.readFileSync(versionFile, "utf-8").trim(); } catch {}
-
-  if (fs.existsSync(p) && cachedVersion === currentVersion) {
-    return JSON.parse(fs.readFileSync(p, "utf-8")) as T;
+  if (fs.existsSync(p)) {
+    const raw = fs.readFileSync(p, "utf-8");
+    try {
+      const parsed = JSON.parse(raw) as T;
+      if (!fs.existsSync(versionFile)) {
+        fs.writeFileSync(versionFile, currentVersion);
+      }
+      return parsed;
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error;
+      }
+      quarantineCorruptFile(p);
+    }
   }
 
   fs.writeFileSync(p, JSON.stringify(fallback, null, 2));
