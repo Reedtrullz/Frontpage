@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontpage
 
-## Getting Started
+Personal portfolio and project database for reidar.tech.
 
-First, run the development server:
+This is the public narrative layer for the portfolio: project cards, project detail pages, GitHub-backed repository stats, and an owner-only admin surface for editing runtime personal/project data.
+
+## What it does
+
+- Serves curated project cards from `src/data/projects.ts`.
+- Shows individual project detail pages at `/projects/[slug]`.
+- Fetches GitHub repository metadata for project cards.
+- Provides owner-only admin routes for personal/project data management.
+- Preserves runtime-edited data in `DATA_DIR` while allowing new image versions to refresh bundled defaults.
+
+## Stack
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS 4
+- Auth.js v5 with GitHub OAuth
+- ESLint
+
+## Local development
+
+Use Node 22 in this environment:
 
 ```bash
+source ~/.nvm/nvm.sh && nvm use 22
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Useful commands:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run lint
+npm run build
+```
 
-## Learn More
+There is currently no `npm run test` script in `package.json`; do not report test success unless a test script is added and actually run.
 
-To learn more about Next.js, take a look at the following resources:
+## Runtime data
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`src/lib/data.ts` reads data from `DATA_DIR` and falls back to bundled defaults:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/data/personal.ts`
+- `src/data/projects.ts`
 
-## Deploy on Vercel
+Default local `DATA_DIR` is `public/data`. For clean verification that uses bundled source data instead of stale local runtime data, run:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+DATA_DIR="$(mktemp -d)" npm run build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Production/runtime deployments should mount a persistent data directory and set a version value so runtime-edited data is not overwritten accidentally while bundled defaults can still be refreshed intentionally.
+
+## Authentication and admin safety
+
+Admin UI and write APIs are owner-only. Owner checks prefer immutable GitHub identity where configured, with login/email as explicit fallbacks. Do not expose Auth.js secrets, OAuth secrets, GitHub tokens, vault passwords, `.env` values, or any production runtime data.
+
+## Project status labels
+
+Project card copy is intentionally conservative:
+
+- Nytt, RFS/RFMC, Heimdall/tcwiki, Vifty, and core portfolio infrastructure are active where the underlying project state supports that claim.
+- THORArb, thor-maya-swap, Harmony Sync, and codex-antigravity-auth are labeled experimental/in-progress when safety or durability gates are still incomplete.
+- Live/deployed claims require fresh CI/deploy and curl/browser verification for the exact SHA before being reported.
+
+## Deployment note
+
+This repository may be deployed through the configured CI/container/Ansible path, but this README does not claim the current working tree is live. Verify the exact GitHub Actions run and the live endpoint before reporting deployment success.
