@@ -1,12 +1,16 @@
-import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { isOwnerSession } from "@/lib/adminAuth";
 import { saveProjects } from "@/lib/data";
 import { syncToGithub } from "@/lib/github";
+import { NextResponse } from "next/server";
 
 export async function PUT(req: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isOwnerSession(session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json();

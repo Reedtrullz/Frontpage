@@ -57,6 +57,9 @@
           AUTH_SECRET: "{{ vault_auth_secret }}"
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          ADMIN_GITHUB_ID: "{{ vault_admin_github_id | default('2069259') }}"
+          ADMIN_GITHUB_LOGIN: "{{ vault_admin_github_login | default('Reedtrullz') }}"
+          ADMIN_GITHUB_EMAIL: "{{ vault_admin_github_email | default('') }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
@@ -106,6 +109,9 @@
           AUTH_SECRET: "{{ vault_auth_secret }}"
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          ADMIN_GITHUB_ID: "{{ vault_admin_github_id | default('2069259') }}"
+          ADMIN_GITHUB_LOGIN: "{{ vault_admin_github_login | default('Reedtrullz') }}"
+          ADMIN_GITHUB_EMAIL: "{{ vault_admin_github_email | default('') }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"

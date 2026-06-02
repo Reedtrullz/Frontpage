@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/auth";
+import { isOwnerSession } from "@/lib/adminAuth";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -9,6 +10,7 @@ export default async function AdminLayout({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/api/auth/signin");
+  if (!isOwnerSession(session)) redirect("/");
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">

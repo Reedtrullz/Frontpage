@@ -53,6 +53,14 @@ The playbook:
 4. Starts new container on port 3002 (mapped from internal 3000)
 5. Polls `/api/health` until healthy (or rolls back)
 
+### Owner-only admin environment
+
+The admin UI, `/ansible`, and data write APIs authorize the owner using persisted GitHub identity. The playbook passes these container environment variables:
+
+- `ADMIN_GITHUB_ID` — immutable GitHub user id. Defaults to Reedtrullz's public GitHub id (`2069259`) and can be overridden with `vault_admin_github_id`.
+- `ADMIN_GITHUB_LOGIN` — GitHub login fallback. Defaults to `Reedtrullz` and can be overridden with `vault_admin_github_login`.
+- `ADMIN_GITHUB_EMAIL` — optional explicit email fallback. Defaults to empty and should only be set intentionally through `vault_admin_github_email`.
+
 ### Force a specific tag
 ```bash
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
