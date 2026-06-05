@@ -1,0 +1,2 @@
+- npm install without --save-exact rewrites top-level semver strings to caret ranges; patch package.json back to exact versions when exact pins are required.
+- Biome LSP diagnostics in this environment needed biome on /opt/homebrew/bin, not just in the NVM-managed Node bin.

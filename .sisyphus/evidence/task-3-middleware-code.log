@@ -1,0 +1,2 @@
+16:      const ownerGitHubId = process.env.OWNER_GITHUB_ID;
+21:      const ownerEmail = process.env.OWNER_EMAIL;

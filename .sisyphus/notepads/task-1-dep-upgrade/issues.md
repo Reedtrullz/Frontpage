@@ -1,0 +1,2 @@
+- npm audit still reports moderate postcss vulnerabilities through next/next-auth; fixing them would require a breaking next change or dependency overrides, which were out of scope.
+- LSP diagnostics initially failed because biome was not on the diagnostics PATH; resolved by symlinking the installed biome binary into /opt/homebrew/bin.

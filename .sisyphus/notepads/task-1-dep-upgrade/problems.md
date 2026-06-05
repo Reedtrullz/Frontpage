@@ -1,0 +1,1 @@
+- lsp_diagnostics could not run because the configured biome LSP server was not available to the diagnostics environment, even after installing biome globally in the shell.

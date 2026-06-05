@@ -1,0 +1,5 @@
+grep -n "try|catch" src/lib/github.ts src/lib/data.ts
+
+Matched try/catch usage:
+- src/lib/github.ts: try/catch around getContent and createOrUpdateFileContents, specific 404 handling, targeted error logger
+- src/lib/data.ts: try/catch around cachedVersion read and JSON.parse fallback handling

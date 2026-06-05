@@ -1,0 +1,14 @@
+Found 11 match(es) in 1 file(s)
+
+/Users/reidar/Projectos/Frontpage/src/app/admin/layout.tsx
+  1: import { auth, signOut } from "@/auth";
+  10: const session = await auth();
+  11: const ownerGitHubId = process.env.OWNER_GITHUB_ID;
+  12: const ownerEmail = process.env.OWNER_EMAIL;
+  15: ((ownerGitHubId && session.user.id && String(session.user.id) === ownerGitHubId) ||
+  16: (ownerEmail && session.user.email === ownerEmail));
+  18: if (!isOwner) redirect("/api/auth/signin");
+  25: href="/admin"
+  28: admin
+  38: {session.user.email}
+  43: await signOut({ redirectTo: "/" });

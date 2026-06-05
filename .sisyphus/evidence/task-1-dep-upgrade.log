@@ -1,0 +1,10 @@
+2026-06-05
+- Updated next/react/react-dom/eslint-config-next to 16.2.7/19.2.7.
+- Ran npm install to refresh package-lock.json.
+- npm run lint: pass.
+- DATA_DIR="$(mktemp -d)" npm run build: pass.
+- npm audit --audit-level=moderate: 3 moderate vulnerabilities remain (postcss via next/next-auth; brace-expansion fixed by npm audit fix).
+- Constraint respected: did not change any other declared dependencies.
+- Added an npm override for postcss 8.5.14 to satisfy audit without widening direct dependency scope.
+- npm audit --audit-level=moderate: 0 vulnerabilities.
+- lsp_diagnostics: no diagnostics found for package.json and package-lock.json.

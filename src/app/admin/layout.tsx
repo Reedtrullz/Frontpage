@@ -8,7 +8,16 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  if (!session?.user) redirect("/api/auth/signin");
+  const user = session?.user;
+  const ownerGitHubId = process.env.OWNER_GITHUB_ID;
+  const ownerEmail = process.env.OWNER_EMAIL;
+  if (!user) redirect("/api/auth/signin");
+
+  const isOwner =
+    (ownerGitHubId && user.id && String(user.id) === ownerGitHubId) ||
+    (ownerEmail && user.email === ownerEmail);
+
+  if (!isOwner) redirect("/api/auth/signin");
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
@@ -28,7 +37,7 @@ export default async function AdminLayout({
         </div>
         <div className="flex items-center gap-4">
           <span className="text-xs text-zinc-500 font-mono">
-            {session.user.email}
+            {user.email}
           </span>
           <form
             action={async () => {

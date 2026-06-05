@@ -22,10 +22,19 @@ function readJSON<T>(filename: string, fallback: T): T {
 
   // Invalidate cached data when the app version changes
   let cachedVersion = "";
-  try { cachedVersion = fs.readFileSync(versionFile, "utf-8").trim(); } catch {}
+  try {
+    cachedVersion = fs.readFileSync(versionFile, "utf-8").trim();
+  } catch (error) {
+    console.error(`Failed to read version file for ${filename}; using fallback`, error);
+  }
 
   if (fs.existsSync(p) && cachedVersion === currentVersion) {
-    return JSON.parse(fs.readFileSync(p, "utf-8")) as T;
+    try {
+      return JSON.parse(fs.readFileSync(p, "utf-8")) as T;
+    } catch (error) {
+      console.error(`Failed to parse JSON for ${filename}; using fallback`, error);
+      return fallback;
+    }
   }
 
   fs.writeFileSync(p, JSON.stringify(fallback, null, 2));

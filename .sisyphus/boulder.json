@@ -1,0 +1,23 @@
+{
+  "active_plan": "/Users/reidar/Projectos/Frontpage/.sisyphus/plans/frontpage-review-implementation.md",
+  "started_at": "2026-06-05T20:46:23.355Z",
+  "session_ids": [
+    "ses_166896905ffe8YLjPs4i1e5wHe"
+  ],
+  "session_origins": {
+    "ses_166896905ffe8YLjPs4i1e5wHe": "direct"
+  },
+  "plan_name": "frontpage-review-implementation",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Upgrade dependencies (next, react, react-dom, eslint-config-next)",
+      "session_id": "ses_16670ee9affeyJSf6h6dXGzYYO",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T20:53:19.237Z"
+    }
+  }
+}

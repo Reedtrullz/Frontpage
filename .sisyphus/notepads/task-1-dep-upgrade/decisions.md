@@ -1,0 +1,2 @@
+- Kept the requested upgrade scope limited to next/react/react-dom/eslint-config-next and did not introduce overrides or extra dependency changes.
+- Used an npm override for postcss to eliminate the audit findings while leaving the requested direct dependency upgrades unchanged.

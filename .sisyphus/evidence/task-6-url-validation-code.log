@@ -1,0 +1,16 @@
+src/app/api/data/personal/route.ts:6:function isValidUrl(url: string): boolean {
+src/app/api/data/personal/route.ts:15:function validatePersonalUrls(body: unknown): string | null {
+src/app/api/data/personal/route.ts:23:    if (typeof url === "string" && !isValidUrl(url)) {
+src/app/api/data/personal/route.ts:24:      return `Invalid URL for socials[${index}].url. Only http:// and https:// are allowed.`;
+src/app/api/data/personal/route.ts:34:    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+src/app/api/data/personal/route.ts:38:  const validationError = validatePersonalUrls(body);
+src/app/api/data/projects/route.ts:6:function isValidUrl(url: string): boolean {
+src/app/api/data/projects/route.ts:15:function validateProjectUrls(body: unknown): string | null {
+src/app/api/data/projects/route.ts:25:    if (typeof project?.repoUrl === "string" && !isValidUrl(project.repoUrl)) {
+src/app/api/data/projects/route.ts:26:      return `Invalid URL for projects[${projectIndex}].repoUrl. Only http:// and https:// are allowed.`;
+src/app/api/data/projects/route.ts:29:    if (typeof project?.liveUrl === "string" && !isValidUrl(project.liveUrl)) {
+src/app/api/data/projects/route.ts:30:      return `Invalid URL for projects[${projectIndex}].liveUrl. Only http:// and https:// are allowed.`;
+src/app/api/data/projects/route.ts:36:        if (typeof url === "string" && !isValidUrl(url)) {
+src/app/api/data/projects/route.ts:37:          return `Invalid URL for projects[${projectIndex}].socials[${socialIndex}].url. Only http:// and https:// are allowed.`;
+src/app/api/data/projects/route.ts:49:    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+src/app/api/data/projects/route.ts:53:  const validationError = validateProjectUrls(body);

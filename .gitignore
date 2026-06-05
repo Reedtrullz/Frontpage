@@ -49,3 +49,4 @@ public/data/
 # ansible
 .vault_pass.txt
 group_vars/
+.vault_pass

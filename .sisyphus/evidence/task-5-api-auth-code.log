@@ -1,0 +1,15 @@
+Found 10 match(es) in 2 file(s)
+
+/Users/reidar/Projectos/Frontpage/src/app/api/data/projects/route.ts
+  9: return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  12: const ownerGitHubId = process.env.OWNER_GITHUB_ID;
+  13: const ownerEmail = process.env.OWNER_EMAIL;
+  14: const user = session.user;
+  20: return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+/Users/reidar/Projectos/Frontpage/src/app/api/data/personal/route.ts
+  9: return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  12: const ownerGitHubId = process.env.OWNER_GITHUB_ID;
+  13: const ownerEmail = process.env.OWNER_EMAIL;
+  14: const user = session.user;
+  20: return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -52,6 +52,7 @@ export default function AdminPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/data")
@@ -59,6 +60,10 @@ export default function AdminPage() {
       .then((d) => {
         setPersonal(d.personal);
         setProjects(d.projects);
+      })
+      .catch((err: unknown) => {
+        console.error("Failed to load admin data", err);
+        setMessage(err instanceof Error ? err.message : "Failed to load data");
       });
   }, []);
 
@@ -66,27 +71,59 @@ export default function AdminPage() {
     if (!personal) return;
     setSaving(true);
     setMessage("");
-    const res = await fetch("/api/data/personal", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(personal),
-    });
-    const data = await res.json();
-    setMessage(data.synced ? "Saved & synced to GitHub" : "Saved");
-    setSaving(false);
+    setError("");
+
+    try {
+      const res = await fetch("/api/data/personal", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(personal),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      setMessage(data.synced ? "Saved & synced to GitHub" : "Saved");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Save failed";
+      console.error("Failed to save personal data", err);
+      setMessage(errorMessage || "Save failed");
+      setError(errorMessage || "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveProjects = async () => {
     setSaving(true);
     setMessage("");
-    const res = await fetch("/api/data/projects", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(projects),
-    });
-    const data = await res.json();
-    setMessage(data.synced ? "Saved & synced to GitHub" : "Saved");
-    setSaving(false);
+    setError("");
+
+    try {
+      const res = await fetch("/api/data/projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(projects),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      setMessage(data.synced ? "Saved & synced to GitHub" : "Saved");
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Save failed";
+      console.error("Failed to save projects", err);
+      setMessage(errorMessage || "Save failed");
+      setError(errorMessage || "Save failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const updateSkill = (index: number, value: string) => {
@@ -340,7 +377,9 @@ export default function AdminPage() {
       </section>
 
       {message && (
-        <p className="text-sm text-green-400 font-mono fixed bottom-4 right-4 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded shadow-lg">
+        <p
+          className={`text-sm font-mono fixed bottom-4 right-4 bg-zinc-900 border px-4 py-2 rounded shadow-lg ${error ? "text-red-400 border-red-900" : "text-green-400 border-zinc-800"}`}
+        >
           {message}
         </p>
       )}
