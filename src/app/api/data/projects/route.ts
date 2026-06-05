@@ -17,19 +17,18 @@ const httpUrlSchema = z
   .string()
   .refine(isValidHttpUrl, "Must be a valid http/https URL.");
 
-const socialSchema = z.object({
-  platform: z.string(),
-  url: httpUrlSchema,
-});
-
 const projectSchema = z.object({
   slug: z.string(),
   name: z.string(),
-  description: z.string(),
-  status: z.enum(["active", "experimental", "archived", "maintenance"]).optional(),
+  shortDescription: z.string(),
+  longDescription: z.string(),
+  tags: z.array(z.string()),
+  techStack: z.array(z.string()),
+  status: z.enum(["active", "in-progress", "completed", "paused"]),
+  category: z.enum(["defi", "bot", "frontend", "tooling", "infra", "wiki"]),
   repoUrl: httpUrlSchema.optional(),
   liveUrl: httpUrlSchema.optional(),
-  socials: z.array(socialSchema),
+  featured: z.boolean(),
 });
 
 const projectsSchema = z.array(projectSchema);

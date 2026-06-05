@@ -1,0 +1,70 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e40]:
+      - heading "Projects" [level=1] [ref=e41]
+      - paragraph [ref=e42]: 1 of 11 projects shown
+      - generic [ref=e43]:
+        - button "All" [ref=e44]
+        - button "DeFi" [active] [pressed] [ref=e45]
+        - button "Bots" [ref=e46]
+        - button "Frontend" [ref=e47]
+        - button "Tooling" [ref=e48]
+        - button "Wiki" [ref=e49]
+        - button "Infra" [ref=e50]
+      - generic [ref=e51]:
+        - button "#thorchain" [ref=e52]
+        - button "#arbitrage" [ref=e53]
+        - button "#dashboard" [ref=e54]
+        - button "#discord" [ref=e55]
+        - button "#swap" [ref=e56]
+        - button "#monitoring" [ref=e57]
+        - button "#mobile" [ref=e58]
+        - button "#aviation" [ref=e59]
+        - button "#hermes" [ref=e60]
+        - button "#macos" [ref=e61]
+        - button "#pwa" [ref=e62]
+      - link "Open Heimdall project details" [ref=e64] [cursor=pointer]:
+        - /url: /projects/heimdall
+        - generic [ref=e65]:
+          - heading "Heimdall" [level=3] [ref=e66]
+          - generic [ref=e67]: Active
+        - paragraph [ref=e69]: Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.
+        - generic [ref=e70]:
+          - generic [ref=e71]: Next.js 16
+          - generic [ref=e72]: TypeScript
+          - generic [ref=e73]: Tailwind CSS 4
+          - generic [ref=e74]: Vitest
+          - generic [ref=e75]: "+1"
+  - contentinfo [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: © 2026 Reidar
+      - generic [ref=e17]:
+        - link "GitHub" [ref=e18] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e19] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e24] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e25]:
+      - img [ref=e26]
+    - generic [ref=e29]:
+      - button "Open issues overlay" [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: "1"
+          - generic [ref=e33]: "2"
+        - generic [ref=e34]:
+          - text: Issue
+          - generic [ref=e35]: s
+      - button "Collapse issues badge" [ref=e36]:
+        - img [ref=e37]
+  - alert [ref=e39]

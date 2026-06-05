@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - link "← Back to projects" [ref=e11] [cursor=pointer]:
+        - /url: /projects
+      - generic [ref=e12]:
+        - heading "THORArb" [level=1] [ref=e13]
+        - generic [ref=e14]: Completed
+      - paragraph [ref=e16]: Arbitrage trading platform for $THOR token across THORChain, UniSwap, SushiSwap, and vTHOR Pool with a real-time web dashboard.
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - paragraph [ref=e19]: "THORArb is a professional arbitrage bot that monitors $THOR token prices across four DEX venues: UniSwap V3 (THOR/ETH), SushiSwap V2 (THOR/ETH), THORChain (THOR/RUNE), and vTHOR Pool (vTHOR/RUNE) with redemption rate tracking."
+          - paragraph [ref=e20]: It features intelligent arbitrage detection with gas cost, slippage, and liquidity accounting. Dual execution modes let you run manually (review opportunities) or auto-execute profitable trades. A real-time web dashboard shows live price cards, arbitrage opportunity rankings, and trade history.
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - heading "Tech Stack" [level=3] [ref=e23]
+            - generic [ref=e24]:
+              - generic [ref=e25]: TypeScript
+              - generic [ref=e26]: Node.js
+              - generic [ref=e27]: ethers.js
+              - generic [ref=e28]: REST APIs
+          - generic [ref=e29]:
+            - heading "Tags" [level=3] [ref=e30]
+            - generic [ref=e31]:
+              - generic [ref=e32]: "#thorchain"
+              - generic [ref=e33]: "#arbitrage"
+              - generic [ref=e34]: "#defi"
+              - generic [ref=e35]: "#trading"
+              - generic [ref=e36]: "#uniswap"
+              - generic [ref=e37]: "#sushiswap"
+          - generic [ref=e38]:
+            - heading "Category" [level=3] [ref=e39]
+            - paragraph [ref=e40]: bot
+          - generic [ref=e41]:
+            - heading "Links" [level=3] [ref=e42]
+            - link "Repository →" [ref=e44] [cursor=pointer]:
+              - /url: https://github.com/Reedtrullz/THORArb
+  - contentinfo [ref=e45]:
+    - generic [ref=e46]:
+      - generic [ref=e47]: © 2026 Reidar
+      - generic [ref=e48]:
+        - link "GitHub" [ref=e49] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e50] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e55] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e56]:
+      - img [ref=e57]
+    - generic [ref=e60]:
+      - button "Open issues overlay" [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]: "1"
+          - generic [ref=e64]: "2"
+        - generic [ref=e65]:
+          - text: Issue
+          - generic [ref=e66]: s
+      - button "Collapse issues badge" [ref=e67]:
+        - img [ref=e68]
+  - alert [ref=e70]

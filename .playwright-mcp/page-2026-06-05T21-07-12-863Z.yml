@@ -1,0 +1,71 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - link "← Back to projects" [ref=e11] [cursor=pointer]:
+        - /url: /projects
+      - generic [ref=e12]:
+        - heading "Hermes Antigravity Auth" [level=1] [ref=e13]
+        - generic [ref=e14]: Active
+      - paragraph [ref=e16]: Google OAuth plugin for Hermes Agent — access Claude Opus 4.6, Sonnet 4.6, and Gemini models via Google Antigravity.
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - paragraph [ref=e19]: Hermes Antigravity Auth is a Python plugin for Hermes Agent that enables access to Claude and Gemini models through Google's Antigravity OAuth gateway. It handles PKCE OAuth authentication, request transformation (OpenAI → Gemini format), multi-account load balancing with health-score-based rotation, and session recovery from interrupted tool calls.
+          - paragraph [ref=e20]: The plugin monkey-patches Hermes' internal HTTP client via httpx event hooks to inject Antigravity-specific headers. It supports dual quota pools (Antigravity headers + Gemini CLI headers), per-account device fingerprints, and proactive token refresh via a background watchdog thread. Claude thinking blocks are stripped from outgoing requests, and tool schemas are sanitized for Antigravity compatibility.
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - heading "Tech Stack" [level=3] [ref=e23]
+            - generic [ref=e24]:
+              - generic [ref=e25]: Python
+              - generic [ref=e26]: httpx
+              - generic [ref=e27]: PKCE OAuth
+              - generic [ref=e28]: YAML
+              - generic [ref=e29]: pytest
+          - generic [ref=e30]:
+            - heading "Tags" [level=3] [ref=e31]
+            - generic [ref=e32]:
+              - generic [ref=e33]: "#hermes"
+              - generic [ref=e34]: "#oauth"
+              - generic [ref=e35]: "#claude"
+              - generic [ref=e36]: "#gemini"
+              - generic [ref=e37]: "#plugin"
+              - generic [ref=e38]: "#antigravity"
+          - generic [ref=e39]:
+            - heading "Category" [level=3] [ref=e40]
+            - paragraph [ref=e41]: infra
+          - generic [ref=e42]:
+            - heading "Links" [level=3] [ref=e43]
+            - link "Repository →" [ref=e45] [cursor=pointer]:
+              - /url: https://github.com/Reedtrullz/hermes-antigravity-auth
+  - contentinfo [ref=e46]:
+    - generic [ref=e47]:
+      - generic [ref=e48]: © 2026 Reidar
+      - generic [ref=e49]:
+        - link "GitHub" [ref=e50] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e51] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e56] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e57]:
+      - img [ref=e58]
+    - generic [ref=e61]:
+      - button "Open issues overlay" [ref=e62]:
+        - generic [ref=e63]:
+          - generic [ref=e64]: "1"
+          - generic [ref=e65]: "2"
+        - generic [ref=e66]:
+          - text: Issue
+          - generic [ref=e67]: s
+      - button "Collapse issues badge" [ref=e68]:
+        - img [ref=e69]
+  - alert [ref=e71]

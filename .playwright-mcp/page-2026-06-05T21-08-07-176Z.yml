@@ -1,0 +1,120 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - paragraph [ref=e11]:
+        - generic [ref=e12]: █
+      - heading "Reidar" [level=1] [ref=e13]
+      - paragraph [ref=e14]: I build web applications, trading infrastructure, and DeFi tooling — mostly around THORChain and cross-chain liquidity. I like systems that work without babysitting.
+    - generic [ref=e15]:
+      - heading "What I Do" [level=2] [ref=e16]
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - generic [ref=e19]: ▸
+          - generic [ref=e20]: Design and build full-stack web apps with Next.js, TypeScript, and Tailwind
+        - generic [ref=e21]:
+          - generic [ref=e22]: ▸
+          - generic [ref=e23]: Create trading bots and arbitrage systems for DeFi protocols
+        - generic [ref=e24]:
+          - generic [ref=e25]: ▸
+          - generic [ref=e26]: Build monitoring dashboards and data visualizations for blockchain networks
+        - generic [ref=e27]:
+          - generic [ref=e28]: ▸
+          - generic [ref=e29]: Develop Discord bots and automation tools for community infrastructure
+      - heading "Skills" [level=2] [ref=e30]
+      - generic [ref=e31]:
+        - generic [ref=e32]: TypeScript
+        - generic [ref=e33]: Next.js
+        - generic [ref=e34]: React
+        - generic [ref=e35]: Tailwind CSS
+        - generic [ref=e36]: Node.js
+        - generic [ref=e37]: Solidity
+        - generic [ref=e38]: THORChain
+        - generic [ref=e39]: DeFi
+        - generic [ref=e40]: Ethereum
+        - generic [ref=e41]: Puppeteer
+        - generic [ref=e42]: Discord.js
+        - generic [ref=e43]: SQL
+    - generic [ref=e44]:
+      - generic [ref=e45]:
+        - heading "Featured Projects" [level=2] [ref=e46]
+        - link "View all →" [ref=e47] [cursor=pointer]:
+          - /url: /projects
+      - generic [ref=e48]:
+        - link "Open Heimdall project details" [ref=e49] [cursor=pointer]:
+          - /url: /projects/heimdall
+          - generic [ref=e50]:
+            - heading "Heimdall" [level=3] [ref=e51]
+            - generic [ref=e52]: Active
+          - paragraph [ref=e54]: Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.
+          - generic [ref=e55]:
+            - generic [ref=e56]: Next.js 16
+            - generic [ref=e57]: TypeScript
+            - generic [ref=e58]: Tailwind CSS 4
+            - generic [ref=e59]: Vitest
+            - generic [ref=e60]: "+1"
+        - link "Open THORArb project details" [ref=e61] [cursor=pointer]:
+          - /url: /projects/thorarb
+          - generic [ref=e62]:
+            - heading "THORArb" [level=3] [ref=e63]
+            - generic [ref=e64]: Completed
+          - paragraph [ref=e66]: Arbitrage trading platform for $THOR token across THORChain, UniSwap, SushiSwap, and vTHOR Pool with a real-time web dashboard.
+          - generic [ref=e67]:
+            - generic [ref=e68]: TypeScript
+            - generic [ref=e69]: Node.js
+            - generic [ref=e70]: ethers.js
+            - generic [ref=e71]: REST APIs
+        - link "Open inebotten project details" [ref=e72] [cursor=pointer]:
+          - /url: /projects/inebotten
+          - generic [ref=e73]:
+            - heading "inebotten" [level=3] [ref=e74]
+            - generic [ref=e75]: Active
+          - paragraph [ref=e77]: Multi-purpose Discord bot for community management, automation, and THORChain-related utilities.
+          - generic [ref=e78]:
+            - generic [ref=e79]: TypeScript
+            - generic [ref=e80]: discord.js
+            - generic [ref=e81]: Node.js
+        - link "Open RFMC / VirtualCDU project details" [ref=e82] [cursor=pointer]:
+          - /url: /projects/rfmc
+          - generic [ref=e83]:
+            - heading "RFMC / VirtualCDU" [level=3] [ref=e84]
+            - generic [ref=e85]: Active
+          - paragraph [ref=e87]: Web-based Boeing 737 NG CDU/FMC trainer with Airbus A320 MCDU support, cockpit-mode instruments, and optional MSFS bridge.
+          - generic [ref=e88]:
+            - generic [ref=e89]: React 18
+            - generic [ref=e90]: TypeScript
+            - generic [ref=e91]: Vite
+            - generic [ref=e92]: Zustand
+            - generic [ref=e93]: "+2"
+  - contentinfo [ref=e94]:
+    - generic [ref=e95]:
+      - generic [ref=e96]: © 2026 Reidar
+      - generic [ref=e97]:
+        - link "GitHub" [ref=e98] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e99] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e104] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e105]:
+      - img [ref=e106]
+    - generic [ref=e109]:
+      - button "Open issues overlay" [ref=e110]:
+        - generic [ref=e111]:
+          - generic [ref=e112]: "1"
+          - generic [ref=e113]: "2"
+        - generic [ref=e114]:
+          - text: Issue
+          - generic [ref=e115]: s
+      - button "Collapse issues badge" [ref=e116]:
+        - img [ref=e117]
+  - alert [ref=e119]

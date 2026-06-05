@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - link "← Back to projects" [ref=e11] [cursor=pointer]:
+        - /url: /projects
+      - generic [ref=e12]:
+        - heading "Heimdall" [level=1] [ref=e13]
+        - generic [ref=e14]: Active
+      - paragraph [ref=e16]: Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.
+      - generic [ref=e17]:
+        - generic [ref=e18]:
+          - paragraph [ref=e19]: Heimdall is a professional-grade dashboard for THORChain bond providers. It tracks total bonded RUNE with USD valuation, real-time RUNE price, weighted APY calculations with benchmark comparison, and portfolio health scoring (A–F grade).
+          - paragraph [ref=e20]: Node health monitoring covers active/standby/ready status, bond amount and rank tracking, slash points and jail status, churn-out risk assessment, and node operator fee impact analysis. The rewards dashboard shows P&L with initial bond tracking, and the LP section tracks liquidity positions across THORChain pools.
+        - generic [ref=e21]:
+          - generic [ref=e22]:
+            - heading "Tech Stack" [level=3] [ref=e23]
+            - generic [ref=e24]:
+              - generic [ref=e25]: Next.js 16
+              - generic [ref=e26]: TypeScript
+              - generic [ref=e27]: Tailwind CSS 4
+              - generic [ref=e28]: Vitest
+              - generic [ref=e29]: Playwright
+          - generic [ref=e30]:
+            - heading "Tags" [level=3] [ref=e31]
+            - generic [ref=e32]:
+              - generic [ref=e33]: "#thorchain"
+              - generic [ref=e34]: "#dashboard"
+              - generic [ref=e35]: "#defi"
+              - generic [ref=e36]: "#monitoring"
+              - generic [ref=e37]: "#bonds"
+          - generic [ref=e38]:
+            - heading "Category" [level=3] [ref=e39]
+            - paragraph [ref=e40]: defi
+          - generic [ref=e41]:
+            - heading "Links" [level=3] [ref=e42]
+            - link "Repository →" [ref=e44] [cursor=pointer]:
+              - /url: https://github.com/Reedtrullz/Heimdall
+  - contentinfo [ref=e45]:
+    - generic [ref=e46]:
+      - generic [ref=e47]: © 2026 Reidar
+      - generic [ref=e48]:
+        - link "GitHub" [ref=e49] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e50] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e55] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e56]:
+      - img [ref=e57]
+    - generic [ref=e60]:
+      - button "Open issues overlay" [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]: "1"
+          - generic [ref=e64]: "2"
+        - generic [ref=e65]:
+          - text: Issue
+          - generic [ref=e66]: s
+      - button "Collapse issues badge" [ref=e67]:
+        - img [ref=e68]
+  - alert [ref=e70]

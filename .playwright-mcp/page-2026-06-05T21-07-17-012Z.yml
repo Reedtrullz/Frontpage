@@ -1,0 +1,61 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e10]:
+      - link "← Back to projects" [ref=e11] [cursor=pointer]:
+        - /url: /projects
+      - generic [ref=e12]:
+        - heading "Frontpage" [level=1] [ref=e13]
+        - generic [ref=e14]: Active
+      - paragraph [ref=e16]: This site — a personal portfolio and project database detailing what I build and why.
+      - generic [ref=e17]:
+        - paragraph [ref=e19]: Frontpage is the website you're viewing right now. It serves as both a personal introduction and a curated database of all my projects. Built with Next.js 16, TypeScript, and Tailwind CSS 4, it features a terminal-inspired design and a Heimdall-influenced card dashboard for showcasing projects.
+        - generic [ref=e20]:
+          - generic [ref=e21]:
+            - heading "Tech Stack" [level=3] [ref=e22]
+            - generic [ref=e23]:
+              - generic [ref=e24]: Next.js 16
+              - generic [ref=e25]: TypeScript
+              - generic [ref=e26]: Tailwind CSS 4
+          - generic [ref=e27]:
+            - heading "Tags" [level=3] [ref=e28]
+            - generic [ref=e29]:
+              - generic [ref=e30]: "#portfolio"
+              - generic [ref=e31]: "#nextjs"
+              - generic [ref=e32]: "#tailwind"
+              - generic [ref=e33]: "#personal-site"
+          - generic [ref=e34]:
+            - heading "Category" [level=3] [ref=e35]
+            - paragraph [ref=e36]: frontend
+  - contentinfo [ref=e37]:
+    - generic [ref=e38]:
+      - generic [ref=e39]: © 2026 Reidar
+      - generic [ref=e40]:
+        - link "GitHub" [ref=e41] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e42] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e47] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e48]:
+      - img [ref=e49]
+    - generic [ref=e52]:
+      - button "Open issues overlay" [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: "1"
+          - generic [ref=e56]: "2"
+        - generic [ref=e57]:
+          - text: Issue
+          - generic [ref=e58]: s
+      - button "Collapse issues badge" [ref=e59]:
+        - img [ref=e60]
+  - alert [ref=e62]

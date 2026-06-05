@@ -1,0 +1,183 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e40]:
+      - heading "Projects" [level=1] [ref=e41]
+      - paragraph [ref=e42]: 11 of 11 projects shown
+      - generic [ref=e43]:
+        - button "All" [pressed] [ref=e44]
+        - button "DeFi" [ref=e45]
+        - button "Bots" [ref=e46]
+        - button "Frontend" [ref=e47]
+        - button "Tooling" [ref=e48]
+        - button "Wiki" [ref=e49]
+        - button "Infra" [ref=e50]
+      - generic [ref=e51]:
+        - button "#thorchain" [ref=e52]
+        - button "#arbitrage" [ref=e53]
+        - button "#dashboard" [ref=e54]
+        - button "#discord" [ref=e55]
+        - button "#swap" [ref=e56]
+        - button "#monitoring" [ref=e57]
+        - button "#mobile" [ref=e58]
+        - button "#aviation" [ref=e59]
+        - button "#hermes" [ref=e60]
+        - button "#macos" [ref=e61]
+        - button "#pwa" [ref=e62]
+      - generic [ref=e63]:
+        - link "Open Heimdall project details" [ref=e64] [cursor=pointer]:
+          - /url: /projects/heimdall
+          - generic [ref=e65]:
+            - heading "Heimdall" [level=3] [ref=e66]
+            - generic [ref=e67]: Active
+          - paragraph [ref=e69]: Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.
+          - generic [ref=e70]:
+            - generic [ref=e71]: Next.js 16
+            - generic [ref=e72]: TypeScript
+            - generic [ref=e73]: Tailwind CSS 4
+            - generic [ref=e74]: Vitest
+            - generic [ref=e75]: "+1"
+        - link "Open THORArb project details" [ref=e77] [cursor=pointer]:
+          - /url: /projects/thorarb
+          - generic [ref=e78]:
+            - heading "THORArb" [level=3] [ref=e79]
+            - generic [ref=e80]: Completed
+          - paragraph [ref=e82]: Arbitrage trading platform for $THOR token across THORChain, UniSwap, SushiSwap, and vTHOR Pool with a real-time web dashboard.
+          - generic [ref=e83]:
+            - generic [ref=e84]: TypeScript
+            - generic [ref=e85]: Node.js
+            - generic [ref=e86]: ethers.js
+            - generic [ref=e87]: REST APIs
+        - link "Open inebotten project details" [ref=e89] [cursor=pointer]:
+          - /url: /projects/inebotten
+          - generic [ref=e90]:
+            - heading "inebotten" [level=3] [ref=e91]
+            - generic [ref=e92]: Active
+          - paragraph [ref=e94]: Multi-purpose Discord bot for community management, automation, and THORChain-related utilities.
+          - generic [ref=e95]:
+            - generic [ref=e96]: TypeScript
+            - generic [ref=e97]: discord.js
+            - generic [ref=e98]: Node.js
+        - link "Open THORNode Watcher project details" [ref=e99] [cursor=pointer]:
+          - /url: /projects/thornode-watcher
+          - generic [ref=e100]:
+            - heading "THORNode Watcher" [level=3] [ref=e101]
+            - generic [ref=e102]: Completed
+          - paragraph [ref=e104]: Automated bond tracking and THORNode monitoring tool using headless browser automation.
+          - generic [ref=e105]:
+            - generic [ref=e106]: JavaScript
+            - generic [ref=e107]: Puppeteer
+            - generic [ref=e108]: Node.js
+        - link "Open THORChain Wiki project details" [ref=e109] [cursor=pointer]:
+          - /url: /projects/thorchain-wiki
+          - generic [ref=e110]:
+            - heading "THORChain Wiki" [level=3] [ref=e111]
+            - generic [ref=e112]: Active
+          - paragraph [ref=e114]: Comprehensive knowledge base and data explorer for the THORChain ecosystem with charts, search, and live data.
+          - generic [ref=e115]:
+            - generic [ref=e116]: Next.js 16
+            - generic [ref=e117]: React 19
+            - generic [ref=e118]: Recharts
+            - generic [ref=e119]: lunr
+            - generic [ref=e120]: "+2"
+        - link "Open thor-maya-swap project details" [ref=e122] [cursor=pointer]:
+          - /url: /projects/thor-maya-swap
+          - generic [ref=e123]:
+            - heading "thor-maya-swap" [level=3] [ref=e124]
+            - generic [ref=e125]: In Progress
+          - paragraph [ref=e127]: Frontend interface for cross-chain swaps between THORChain and Maya Protocol with real-time quotes.
+          - generic [ref=e128]:
+            - generic [ref=e129]: Next.js 15
+            - generic [ref=e130]: React 19
+            - generic [ref=e131]: Zustand
+            - generic [ref=e132]: React Query
+            - generic [ref=e133]: "+1"
+        - link "Open Harmony Sync project details" [ref=e135] [cursor=pointer]:
+          - /url: /projects/harmony-sync
+          - generic [ref=e136]:
+            - heading "Harmony Sync" [level=3] [ref=e137]
+            - generic [ref=e138]: In Progress
+          - paragraph [ref=e140]: Full-stack application with backend services, mobile app, and ML models for synchronized data workflows.
+          - generic [ref=e141]:
+            - generic [ref=e142]: Node.js
+            - generic [ref=e143]: React Native
+            - generic [ref=e144]: Python
+            - generic [ref=e145]: TypeScript
+        - link "Open Vifty project details" [ref=e146] [cursor=pointer]:
+          - /url: /projects/vifty
+          - generic [ref=e147]:
+            - heading "Vifty" [level=3] [ref=e148]
+            - generic [ref=e149]: Active
+          - paragraph [ref=e151]: Native macOS fan control utility for Apple Silicon MacBook Pros with menu bar monitoring and daemon-based SMC control.
+          - generic [ref=e152]:
+            - generic [ref=e153]: Swift 6
+            - generic [ref=e154]: SwiftUI
+            - generic [ref=e155]: XPC
+            - generic [ref=e156]: IOKit
+            - generic [ref=e157]: "+1"
+        - link "Open Hermes Antigravity Auth project details" [ref=e159] [cursor=pointer]:
+          - /url: /projects/hermes-antigravity-auth
+          - generic [ref=e160]:
+            - heading "Hermes Antigravity Auth" [level=3] [ref=e161]
+            - generic [ref=e162]: Active
+          - paragraph [ref=e164]: Google OAuth plugin for Hermes Agent — access Claude Opus 4.6, Sonnet 4.6, and Gemini models via Google Antigravity.
+          - generic [ref=e165]:
+            - generic [ref=e166]: Python
+            - generic [ref=e167]: httpx
+            - generic [ref=e168]: PKCE OAuth
+            - generic [ref=e169]: YAML
+            - generic [ref=e170]: "+1"
+        - link "Open RFMC / VirtualCDU project details" [ref=e172] [cursor=pointer]:
+          - /url: /projects/rfmc
+          - generic [ref=e173]:
+            - heading "RFMC / VirtualCDU" [level=3] [ref=e174]
+            - generic [ref=e175]: Active
+          - paragraph [ref=e177]: Web-based Boeing 737 NG CDU/FMC trainer with Airbus A320 MCDU support, cockpit-mode instruments, and optional MSFS bridge.
+          - generic [ref=e178]:
+            - generic [ref=e179]: React 18
+            - generic [ref=e180]: TypeScript
+            - generic [ref=e181]: Vite
+            - generic [ref=e182]: Zustand
+            - generic [ref=e183]: "+2"
+        - link "Open Frontpage project details" [ref=e185] [cursor=pointer]:
+          - /url: /projects/frontpage
+          - generic [ref=e186]:
+            - heading "Frontpage" [level=3] [ref=e187]
+            - generic [ref=e188]: Active
+          - paragraph [ref=e190]: This site — a personal portfolio and project database detailing what I build and why.
+          - generic [ref=e191]:
+            - generic [ref=e192]: Next.js 16
+            - generic [ref=e193]: TypeScript
+            - generic [ref=e194]: Tailwind CSS 4
+  - contentinfo [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: © 2026 Reidar
+      - generic [ref=e17]:
+        - link "GitHub" [ref=e18] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e19] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e24] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e25]:
+      - img [ref=e26]
+    - generic [ref=e29]:
+      - button "Open issues overlay" [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: "16"
+          - generic [ref=e33]: "17"
+        - generic [ref=e34]:
+          - text: Issue
+          - generic [ref=e35]: s
+      - button "Collapse issues badge" [ref=e36]:
+        - img [ref=e37]
+  - alert [ref=e39]

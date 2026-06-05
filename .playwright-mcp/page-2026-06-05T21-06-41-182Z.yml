@@ -1,0 +1,38 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e11]:
+      - heading "404" [level=1] [ref=e12]
+      - heading "This page could not be found." [level=2] [ref=e14]
+  - contentinfo [ref=e15]:
+    - generic [ref=e16]:
+      - generic [ref=e17]: © 2026 Reidar
+      - generic [ref=e18]:
+        - link "GitHub" [ref=e19] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e20] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e25] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e26]:
+      - img [ref=e27]
+    - generic [ref=e30]:
+      - button "Open issues overlay" [ref=e31]:
+        - generic [ref=e32]:
+          - generic [ref=e33]: "1"
+          - generic [ref=e34]: "2"
+        - generic [ref=e35]:
+          - text: Issue
+          - generic [ref=e36]: s
+      - button "Collapse issues badge" [ref=e37]:
+        - img [ref=e38]
+  - alert [ref=e40]

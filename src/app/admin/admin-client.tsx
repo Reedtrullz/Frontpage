@@ -212,6 +212,7 @@ export function AdminClient({
               <button
                 onClick={() => removeSkill(i)}
                 className="px-2 text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                aria-label="Remove skill"
               >
                 ×
               </button>
@@ -229,18 +230,26 @@ export function AdminClient({
         <div className="max-w-xl space-y-3 mb-6">
           {personal.socials.map((s, i) => (
             <div key={i} className="flex gap-2">
-              <input
-                className="w-24 px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-sm text-zinc-200 focus:outline-none focus:border-green-500/50"
-                value={s.label}
-                placeholder="Label"
-                onChange={(e) => updateSocial(i, "label", e.target.value)}
-              />
-              <input
-                className="flex-1 px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-sm text-zinc-200 focus:outline-none focus:border-green-500/50"
-                value={s.url}
-                placeholder="URL"
-                onChange={(e) => updateSocial(i, "url", e.target.value)}
-              />
+              <label className="block">
+                <span className="block text-xs text-zinc-500 mb-1 font-mono">
+                  Label
+                </span>
+                <input
+                  className="w-24 px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-sm text-zinc-200 focus:outline-none focus:border-green-500/50"
+                  value={s.label}
+                  onChange={(e) => updateSocial(i, "label", e.target.value)}
+                />
+              </label>
+              <label className="block flex-1">
+                <span className="block text-xs text-zinc-500 mb-1 font-mono">
+                  URL
+                </span>
+                <input
+                  className="w-full px-3 py-1.5 rounded border border-zinc-800 bg-zinc-900 text-sm text-zinc-200 focus:outline-none focus:border-green-500/50"
+                  value={s.url}
+                  onChange={(e) => updateSocial(i, "url", e.target.value)}
+                />
+              </label>
             </div>
           ))}
         </div>

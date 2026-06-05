@@ -1,0 +1,126 @@
+- generic [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "~/reidar$" [ref=e4] [cursor=pointer]:
+        - /url: /
+      - generic [ref=e5]:
+        - link "Home" [ref=e6] [cursor=pointer]:
+          - /url: /
+        - link "Projects" [ref=e7] [cursor=pointer]:
+          - /url: /projects
+        - link "Sign in" [ref=e8] [cursor=pointer]:
+          - /url: /api/auth/signin
+  - main [ref=e9]:
+    - generic [ref=e40]:
+      - heading "Projects" [level=1] [ref=e41]
+      - paragraph [ref=e42]: 6 of 11 projects shown
+      - generic [ref=e43]:
+        - button "All" [active] [pressed] [ref=e44]
+        - button "DeFi" [ref=e45]
+        - button "Bots" [ref=e46]
+        - button "Frontend" [ref=e47]
+        - button "Tooling" [ref=e48]
+        - button "Wiki" [ref=e49]
+        - button "Infra" [ref=e50]
+      - generic [ref=e51]:
+        - button "#thorchain" [pressed] [ref=e52]
+        - button "#arbitrage" [ref=e53]
+        - button "#dashboard" [ref=e54]
+        - button "#discord" [ref=e55]
+        - button "#swap" [ref=e56]
+        - button "#monitoring" [ref=e57]
+        - button "#mobile" [ref=e58]
+        - button "#aviation" [ref=e59]
+        - button "#hermes" [ref=e60]
+        - button "#macos" [ref=e61]
+        - button "#pwa" [ref=e62]
+      - generic [ref=e63]:
+        - link "Open Heimdall project details" [ref=e64] [cursor=pointer]:
+          - /url: /projects/heimdall
+          - generic [ref=e65]:
+            - heading "Heimdall" [level=3] [ref=e66]
+            - generic [ref=e67]: Active
+          - paragraph [ref=e69]: Investment command center for THORChain bond providers — monitor bonded RUNE, node health, rewards, risk metrics, and LP positions.
+          - generic [ref=e70]:
+            - generic [ref=e71]: Next.js 16
+            - generic [ref=e72]: TypeScript
+            - generic [ref=e73]: Tailwind CSS 4
+            - generic [ref=e74]: Vitest
+            - generic [ref=e75]: "+1"
+        - link "Open THORArb project details" [ref=e195] [cursor=pointer]:
+          - /url: /projects/thorarb
+          - generic [ref=e196]:
+            - heading "THORArb" [level=3] [ref=e197]
+            - generic [ref=e198]: Completed
+          - paragraph [ref=e200]: Arbitrage trading platform for $THOR token across THORChain, UniSwap, SushiSwap, and vTHOR Pool with a real-time web dashboard.
+          - generic [ref=e201]:
+            - generic [ref=e202]: TypeScript
+            - generic [ref=e203]: Node.js
+            - generic [ref=e204]: ethers.js
+            - generic [ref=e205]: REST APIs
+        - link "Open inebotten project details" [ref=e207] [cursor=pointer]:
+          - /url: /projects/inebotten
+          - generic [ref=e208]:
+            - heading "inebotten" [level=3] [ref=e209]
+            - generic [ref=e210]: Active
+          - paragraph [ref=e212]: Multi-purpose Discord bot for community management, automation, and THORChain-related utilities.
+          - generic [ref=e213]:
+            - generic [ref=e214]: TypeScript
+            - generic [ref=e215]: discord.js
+            - generic [ref=e216]: Node.js
+        - link "Open THORNode Watcher project details" [ref=e217] [cursor=pointer]:
+          - /url: /projects/thornode-watcher
+          - generic [ref=e218]:
+            - heading "THORNode Watcher" [level=3] [ref=e219]
+            - generic [ref=e220]: Completed
+          - paragraph [ref=e222]: Automated bond tracking and THORNode monitoring tool using headless browser automation.
+          - generic [ref=e223]:
+            - generic [ref=e224]: JavaScript
+            - generic [ref=e225]: Puppeteer
+            - generic [ref=e226]: Node.js
+        - link "Open THORChain Wiki project details" [ref=e227] [cursor=pointer]:
+          - /url: /projects/thorchain-wiki
+          - generic [ref=e228]:
+            - heading "THORChain Wiki" [level=3] [ref=e229]
+            - generic [ref=e230]: Active
+          - paragraph [ref=e232]: Comprehensive knowledge base and data explorer for the THORChain ecosystem with charts, search, and live data.
+          - generic [ref=e233]:
+            - generic [ref=e234]: Next.js 16
+            - generic [ref=e235]: React 19
+            - generic [ref=e236]: Recharts
+            - generic [ref=e237]: lunr
+            - generic [ref=e238]: "+2"
+        - link "Open thor-maya-swap project details" [ref=e240] [cursor=pointer]:
+          - /url: /projects/thor-maya-swap
+          - generic [ref=e241]:
+            - heading "thor-maya-swap" [level=3] [ref=e242]
+            - generic [ref=e243]: In Progress
+          - paragraph [ref=e245]: Frontend interface for cross-chain swaps between THORChain and Maya Protocol with real-time quotes.
+          - generic [ref=e246]:
+            - generic [ref=e247]: Next.js 15
+            - generic [ref=e248]: React 19
+            - generic [ref=e249]: Zustand
+            - generic [ref=e250]: React Query
+            - generic [ref=e251]: "+1"
+  - contentinfo [ref=e14]:
+    - generic [ref=e15]:
+      - generic [ref=e16]: © 2026 Reidar
+      - generic [ref=e17]:
+        - link "GitHub" [ref=e18] [cursor=pointer]:
+          - /url: https://github.com/Reedtrullz
+        - link "Twitter" [ref=e19] [cursor=pointer]:
+          - /url: https://x.com/Reedtrullz
+  - generic [ref=e24] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e25]:
+      - img [ref=e26]
+    - generic [ref=e29]:
+      - button "Open issues overlay" [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: "1"
+          - generic [ref=e33]: "2"
+        - generic [ref=e34]:
+          - text: Issue
+          - generic [ref=e35]: s
+      - button "Collapse issues badge" [ref=e36]:
+        - img [ref=e37]
+  - alert [ref=e39]
