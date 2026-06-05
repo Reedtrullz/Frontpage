@@ -1,2 +1,8 @@
-- 2026-06-05: Added `src/app/projects/[slug]/loading.tsx` by mirroring the existing projects loading state: zinc background, green spinner, mono uppercase label.
-- 2026-06-05: Added root `src/app/loading.tsx` as a generic full-screen fallback with the same green/zinc spinner treatment for all routes.
+2026-06-05: Accessibility fixes added for admin/project UI.
+- Used wrapper labels plus aria-labels for unlabeled skill/social inputs.
+- Added aria-pressed + focus-visible rings to filter toggles.
+- Added focus handling for save/status messages with role=status/alert.
+
+2026-06-05: Admin initial data now follows a server-wrapper/client-form pattern.
+- Keep `src/app/admin/page.tsx` as the server component that calls `getPersonal()` and `getProjects()`.
+- Keep interactive admin form state and save handlers in `src/app/admin/admin-client.tsx` behind a client boundary.

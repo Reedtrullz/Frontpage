@@ -1,6 +1,3 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Project } from "@/data/projects";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -9,6 +6,7 @@ import type { GitHubStats } from "@/lib/github-stats";
 
 interface ProjectCardProps {
   project: Project;
+  stats?: GitHubStats | null;
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -77,31 +75,12 @@ function langColor(lang: string): string {
   return colors[lang] ?? "#8b949e";
 }
 
-export function ProjectCard({ project }: ProjectCardProps) {
-  const [stats, setStats] = useState<GitHubStats | null>(null);
-
-  useEffect(() => {
-    if (!project.repoUrl) return;
-    let cancelled = false;
-
-    fetch("/api/github/stats")
-      .then((r) => r.json())
-      .then((data: Record<string, GitHubStats>) => {
-        if (!cancelled && data[project.slug]) {
-          setStats(data[project.slug]);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [project.slug, project.repoUrl]);
-
+export function ProjectCard({ project, stats }: ProjectCardProps) {
   return (
     <Link
       href={`/projects/${project.slug}`}
-      className="block p-5 rounded-lg border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 hover:border-zinc-700 transition-colors group"
+      aria-label={`Open ${project.name} project details`}
+      className="block p-5 rounded-lg border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 hover:border-zinc-700 transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500/40"
     >
       <div className="flex items-start justify-between mb-3">
         <h3 className="font-mono text-sm text-green-400 group-hover:text-green-300 transition-colors">
@@ -122,7 +101,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
           </span>
         )}
       </div>
-      <GitStats stats={stats} />
+      <GitStats stats={stats ?? null} />
     </Link>
   );
 }

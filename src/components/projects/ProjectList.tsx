@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import type { Project, ProjectCategory } from "@/data/projects";
+import type { GitHubStats } from "@/lib/github-stats";
 
 const categories: { value: ProjectCategory | "all"; label: string }[] = [
   { value: "all", label: "All" },
@@ -30,9 +31,10 @@ const Tags = [
 
 interface ProjectListProps {
   projects: Project[];
+  statsBySlug: Record<string, GitHubStats>;
 }
 
-export function ProjectList({ projects }: ProjectListProps) {
+export function ProjectList({ projects, statsBySlug }: ProjectListProps) {
   const [selectedCategory, setSelectedCategory] = useState<
     ProjectCategory | "all"
   >("all");
@@ -66,8 +68,10 @@ export function ProjectList({ projects }: ProjectListProps) {
         {categories.map((cat) => (
           <button
             key={cat.value}
+            type="button"
             onClick={() => setSelectedCategory(cat.value)}
-            className={`px-3 py-1.5 rounded text-xs font-mono transition-colors ${
+            aria-pressed={selectedCategory === cat.value}
+            className={`px-3 py-1.5 rounded text-xs font-mono transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500/40 ${
               selectedCategory === cat.value
                 ? "bg-green-500/10 text-green-400 border border-green-500/30"
                 : "bg-zinc-900 text-zinc-500 border border-zinc-800 hover:text-zinc-300"
@@ -82,8 +86,10 @@ export function ProjectList({ projects }: ProjectListProps) {
         {Tags.map((tag) => (
           <button
             key={tag}
+            type="button"
             onClick={() => toggleTag(tag)}
-            className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+            aria-pressed={activeTags.includes(tag)}
+            className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500/40 ${
               activeTags.includes(tag)
                 ? "bg-green-500/20 text-green-400 border border-green-500/20"
                 : "bg-zinc-900/50 text-zinc-600 border border-zinc-800 hover:text-zinc-400"
@@ -96,7 +102,11 @@ export function ProjectList({ projects }: ProjectListProps) {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((project) => (
-          <ProjectCard key={project.slug} project={project} />
+          <ProjectCard
+            key={project.slug}
+            project={project}
+            stats={statsBySlug[project.slug] ?? null}
+          />
         ))}
       </div>
 

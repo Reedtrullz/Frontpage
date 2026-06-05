@@ -36,6 +36,15 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-06-05T20:58:19.028Z"
+    },
+    "todo:17": {
+      "task_key": "todo:17",
+      "task_label": "17",
+      "task_title": "Move GitHub stats fetching server-side",
+      "session_id": "ses_1666ae51dffeVjoCQrJRKcvTxg",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-05T21:01:57.469Z"
     }
   }
 }

@@ -7,3 +7,4 @@
 - Use the signin redirect for both unauthenticated users and non-owners to keep the flow consistent.
 - For API mutations, deny non-owners with a 403 Forbidden JSON response instead of a redirect so callers get a clear authorization failure.
 - Keep loading UI minimal in the admin route: server-rendered spinner plus `Loading...`, matching the existing green/zinc theme.
+- 2026-06-05: Fetch `/projects` GitHub stats in the server page via `Promise.all` and `fetchRepoStats`, preserving the existing 5-minute cache while keeping `ProjectCard` presentation-only.

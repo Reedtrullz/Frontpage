@@ -1073,7 +1073,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 17. Move GitHub stats fetching server-side
+- [x] 17. Move GitHub stats fetching server-side
 
   **What to do**:
   - Convert `src/components/projects/ProjectCard.tsx` from client component to server component
@@ -1126,7 +1126,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 3)
 
-- [ ] 18. Remove unused Geist_Mono font
+- [x] 18. Remove unused Geist_Mono font
 
   **What to do**:
   - Remove `Geist_Mono` import from `src/app/layout.tsx`
@@ -1170,7 +1170,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 3)
 
-- [ ] 19. Fix admin page client-side fetch → server-side initial data
+- [x] 19. Fix admin page client-side fetch → server-side initial data
 
   **What to do**:
   - Make `src/app/admin/page.tsx` a Server Component (remove `"use client"`)
@@ -1215,7 +1215,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 3)
 
-- [ ] 20. Fix accessibility gaps
+- [x] 20. Fix accessibility gaps
 
   **What to do**:
   - `src/app/admin/page.tsx`:
@@ -1265,7 +1265,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 3)
 
-- [ ] 21. Evaluate TypeScript 6 upgrade
+- [x] 21. Evaluate TypeScript 6 upgrade
 
   **What to do**:
   - Research TypeScript 6 breaking changes vs current v5
@@ -1309,7 +1309,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: NO (evaluation only)
 
-- [ ] 22. Evaluate ESLint 10 upgrade
+- [x] 22. Evaluate ESLint 10 upgrade
 
   **What to do**:
   - Research ESLint 10 breaking changes vs current v9
