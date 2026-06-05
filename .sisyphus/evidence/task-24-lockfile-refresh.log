@@ -1,0 +1,42 @@
+Task 24 — Lockfile Refresh & Dependency Cleanup
+=================================================
+Date: 2026-06-05 21:04 UTC
+Project: Frontpage (reidar.tech)
+
+Results
+-------
+
+✅ 1. npm install
+   Status: up to date, audited 383 packages
+   Result: package-lock.json is in sync with package.json
+   Vulnerabilities: 0
+
+✅ 2. npm audit
+   Result: 0 vulnerabilities found
+
+✅ 3. npm run lint
+   Result: Passed (no errors or warnings)
+
+✅ 4. npm run build
+   Result: Compiled successfully in 3.0s (Turbopack)
+   Static pages generated: 22/22
+   TypeScript: Passed
+   Notes: GitHub API rate limit hit during static generation (Heimdall, THORArb,
+          thorchain-wiki, Vifty, hermes-antigravity-auth, thor-maya-swap-frontend,
+          RFMC) — these are runtime fetch failures, not build errors. Build succeeded.
+
+✅ 5. Orphaned dependency check (depcheck)
+   Result: No real orphaned dependencies found.
+   False positives flagged:
+   - @tailwindcss/postcss  → used in postcss.config.mjs (Tailwind v4)
+   - @types/react-dom      → used for React DOM types
+   - tailwindcss           → used via @theme inline in globals.css (v4 pattern)
+   These are build-essential dependencies; NOT removed.
+
+Summary
+-------
+- Lockfile clean and consistent
+- Zero audit vulnerabilities
+- Build passes
+- Lint passes
+- No orphaned dependencies to remove

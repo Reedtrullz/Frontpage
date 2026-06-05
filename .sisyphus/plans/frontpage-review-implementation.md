@@ -1351,7 +1351,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: NO (evaluation only)
 
-- [ ] 23. @types/node alignment evaluation
+- [x] 23. @types/node alignment evaluation
 
   **What to do**:
   - Check current `@types/node` (v20) vs Node 22 runtime
@@ -1389,7 +1389,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: NO (evaluation only)
 
-- [ ] 24. Final dependency cleanup + lockfile refresh
+- [x] 24. Final dependency cleanup + lockfile refresh
 
   **What to do**:
   - Run `npm dedupe` to clean lockfile
