@@ -579,7 +579,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 1)
 
-- [ ] 9. Zod validation for personal API
+- [x] 9. Zod validation for personal API
 
   **What to do**:
   - Add Zod schema for `PersonalData` in `src/app/api/data/personal/route.ts`
@@ -632,7 +632,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 10. Zod validation for projects API
+- [x] 10. Zod validation for projects API
 
   **What to do**:
   - Add Zod schema for `Project[]` in `src/app/api/data/projects/route.ts`
@@ -683,7 +683,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 11. error.tsx for admin
+- [x] 11. error.tsx for admin
 
   **What to do**:
   - Create `src/app/admin/error.tsx`
@@ -736,7 +736,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 12. error.tsx for projects
+- [x] 12. error.tsx for projects
 
   **What to do**:
   - Create `src/app/projects/error.tsx`
@@ -785,7 +785,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 13. error.tsx for project detail
+- [x] 13. error.tsx for project detail
 
   **What to do**:
   - Create `src/app/projects/[slug]/error.tsx`
@@ -834,7 +834,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 13a. error.tsx for root layout
+- [x] 13a. error.tsx for root layout
 
   **What to do**:
   - Create `src/app/error.tsx` for root-level error boundary
@@ -875,7 +875,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 14. loading.tsx for admin
+- [x] 14. loading.tsx for admin
 
   **What to do**:
   - Create `src/app/admin/loading.tsx`
@@ -928,7 +928,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 15. loading.tsx for projects
+- [x] 15. loading.tsx for projects
 
   **What to do**:
   - Create `src/app/projects/loading.tsx`
@@ -980,7 +980,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 16. loading.tsx for project detail
+- [x] 16. loading.tsx for project detail
 
   **What to do**:
   - Create `src/app/projects/[slug]/loading.tsx`
@@ -1031,7 +1031,7 @@ Max Concurrent: 8 (Wave 1 & 2)
 
   **Commit**: YES (groups with Wave 2)
 
-- [ ] 16a. loading.tsx for root layout
+- [x] 16a. loading.tsx for root layout
 
   **What to do**:
   - Create `src/app/loading.tsx` for root-level loading state

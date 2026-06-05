@@ -18,6 +18,24 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-06-05T20:53:19.237Z"
+    },
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "Zod validation for personal API",
+      "session_id": "ses_1666f33aeffeYoGUFMKIcssoKE",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T20:56:12.037Z"
+    },
+    "todo:16": {
+      "task_key": "todo:16",
+      "task_label": "16",
+      "task_title": "loading.tsx for project detail",
+      "session_id": "ses_1666c18ceffe2q5MvG4i5TR2id",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T20:58:19.028Z"
     }
   }
 }

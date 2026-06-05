@@ -1,31 +1,52 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/auth";
 import { savePersonal } from "@/lib/data";
 import { syncToGithub } from "@/lib/github";
 
-function isValidUrl(url: string): boolean {
+const httpUrlSchema = z.string().superRefine((value, ctx) => {
   try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
-  } catch {
-    return false;
-  }
-}
-
-function validatePersonalUrls(body: unknown): string | null {
-  if (!body || typeof body !== "object") return null;
-
-  const socials = (body as { socials?: Array<{ url?: unknown }> }).socials;
-  if (!Array.isArray(socials)) return null;
-
-  for (let index = 0; index < socials.length; index += 1) {
-    const url = socials[index]?.url;
-    if (typeof url === "string" && !isValidUrl(url)) {
-      return `Invalid URL for socials[${index}].url. Only http:// and https:// are allowed.`;
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      ctx.addIssue({
+        code: "custom",
+        message: "Only http:// and https:// are allowed.",
+      });
     }
+  } catch {
+    ctx.addIssue({
+      code: "custom",
+      message: "Invalid URL.",
+    });
   }
+});
 
-  return null;
+const personalSchema = z.object({
+  name: z.string(),
+  title: z.string(),
+  location: z.string(),
+  bio: z.string(),
+  whatIDo: z.array(z.string()),
+  skills: z.array(z.string()),
+  socials: z.array(
+    z.object({
+      label: z.string(),
+      url: httpUrlSchema,
+    }),
+  ),
+});
+
+function formatZodError(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path
+        .map((part) => (typeof part === "number" ? `[${part}]` : String(part)))
+        .join(".")
+        .replaceAll(".[", "[");
+
+      return path ? `${path}: ${issue.message}` : issue.message;
+    })
+    .join("; ");
 }
 
 export async function PUT(req: Request) {
@@ -48,17 +69,17 @@ export async function PUT(req: Request) {
   }
 
   const body = await req.json();
-  const validationError = validatePersonalUrls(body);
-  if (validationError) {
-    return NextResponse.json({ error: validationError }, { status: 400 });
+  const validationResult = personalSchema.safeParse(body);
+  if (!validationResult.success) {
+    return NextResponse.json({ error: formatZodError(validationResult.error) }, { status: 400 });
   }
 
-  savePersonal(body);
+  savePersonal(validationResult.data);
 
   const synced = await syncToGithub([
     {
       path: "public/data/personal.json",
-      content: JSON.stringify(body, null, 2),
+      content: JSON.stringify(validationResult.data, null, 2),
     },
   ]);
 
