@@ -18,7 +18,7 @@
 
     - name: Set previous image fact
       set_fact:
-        previous_image: "{{ (current_container.container.Config.Image) if (current_container.container is not none) else 'none' }}"
+        previous_image: "{{ current_container.container.Config.Image | default('none') }}"
 
   tasks:
     - name: Ensure docker group exists
@@ -156,7 +156,9 @@
         return_content: yes
         timeout: 5
       register: health_check
-      until: health_check is succeeded and health_check.json.status == "healthy"
+      until:
+        - (health_check.status | default(0)) == 200
+        - (health_check.json.status | default("")) == "healthy"
       retries: 10
       delay: 5
       failed_when: false
@@ -165,7 +167,7 @@
       fail:
         msg: "Frontpage health check failed: {{ health_check }}"
       when:
-        - health_check is not succeeded or health_check.json.status != "healthy"
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image == "none"
 
     - name: Rollback to previous image on failure
@@ -201,14 +203,14 @@
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
           - "{{ metrics_dir }}:/metrics:ro"
       when:
-        - health_check is not succeeded or health_check.json.status != "healthy"
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image != "none"
       register: rollback
 
     - name: Fail with rollback message
       fail:
         msg: "Deployment failed, rolled back to {{ previous_image }}"
-      when: rollback.changed
+      when: rollback is defined and rollback.changed | default(false)
 
     - name: Verify container is running
       community.docker.docker_container_info:
