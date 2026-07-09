@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reidar.tech/schemas/2026-07-09-frontpage-metrics.schema.v1.json",
+  "title": "Frontpage Metrics Snapshot v1",
+  "description": "Schema for latest.json and each rolling history sample produced by the Frontpage v1 VPS metrics collector.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "collected_at",
+    "host",
+    "services",
+    "containers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "collected_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu_percent",
+        "ram_used_bytes",
+        "ram_total_bytes",
+        "disk_used_bytes",
+        "disk_total_bytes",
+        "load_1m",
+        "load_5m",
+        "load_15m",
+        "uptime_seconds"
+      ],
+      "properties": {
+        "cpu_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "ram_used_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ram_total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "disk_used_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disk_total_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "load_1m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "load_5m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "load_15m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/service_check"
+      }
+    },
+    "containers": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/container_status"
+      }
+    }
+  },
+  "$defs": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "up",
+        "down",
+        "unknown"
+      ]
+    },
+    "service_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "visibility",
+        "status",
+        "checked_at",
+        "latency_ms"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "project_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "public",
+            "owner"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "latency_ms": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "container_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "status",
+        "checked_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "project_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        }
+      }
+    }
+  }
+}
