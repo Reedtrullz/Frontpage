@@ -1,22 +1,10 @@
 import Link from "next/link";
 import type { ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
-import type { PublicServiceStatus } from "@/lib/metrics/reader";
+import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import { repositoryActivity } from "@/lib/projects/presentation";
-import {
-  PostureBadge,
-  type ProjectHealthPosture,
-} from "@/components/ui/PostureBadge";
+import { PostureBadge } from "@/components/ui/PostureBadge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
-
-function healthPosture(
-  health: PublicServiceStatus | undefined,
-): ProjectHealthPosture {
-  if (!health) return "not-monitored";
-  if (health.status === "up") return "healthy";
-  if (health.status === "down") return "disruption";
-  return "unavailable";
-}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -35,7 +23,7 @@ export function ProjectHealthRow({
 }: {
   project: ProjectContent;
   stats: GitHubStats | null;
-  health?: PublicServiceStatus;
+  health: ProjectRuntimeHealth;
   now: Date;
 }) {
   const activity = repositoryActivity(stats);
@@ -52,7 +40,7 @@ export function ProjectHealthRow({
         <PostureBadge dimension="lifecycle" value={project.lifecycle} />
       </Field>
       <Field label="Live health">
-        <PostureBadge dimension="health" value={healthPosture(health)} />
+        <PostureBadge dimension="health" value={health} />
       </Field>
       <Field label="Repository">
         {activity?.lastCommitDate ? (

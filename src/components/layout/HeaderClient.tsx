@@ -5,17 +5,37 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   ChevronDown,
-  CircleDashed,
+  Circle,
   GitFork,
   LockKeyhole,
   Menu,
   X,
 } from "lucide-react";
 import { signOutAction } from "@/app/actions/auth";
+import type { OverallPublicStatusKind } from "@/lib/metrics/status-page";
 
 interface HeaderClientProps {
   isOwner: boolean;
+  statusKind: OverallPublicStatusKind;
 }
+
+const statusClasses: Record<OverallPublicStatusKind, string> = {
+  operational: "text-[var(--role-positive)]",
+  degraded: "text-[var(--role-warning)]",
+  delayed: "text-[var(--role-warning)]",
+  disruption: "text-[var(--role-failure)]",
+  unavailable: "text-[var(--text-subtle)]",
+  "no-checks": "text-[var(--text-subtle)]",
+};
+
+const statusLabels: Record<OverallPublicStatusKind, string> = {
+  operational: "Operational",
+  degraded: "Degraded",
+  delayed: "Status delayed",
+  disruption: "Service disruption",
+  unavailable: "Status unavailable",
+  "no-checks": "No public checks",
+};
 
 const publicLinks = [
   { href: "/projects", label: "Projects" },
@@ -31,11 +51,13 @@ function PublicLink({
   label,
   pathname,
   onNavigate,
+  statusKind,
 }: {
   href: string;
   label: string;
   pathname: string;
   onNavigate?: () => void;
+  statusKind?: OverallPublicStatusKind;
 }) {
   const active = isActive(pathname, href);
   return (
@@ -49,12 +71,20 @@ function PublicLink({
           : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
       }`}
     >
+      {statusKind ? (
+        <Circle className={`mr-2 h-2.5 w-2.5 fill-current ${statusClasses[statusKind]}`} aria-hidden="true" />
+      ) : null}
       {label}
+      {statusKind ? (
+        <span className="ml-1 hidden text-xs text-[var(--text-subtle)] xl:inline">
+          {statusLabels[statusKind]}
+        </span>
+      ) : null}
     </Link>
   );
 }
 
-export function HeaderClient({ isOwner }: HeaderClientProps) {
+export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
@@ -77,7 +107,12 @@ export function HeaderClient({ isOwner }: HeaderClientProps) {
 
         <div className="hidden h-full items-center gap-6 md:flex">
           {publicLinks.map((link) => (
-            <PublicLink key={link.href} {...link} pathname={pathname} />
+            <PublicLink
+              key={link.href}
+              {...link}
+              pathname={pathname}
+              statusKind={link.href === "/status" ? statusKind : undefined}
+            />
           ))}
           <a
             href="https://github.com/Reedtrullz"
@@ -129,10 +164,10 @@ export function HeaderClient({ isOwner }: HeaderClientProps) {
         <div className="flex items-center gap-1 md:hidden">
           <Link
             href="/status"
-            aria-label="View system status"
+            aria-label={`View system status: ${statusLabels[statusKind]}`}
             className="inline-flex h-11 w-11 items-center justify-center text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
           >
-            <CircleDashed className="h-5 w-5" aria-hidden="true" />
+            <Circle className={`h-3.5 w-3.5 fill-current ${statusClasses[statusKind]}`} aria-hidden="true" />
           </Link>
           <button
             type="button"
@@ -163,6 +198,7 @@ export function HeaderClient({ isOwner }: HeaderClientProps) {
                 key={link.href}
                 {...link}
                 pathname={pathname}
+                statusKind={link.href === "/status" ? statusKind : undefined}
                 onNavigate={() => setMobileOpen(false)}
               />
             ))}

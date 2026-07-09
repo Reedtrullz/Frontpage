@@ -19,16 +19,17 @@ interface ProjectCardProps {
   project: ProjectContent;
   stats?: GitHubStats | null;
   now: Date;
+  priority?: boolean;
 }
 
-export function ProjectCard({ project, stats, now }: ProjectCardProps) {
+export function ProjectCard({ project, stats, now, priority = false }: ProjectCardProps) {
   const activity = repositoryActivity(stats);
 
   return (
     <article className="group relative flex min-h-full flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] transition-colors hover:border-[var(--border-strong)]">
       <div className="border-b border-[var(--border)]">
         {project.media ? (
-          <ProjectMedia media={project.media.cover} sizes="(min-width: 1024px) 40vw, 100vw" />
+          <ProjectMedia media={project.media.cover} priority={priority} sizes="(min-width: 1024px) 40vw, 100vw" />
         ) : (
           <ProjectMediaUnavailable projectName={project.name} />
         )}

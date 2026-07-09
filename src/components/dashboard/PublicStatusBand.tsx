@@ -8,6 +8,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { PublicMetricsModel } from "@/lib/metrics/reader";
+import { deriveOverallPublicStatus } from "@/lib/metrics/status-page";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 
 interface StatusView {
   label: string;
@@ -17,33 +19,34 @@ interface StatusView {
 }
 
 function statusView(metrics: PublicMetricsModel): StatusView {
-  if (metrics.host.serviceSummary.down > 0) {
+  const overall = deriveOverallPublicStatus(metrics);
+  if (overall.kind === "disruption") {
     return {
       label: "Service disruption",
-      description: `${metrics.host.serviceSummary.down} public check${metrics.host.serviceSummary.down === 1 ? " is" : "s are"} reporting down.`,
+      description: overall.description,
       icon: CircleAlert,
       className: "border-[var(--role-failure-border)] bg-[var(--role-failure-soft)] text-[var(--role-failure)]",
     };
   }
-  if (metrics.freshness === "stale") {
+  if (overall.kind === "delayed" || overall.kind === "degraded") {
     return {
-      label: "Reporting delayed",
-      description: "The latest host sample is stale and is not treated as current health.",
+      label: overall.label,
+      description: overall.description,
       icon: Clock3,
       className: "border-[var(--role-warning-border)] bg-[var(--role-warning-soft)] text-[var(--role-warning)]",
     };
   }
-  if (metrics.freshness === "unavailable") {
+  if (overall.kind === "unavailable" || overall.kind === "no-checks") {
     return {
-      label: "Status unavailable",
-      description: "Current host telemetry is unavailable. No healthy state is assumed.",
+      label: overall.label,
+      description: overall.description,
       icon: CircleHelp,
       className: "border-[var(--border-strong)] bg-[var(--surface-raised)] text-[var(--text-muted)]",
     };
   }
   return {
-    label: "Systems reporting",
-    description: `${metrics.host.serviceSummary.up} of ${metrics.host.serviceSummary.total} public checks report up; host telemetry is current.`,
+    label: overall.label,
+    description: overall.description,
     icon: CircleCheck,
     className: "border-[var(--role-positive-border)] bg-[var(--role-positive-soft)] text-[var(--role-positive)]",
   };
@@ -60,6 +63,17 @@ export function PublicStatusBand({ metrics }: { metrics: PublicMetricsModel }) {
           <div>
             <h2 id="public-status-title" className="text-sm font-semibold">{view.label}</h2>
             <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{view.description}</p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-subtle)]">
+              <span>
+                Public checks {metrics.host.serviceSummary.total > 0
+                  ? `${metrics.host.serviceSummary.up}/${metrics.host.serviceSummary.total} up`
+                  : "not configured"}
+              </span>
+              <span className="capitalize">Disk {metrics.host.diskPressure}</span>
+              {metrics.host.lastUpdatedAt ? (
+                <span>Updated <RelativeTime value={metrics.host.lastUpdatedAt} /></span>
+              ) : null}
+            </div>
           </div>
         </div>
         <Link href="/status" className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm font-semibold text-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]">

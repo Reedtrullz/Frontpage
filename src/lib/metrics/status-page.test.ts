@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { MetricsReadResult } from "./reader";
-import { createStatusPageModel } from "./status-page";
+import {
+  createStatusPageModel,
+  deriveOverallPublicStatus,
+  deriveOwnerAttention,
+  deriveProjectHealth,
+} from "./status-page";
 
 const readResult: MetricsReadResult = {
   freshness: "fresh",
@@ -90,5 +95,124 @@ describe("createStatusPageModel", () => {
     expect(model.owner?.latest?.host.load_1m).toBe(0.1);
     expect(model.owner?.latest?.containers).toHaveLength(1);
     expect(model.owner?.latest?.services).toHaveLength(2);
+  });
+});
+
+describe("deriveOverallPublicStatus", () => {
+  it("prioritizes a down service over a healthy host", () => {
+    const model = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              services: readResult.latest.services.map((service) =>
+                service.visibility === "public"
+                  ? { ...service, status: "down" as const }
+                  : service,
+              ),
+            }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    });
+
+    expect(deriveOverallPublicStatus(model.public).kind).toBe("disruption");
+  });
+
+  it("prioritizes unavailable metrics over last-known service state", () => {
+    const publicModel = createStatusPageModel({
+      readResult: { ...readResult, freshness: "unavailable" },
+      isOwner: false,
+      now: new Date("2026-07-09T02:06:00Z"),
+    }).public;
+
+    expect(deriveOverallPublicStatus(publicModel).kind).toBe("unavailable");
+  });
+
+  it("reports no checks without claiming zero of zero are up", () => {
+    const publicModel = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? { ...readResult.latest, services: [] }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).public;
+
+    expect(deriveOverallPublicStatus(publicModel)).toMatchObject({
+      kind: "no-checks",
+      label: "No public checks",
+    });
+  });
+});
+
+describe("deriveProjectHealth", () => {
+  it("uses all configured checks and lets a down check win", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "two"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+          {
+            id: "two",
+            label: "Two",
+            status: "down",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("disruption");
+  });
+
+  it("returns not monitored when no check is bound", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample" },
+        [],
+        "fresh",
+      ),
+    ).toBe("not-monitored");
+  });
+});
+
+describe("deriveOwnerAttention", () => {
+  it("identifies resource and service issues", () => {
+    const owner = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              host: {
+                ...readResult.latest.host,
+                disk_used_bytes: 92,
+                disk_total_bytes: 100,
+              },
+              services: readResult.latest.services.map((service) => ({
+                ...service,
+                status: "down" as const,
+              })),
+            }
+          : null,
+      },
+      isOwner: true,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).owner;
+
+    const attention = deriveOwnerAttention(owner);
+    expect(attention.some((item) => item.id === "disk-critical")).toBe(true);
+    expect(attention.some((item) => item.id === "services-down")).toBe(true);
   });
 });

@@ -165,8 +165,8 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
 
       {filtered.length > 0 ? (
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
-          {filtered.map((project) => (
-            <ProjectCard key={project.slug} project={project} stats={statsBySlug[project.slug]} now={now} />
+          {filtered.map((project, index) => (
+            <ProjectCard key={project.slug} project={project} stats={statsBySlug[project.slug]} now={now} priority={index < 2} />
           ))}
         </div>
       ) : (

@@ -170,6 +170,7 @@ describe("derivePublicMetrics", () => {
     expect(JSON.stringify(publicModel)).not.toContain("uptime_seconds");
     expect(JSON.stringify(publicModel)).not.toContain("frontpage-internal");
     expect(JSON.stringify(publicModel)).not.toContain("frontpage-container");
+    expect(JSON.stringify(publicModel)).not.toContain("diagnostics");
   });
 
   it("joins public services by project slug", () => {

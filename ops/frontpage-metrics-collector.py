@@ -13,6 +13,7 @@ from pathlib import Path
 
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
+STATUS_USER_AGENT = "reidar-tech-status/1.0"
 MAX_ITEMS = 64
 
 
@@ -148,7 +149,11 @@ def service_result(service, opener=urllib.request.urlopen, now=utc_now):
     status = "unknown"
     latency_ms = None
     try:
-        request = urllib.request.Request(service["url"], method="GET")
+        request = urllib.request.Request(
+            service["url"],
+            headers={"User-Agent": STATUS_USER_AGENT},
+            method="GET",
+        )
         with opener(request, timeout=timeout_seconds) as response:
             latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
             status = "up" if response.status == int(service.get("expected_status", 200)) else "down"

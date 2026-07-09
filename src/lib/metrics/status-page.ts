@@ -1,14 +1,218 @@
+import type { ProjectContent } from "@/lib/content/schema";
 import {
   deriveOwnerMetrics,
   derivePublicMetrics,
   type MetricsReadResult,
   type OwnerMetricsModel,
   type PublicMetricsModel,
+  type PublicServiceStatus,
 } from "./reader";
+import type { MetricsFreshness } from "./types";
+
+export type OverallPublicStatusKind =
+  | "unavailable"
+  | "delayed"
+  | "disruption"
+  | "degraded"
+  | "operational"
+  | "no-checks";
+
+export interface OverallPublicStatus {
+  kind: OverallPublicStatusKind;
+  label: string;
+  description: string;
+}
+
+export type ProjectRuntimeHealth =
+  | "healthy"
+  | "degraded"
+  | "disruption"
+  | "unavailable"
+  | "not-monitored";
+
+export type OwnerAttentionSeverity = "warning" | "critical";
+
+export interface OwnerAttentionItem {
+  id: string;
+  severity: OwnerAttentionSeverity;
+  label: string;
+  reason: string;
+  destination: { label: string; href: string };
+}
+
+export const OWNER_RESOURCE_THRESHOLDS = {
+  cpu: { warning: 80, critical: 95 },
+  ram: { warning: 85, critical: 95 },
+  disk: { warning: 75, critical: 90 },
+} as const;
 
 export interface StatusPageModel {
   public: PublicMetricsModel;
+  overall: OverallPublicStatus;
   owner: OwnerMetricsModel | null;
+  ownerAttention: OwnerAttentionItem[] | null;
+}
+
+export function deriveOverallPublicStatus(
+  metrics: PublicMetricsModel,
+): OverallPublicStatus {
+  if (metrics.freshness === "unavailable") {
+    return {
+      kind: "unavailable",
+      label: "Status unavailable",
+      description: "Current telemetry is unavailable, so no healthy state is assumed.",
+    };
+  }
+  if (metrics.freshness === "stale") {
+    return {
+      kind: "delayed",
+      label: "Status delayed",
+      description: "The latest sample is stale and is shown as last-known state.",
+    };
+  }
+  if (metrics.host.serviceSummary.down > 0) {
+    return {
+      kind: "disruption",
+      label: "Service disruption",
+      description: `${metrics.host.serviceSummary.down} public service check${metrics.host.serviceSummary.down === 1 ? " is" : "s are"} down.`,
+    };
+  }
+  if (
+    metrics.host.serviceSummary.unknown > 0 ||
+    metrics.host.diskPressure === "critical"
+  ) {
+    return {
+      kind: "degraded",
+      label: "Degraded",
+      description: "A public check is unknown or host disk pressure is critical.",
+    };
+  }
+  if (metrics.host.serviceSummary.total > 0) {
+    return {
+      kind: "operational",
+      label: "Operational",
+      description: "All configured public service checks report up.",
+    };
+  }
+  return {
+    kind: "no-checks",
+    label: "No public checks",
+    description: "No public service checks are currently configured.",
+  };
+}
+
+export function deriveProjectHealth(
+  project: Pick<ProjectContent, "slug" | "healthServiceIds">,
+  services: PublicServiceStatus[],
+  freshness: MetricsFreshness,
+): ProjectRuntimeHealth {
+  const configuredIds = new Set(project.healthServiceIds ?? []);
+  const checks = services.filter((service) =>
+    configuredIds.size > 0
+      ? configuredIds.has(service.id)
+      : service.projectSlug === project.slug,
+  );
+  if (checks.length === 0) return "not-monitored";
+  if (freshness !== "fresh") return "unavailable";
+  if (checks.some((check) => check.status === "down")) return "disruption";
+  if (checks.some((check) => check.status === "unknown")) return "unavailable";
+  return "healthy";
+}
+
+function percentage(used: number, total: number): number {
+  return total > 0 ? (used / total) * 100 : 0;
+}
+
+function resourceAttention(
+  id: "cpu" | "ram" | "disk",
+  value: number,
+): OwnerAttentionItem | null {
+  const thresholds = OWNER_RESOURCE_THRESHOLDS[id];
+  if (value < thresholds.warning) return null;
+  const critical = value >= thresholds.critical;
+  const label = id === "cpu" ? "CPU" : id === "ram" ? "RAM" : "Disk";
+  return {
+    id: `${id}-${critical ? "critical" : "warning"}`,
+    severity: critical ? "critical" : "warning",
+    label: `${label} ${critical ? "critical" : "elevated"}`,
+    reason: `${label} is at ${Math.round(value * 10) / 10}% (warning ${thresholds.warning}%, critical ${thresholds.critical}%).`,
+    destination: { label: "Open operations runbook", href: "/ansible" },
+  };
+}
+
+export function deriveOwnerAttention(
+  metrics: OwnerMetricsModel | null,
+): OwnerAttentionItem[] {
+  if (!metrics?.latest) {
+    return [
+      {
+        id: "metrics-unavailable",
+        severity: "critical",
+        label: "Metrics unavailable",
+        reason: "No schema-valid current host sample is available.",
+        destination: { label: "Open operations runbook", href: "/ansible" },
+      },
+    ];
+  }
+
+  const items: OwnerAttentionItem[] = [];
+  if (metrics.freshness !== "fresh") {
+    items.push({
+      id: `metrics-${metrics.freshness}`,
+      severity: metrics.freshness === "unavailable" ? "critical" : "warning",
+      label: metrics.freshness === "unavailable" ? "Metrics unavailable" : "Metrics delayed",
+      reason: "The collector has not produced a current sample within the freshness threshold.",
+      destination: { label: "Open operations runbook", href: "/ansible" },
+    });
+  }
+
+  const host = metrics.latest.host;
+  const resourceItems = [
+    resourceAttention("cpu", host.cpu_percent),
+    resourceAttention("ram", percentage(host.ram_used_bytes, host.ram_total_bytes)),
+    resourceAttention("disk", percentage(host.disk_used_bytes, host.disk_total_bytes)),
+  ].filter((item): item is OwnerAttentionItem => item !== null);
+  items.push(...resourceItems);
+
+  const downServices = metrics.latest.services.filter(
+    (service) => service.status === "down",
+  );
+  if (downServices.length > 0) {
+    items.push({
+      id: "services-down",
+      severity: "critical",
+      label: "Services down",
+      reason: `${downServices.length} allowlisted service check${downServices.length === 1 ? " is" : "s are"} down.`,
+      destination: { label: "Review service inventory", href: "#owner-services" },
+    });
+  }
+  const unknownServices = metrics.latest.services.filter(
+    (service) => service.status === "unknown",
+  );
+  if (unknownServices.length > 0) {
+    items.push({
+      id: "services-unknown",
+      severity: "warning",
+      label: "Services unknown",
+      reason: `${unknownServices.length} allowlisted service check${unknownServices.length === 1 ? " has" : "s have"} unknown state.`,
+      destination: { label: "Review service inventory", href: "#owner-services" },
+    });
+  }
+  const containerIssues = metrics.latest.containers.filter(
+    (container) => container.status !== "up",
+  );
+  if (containerIssues.length > 0) {
+    items.push({
+      id: "containers-attention",
+      severity: containerIssues.some((container) => container.status === "down")
+        ? "critical"
+        : "warning",
+      label: "Container attention",
+      reason: `${containerIssues.length} allowlisted container${containerIssues.length === 1 ? " needs" : "s need"} review.`,
+      destination: { label: "Review container inventory", href: "#owner-containers" },
+    });
+  }
+  return items;
 }
 
 export function createStatusPageModel({
@@ -20,8 +224,12 @@ export function createStatusPageModel({
   isOwner: boolean;
   now?: Date;
 }): StatusPageModel {
+  const publicModel = derivePublicMetrics(readResult, now);
+  const owner = isOwner ? deriveOwnerMetrics(readResult) : null;
   return {
-    public: derivePublicMetrics(readResult, now),
-    owner: isOwner ? deriveOwnerMetrics(readResult) : null,
+    public: publicModel,
+    overall: deriveOverallPublicStatus(publicModel),
+    owner,
+    ownerAttention: isOwner ? deriveOwnerAttention(owner) : null,
   };
 }

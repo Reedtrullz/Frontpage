@@ -69,6 +69,38 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result["latency_ms"], None)
         self.assertNotIn("secret", json.dumps(result))
 
+    def test_service_result_uses_explicit_status_user_agent(self):
+        captured = {}
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def opener(request, **_kwargs):
+            captured["user_agent"] = request.get_header("User-agent")
+            return Response()
+
+        result = collector.service_result(
+            {
+                "id": "public-app",
+                "label": "Public app",
+                "visibility": "public",
+                "url": "https://example.com/",
+                "expected_status": 200,
+                "timeout_ms": 1000,
+            },
+            opener=opener,
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "up")
+        self.assertEqual(captured["user_agent"], "reidar-tech-status/1.0")
+
     def test_container_status_from_inspect(self):
         self.assertEqual(
             collector.container_status_from_inspect(

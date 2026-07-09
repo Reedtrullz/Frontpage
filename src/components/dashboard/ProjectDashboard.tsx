@@ -3,6 +3,7 @@ import { ArrowRight, MapPin } from "lucide-react";
 import type { PersonalContent, ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
 import type { PublicMetricsModel } from "@/lib/metrics/reader";
+import { deriveProjectHealth } from "@/lib/metrics/status-page";
 import { selectFlagships, sortProjects } from "@/lib/projects/presentation";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
@@ -100,7 +101,11 @@ export function ProjectDashboard({
                 key={project.slug}
                 project={project}
                 stats={statsBySlug[project.slug] ?? null}
-                health={metrics.projectHealthBySlug[project.slug]}
+                health={deriveProjectHealth(
+                  project,
+                  metrics.services,
+                  metrics.freshness,
+                )}
                 now={now}
               />
             ))}

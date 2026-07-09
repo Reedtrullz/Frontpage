@@ -13,7 +13,7 @@ test.describe("application shell", () => {
       primary.getByRole("link", { name: "Projects", exact: true }),
     ).toBeVisible();
     await expect(
-      primary.getByRole("link", { name: "Status", exact: true }),
+      primary.getByRole("link", { name: /^Status/ }),
     ).toBeVisible();
 
     await page.keyboard.press("Tab");
@@ -86,5 +86,32 @@ test.describe("public project experience", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflows).toBe(false);
+  });
+});
+
+test.describe("public status", () => {
+  test("degrades honestly without metrics and leaks no owner fields", async ({
+    page,
+  }) => {
+    await page.goto("/status");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "System status" }),
+    ).toBeVisible();
+    await expect(page.getByText("Status unavailable", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("No public checks configured.")).toBeVisible();
+
+    const html = await page.content();
+    for (const privateMarker of [
+      "cpu_percent",
+      "ram_used_bytes",
+      "disk_used_bytes",
+      "uptime_seconds",
+      "frontpage-internal",
+      "frontpage-container",
+      "Collector diagnostics",
+      "Owner status",
+    ]) {
+      expect(html).not.toContain(privateMarker);
+    }
   });
 });

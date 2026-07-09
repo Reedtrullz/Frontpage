@@ -12,6 +12,7 @@
     "techStack": ["Next.js", "TypeScript", "Python", "PostgreSQL", "GIS"],
     "featuredRank": 1,
     "liveUrl": "https://nytt.reidar.tech",
+    "healthServiceIds": ["nytt-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -48,6 +49,7 @@
         "caption": "Live simulator at Trondheim Vaernes, captured July 2026."
       }
     },
+    "healthServiceIds": ["rfs-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -84,6 +86,7 @@
         "caption": "Live VirtualCDU mission workspace, captured July 2026."
       }
     },
+    "healthServiceIds": ["rfmc-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -120,6 +123,7 @@
         "caption": "Live read-only operations console, captured July 2026."
       }
     },
+    "healthServiceIds": ["heimdall-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",

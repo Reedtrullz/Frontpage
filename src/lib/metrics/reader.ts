@@ -50,7 +50,6 @@ export interface PublicMetricsModel {
     ram: PublicMetricBucket;
     disk: DiskPressure;
   }>;
-  diagnostics: string[];
 }
 
 export interface OwnerMetricsModel {
@@ -66,6 +65,29 @@ export function getMetricsDir(): string | undefined {
 
 function readJsonFile(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function diagnosticFor(filename: string, error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT"
+  ) {
+    return `${filename} is missing.`;
+  }
+  if (error instanceof SyntaxError) {
+    return `${filename} contains invalid JSON.`;
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "ZodError"
+  ) {
+    return `${filename} failed schema validation.`;
+  }
+  return `${filename} could not be read.`;
 }
 
 function ageMs(snapshot: MetricsSnapshot, now: Date): number {
@@ -104,9 +126,7 @@ export function readMetricsFromDir(
       readJsonFile(path.join(metricsDir, "latest.json")),
     );
   } catch (error) {
-    diagnostics.push(
-      `latest.json unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    diagnostics.push(diagnosticFor("latest.json", error));
   }
 
   let history: MetricsSnapshot[] = [];
@@ -115,9 +135,7 @@ export function readMetricsFromDir(
       readJsonFile(path.join(metricsDir, "history.json")),
     ).samples;
   } catch (error) {
-    diagnostics.push(
-      `history.json unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    diagnostics.push(diagnosticFor("history.json", error));
   }
 
   return {
@@ -229,7 +247,6 @@ export function derivePublicMetrics(
         percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
       ),
     })),
-    diagnostics: result.diagnostics,
   };
 }
 

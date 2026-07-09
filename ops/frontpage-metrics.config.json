@@ -18,6 +18,42 @@
       "url": "http://127.0.0.1:3002/api/health",
       "expected_status": 200,
       "timeout_ms": 3000
+    },
+    {
+      "id": "nytt-public",
+      "label": "Nytt",
+      "project_slug": "nytt",
+      "visibility": "public",
+      "url": "https://nytt.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfs-public",
+      "label": "RFS",
+      "project_slug": "rfs",
+      "visibility": "public",
+      "url": "https://fly.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfmc-public",
+      "label": "VirtualCDU",
+      "project_slug": "rfmc",
+      "visibility": "public",
+      "url": "https://fmc.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "heimdall-public",
+      "label": "Heimdall",
+      "project_slug": "heimdall",
+      "visibility": "public",
+      "url": "https://bond.thorchain.no/",
+      "expected_status": 200,
+      "timeout_ms": 5000
     }
   ],
   "containers": [
