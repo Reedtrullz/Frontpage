@@ -1697,6 +1697,7 @@ After=network-online.target docker.service
 Type=oneshot
 User=frontpage-metrics
 Group=frontpage-metrics
+SupplementaryGroups=docker
 ExecStart=/usr/local/bin/frontpage-metrics-collector --config /etc/frontpage-metrics/config.json --metrics-dir /var/lib/frontpage-metrics
 NoNewPrivileges=true
 PrivateTmp=true
@@ -1741,6 +1742,8 @@ Before `Pull latest image from GHCR`, add tasks:
         system: true
         shell: /usr/sbin/nologin
         create_home: false
+        groups: docker
+        append: true
 
     - name: Create metrics directories
       become: true
@@ -1863,6 +1866,8 @@ Frontpage v1 ships a host collector installed by Ansible:
 - `/var/lib/frontpage-metrics/history.json`
 - `frontpage-metrics-collector.service`
 - `frontpage-metrics-collector.timer`
+
+The collector service runs as `frontpage-metrics` with supplementary `docker` group access so it can inspect the static allowlist. The Frontpage app container does not receive Docker socket access; it only reads `/metrics/latest.json` and `/metrics/history.json` through a read-only bind mount.
 
 Verify on the VPS:
 
