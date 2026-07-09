@@ -1,43 +1,72 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function expectNoSeriousAccessibilityViolations(page: Page) {
+  const result = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+    .analyze();
+  expect(result.violations).toEqual([]);
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+}
 
 test.describe("application shell", () => {
-  test("exposes identity, navigation, skip target, and accessible structure", async ({
+  test("exposes identity, active navigation, and keyboard skip target", async ({
     page,
   }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { level: 1, name: /Reidar/i })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 1, name: /Reidar/i }),
+    ).toBeVisible();
     const primary = page.getByRole("navigation", { name: "Primary" });
     await expect(
       primary.getByRole("link", { name: "Projects", exact: true }),
     ).toBeVisible();
-    await expect(
-      primary.getByRole("link", { name: /^Status/ }),
-    ).toBeVisible();
+    await expect(primary.getByRole("link", { name: /^Status/ })).toBeVisible();
 
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
+    await expect(
+      page.getByRole("link", { name: "Skip to content" }),
+    ).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(page.locator("#main-content")).toBeFocused();
 
-    const accessibility = await new AxeBuilder({ page })
-      .disableRules(["color-contrast"])
-      .analyze();
-    expect(accessibility.violations).toEqual([]);
+    await page.goto("/projects/rfs");
+    await expect(
+      page
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Projects", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+    await page.goto("/status");
+    await expect(
+      page
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: /^Status/ }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("provides a usable mobile navigation menu", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
+    await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/");
 
     await page.getByRole("button", { name: "Open navigation" }).click();
-    await expect(page.getByRole("navigation", { name: "Mobile" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Mobile" }).getByRole("link", { name: "Projects" })).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "Mobile" }).getByRole("link", { name: "Status" })).toBeVisible();
+    const mobile = page.getByRole("navigation", { name: "Mobile" });
+    await expect(mobile).toBeVisible();
+    await expect(
+      mobile.getByRole("link", { name: "Projects" }),
+    ).toBeVisible();
+    await expect(mobile.getByRole("link", { name: /^Status/ })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 
-  test("uses branded owner sign-in and not-found surfaces", async ({ page }) => {
+  test("uses branded sign-in and not-found surfaces", async ({ page }) => {
     await page.goto("/signin");
     await expect(
       page.getByRole("heading", { name: "Owner sign in" }),
@@ -47,18 +76,28 @@ test.describe("application shell", () => {
     ).toBeVisible();
 
     await page.goto("/this-route-does-not-exist");
-    await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Page not found" }),
+    ).toBeVisible();
     await expect(page.getByRole("link", { name: "Back home" })).toBeVisible();
   });
 
   test("fails closed on owner routes", async ({ page }) => {
     await page.goto("/admin");
-    await expect(page).toHaveURL(/\/signin\?callbackUrl=%2Fadmin|\/signin\?callbackUrl=\/admin/);
-    await expect(page.getByRole("heading", { name: "Owner sign in" })).toBeVisible();
+    await expect(page).toHaveURL(
+      /\/signin\?callbackUrl=%2Fadmin|\/signin\?callbackUrl=\/admin/,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Owner sign in" }),
+    ).toBeVisible();
 
     await page.goto("/ansible");
-    await expect(page).toHaveURL(/\/signin\?callbackUrl=%2Fansible|\/signin\?callbackUrl=\/ansible/);
-    await expect(page.getByRole("heading", { name: "Owner sign in" })).toBeVisible();
+    await expect(page).toHaveURL(
+      /\/signin\?callbackUrl=%2Fansible|\/signin\?callbackUrl=\/ansible/,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Owner sign in" }),
+    ).toBeVisible();
   });
 });
 
@@ -78,39 +117,50 @@ test.describe("public project experience", () => {
     ).toBeVisible();
   });
 
-  test("shows real project media and structured limits", async ({ page }) => {
+  test("shows real media, media-less evidence, and structured limits", async ({
+    page,
+  }) => {
     await page.goto("/projects/rfs");
-    await expect(page.getByRole("heading", { level: 1, name: "RFS" })).toBeVisible();
     await expect(
-      page.getByRole("img", { name: /RFS flight simulator showing Trondheim/i }),
+      page.getByRole("heading", { level: 1, name: "RFS" }),
     ).toBeVisible();
+    const image = page.getByRole("img", {
+      name: /RFS flight simulator showing Trondheim/i,
+    });
+    await expect(image).toBeVisible();
+    expect(
+      await image.evaluate((element) => (element as HTMLImageElement).naturalWidth),
+    ).toBeGreaterThan(0);
     await expect(
       page.getByRole("heading", { name: "Current limitations" }),
     ).toBeVisible();
-  });
 
-  test("does not overflow a narrow mobile viewport", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/projects");
-    const overflows = await page.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    );
-    expect(overflows).toBe(false);
+    await page.goto("/projects/nytt");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Nytt" }),
+    ).toBeVisible();
+    await expect(page.getByText(/coverage and certainty depend/i)).toBeVisible();
   });
 });
 
 test.describe("public status", () => {
-  test("degrades honestly without metrics and leaks no owner fields", async ({
-    page,
-  }) => {
+  test("renders coarse history and leaks no owner fields", async ({ page }) => {
     await page.goto("/status");
     await expect(
       page.getByRole("heading", { level: 1, name: "System status" }),
     ).toBeVisible();
-    await expect(page.getByText("Status unavailable", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("No public checks configured.")).toBeVisible();
+    await expect(page.getByText("Operational", { exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Coarse pressure history" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: /CPU pressure over the available 24-hour window/i }),
+    ).toBeVisible();
+    await expect(page.getByText("Frontpage", { exact: true })).toBeVisible();
 
-    const html = await page.content();
+    const statusHtml = await page.content();
+    await page.goto("/");
+    const publicHtml = `${statusHtml}${await page.content()}`;
     for (const privateMarker of [
       "cpu_percent",
       "ram_used_bytes",
@@ -121,7 +171,48 @@ test.describe("public status", () => {
       "Collector diagnostics",
       "Owner status",
     ]) {
-      expect(html).not.toContain(privateMarker);
+      expect(publicHtml).not.toContain(privateMarker);
     }
+  });
+});
+
+test.describe("responsive and accessible public routes", () => {
+  test("has no horizontal overflow across target routes and widths", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const routes = [
+      "/",
+      "/projects",
+      "/projects/nytt",
+      "/projects/rfs",
+      "/status",
+      "/signin",
+      "/projects/not-a-published-project",
+    ];
+    const widths = [360, 390, 768, 1024, 1440];
+
+    for (const width of widths) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const route of routes) {
+        await page.goto(route);
+        await expectNoHorizontalOverflow(page);
+      }
+    }
+  });
+
+  test("passes axe on representative desktop and mobile routes", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    for (const route of ["/", "/projects", "/projects/rfs", "/status", "/signin"]) {
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.goto(route);
+      await expectNoSeriousAccessibilityViolations(page);
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expectNoSeriousAccessibilityViolations(page);
   });
 });

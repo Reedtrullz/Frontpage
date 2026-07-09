@@ -39,13 +39,52 @@ jobs:
             @img/sharp-libvips-linux-x64@1.2.4
       - run: npm test
       - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: python3 -m unittest ops.tests.test_frontpage_metrics_collector
+      - run: python3 -m py_compile ops/frontpage-metrics-collector.py
       - run: npm run build
         env:
           CI: true
+          AUTH_SECRET: frontpage-ci-build-secret
+          VERSION: ci-${{ github.sha }}
+
+  browser:
+    name: Public browser & accessibility
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: |
+          npm ci --include=optional
+          npm install --no-save --no-package-lock \
+            lightningcss-linux-x64-gnu@1.32.0 \
+            @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+            @rolldown/binding-linux-x64-gnu@1.1.5 \
+            @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
+            @img/sharp-linux-x64@0.34.5 \
+            @img/sharp-libvips-linux-x64@1.2.4
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+        env:
+          CI: true
+          AUTH_SECRET: frontpage-ci-browser-secret
+          VERSION: ci-${{ github.sha }}
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   docker-check:
     name: Docker build check
-    needs: [test]
+    needs: [test, browser]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -67,7 +106,7 @@ jobs:
 
   publish:
     name: Build & publish image
-    needs: [test]
+    needs: [test, browser]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:

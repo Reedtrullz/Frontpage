@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import path from "node:path";
 
 const port = 3100;
 
@@ -20,11 +21,15 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run start -- --hostname 127.0.0.1 --port ${port}`,
+    command: "node .next/standalone/server.js",
     url: `http://127.0.0.1:${port}`,
     env: {
       AUTH_SECRET: "frontpage-playwright-secret",
       AUTH_URL: `http://127.0.0.1:${port}`,
+      HOSTNAME: "127.0.0.1",
+      METRICS_DIR: path.join(process.cwd(), "tests", "e2e", ".metrics"),
+      PORT: String(port),
+      VERSION: "e2e-version",
     },
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

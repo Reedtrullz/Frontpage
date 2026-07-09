@@ -52,9 +52,6 @@ ENV VERSION=${VERSION} \
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Clear cached runtime data so build uses the bundled source
-RUN rm -f public/data/projects.json public/data/personal.json 2>/dev/null; true
-
 RUN npm run build
 
 # ---------- 3. Runtime ----------

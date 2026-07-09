@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "pretest:e2e": "node tests/e2e/prepare-runtime.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {
