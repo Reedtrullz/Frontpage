@@ -21,6 +21,7 @@ Same pattern as Heimdall. The VPS is a target, never a source.
 ### Local (control node)
 - Ansible: `brew install ansible`
 - SSH key at `~/.ssh/id_rsa_racknerd`
+- Frontpage vault password file at `.vault_pass` (ignored by git, `0600`)
 
 ### VPS (managed node)
 - Docker
@@ -43,7 +44,15 @@ After adding, reload: `sudo systemctl reload caddy`
 ```bash
 cd /Users/reidar/Projectos/Frontpage
 git pull origin main
-ansible-playbook -i inventory/hosts.yml ansible-playbook.yml
+ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass
+```
+
+If a local checkout has migrated this vault to the shared password file, first
+verify it can decrypt `group_vars/all/vault.yml`:
+
+```bash
+ansible-vault view group_vars/all/vault.yml --vault-password-file ~/.vault_pass.txt >/dev/null
 ```
 
 The playbook:
@@ -56,6 +65,7 @@ The playbook:
 ### Force a specific tag
 ```bash
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass \
   -e "docker_image=ghcr.io/reedtrullz/frontpage:sha-<short-sha>"
 ```
 

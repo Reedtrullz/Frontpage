@@ -86,7 +86,7 @@ npm run build
 DATA_DIR="$(mktemp -d)" npm run build
 
 # Deploy
-ansible-playbook -i inventory/hosts.yml ansible-playbook.yml --vault-password-file ~/.vault_pass.txt
+ansible-playbook -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
 ```
 
 ## NOTES
