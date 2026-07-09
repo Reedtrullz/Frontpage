@@ -2,8 +2,11 @@ import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
 import { NextResponse } from "next/server";
 
-export default auth((req) => {
-  const isProtectedRoute = req.nextUrl.pathname.startsWith("/admin") || req.nextUrl.pathname === "/ansible";
+export const proxy = auth((req) => {
+  const isProtectedRoute =
+    req.nextUrl.pathname.startsWith("/admin") ||
+    req.nextUrl.pathname === "/ansible";
+
   if (!isProtectedRoute) {
     return NextResponse.next();
   }

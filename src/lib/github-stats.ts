@@ -12,6 +12,21 @@ export interface GitHubStats {
 // In-memory cache with 5-minute TTL for serverless-friendly stats
 const cache = new Map<string, { data: GitHubStats; ts: number }>();
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
+const noopOctokitLog = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+export type GitHubStatsEnv =
+  | NodeJS.ProcessEnv
+  | Partial<
+      Record<
+        "GITHUB_TOKEN" | "GITHUB_STATS_ALLOW_UNAUTHENTICATED",
+        string | undefined
+      >
+    >;
 
 function parseRepoUrl(url: string): { owner: string; repo: string } | null {
   const match = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
@@ -19,10 +34,65 @@ function parseRepoUrl(url: string): { owner: string; repo: string } | null {
   return { owner: match[1], repo: match[2] };
 }
 
+export function shouldCreateGitHubStatsClient(
+  env: GitHubStatsEnv = process.env,
+): boolean {
+  return Boolean(env.GITHUB_TOKEN) || env.GITHUB_STATS_ALLOW_UNAUTHENTICATED === "true";
+}
+
 function getOctokit(): Octokit | null {
+  if (!shouldCreateGitHubStatsClient()) {
+    return null;
+  }
+
   const token = process.env.GITHUB_TOKEN;
-  // Octokit works without auth for public repos (lower rate limit)
-  return new Octokit(token ? { auth: token } : {});
+  return new Octokit(
+    token ? { auth: token, log: noopOctokitLog } : { log: noopOctokitLog },
+  );
+}
+
+function objectProperty<T>(value: unknown, key: string): T | undefined {
+  if (!value || typeof value !== "object" || !(key in value)) {
+    return undefined;
+  }
+
+  return (value as Record<string, unknown>)[key] as T | undefined;
+}
+
+function githubResponseMessage(error: unknown): string | undefined {
+  const response = objectProperty<unknown>(error, "response");
+  const data = objectProperty<unknown>(response, "data");
+  const message = objectProperty<unknown>(data, "message");
+  return typeof message === "string" ? message : undefined;
+}
+
+function sanitizeGitHubStatsMessage(message: string | undefined): string | undefined {
+  if (!message) return undefined;
+  if (message.toLowerCase().includes("rate limit")) {
+    return "GitHub API rate limit exceeded";
+  }
+
+  return message;
+}
+
+export function summarizeGitHubStatsError(error: unknown): string {
+  const status = objectProperty<unknown>(error, "status");
+  const code = objectProperty<unknown>(error, "code");
+  const rawMessage =
+    githubResponseMessage(error) ||
+    (error instanceof Error ? error.message : undefined) ||
+    (typeof error === "string" ? error : undefined);
+  const message = sanitizeGitHubStatsMessage(rawMessage);
+
+  if (typeof status === "number") {
+    return `HTTP ${status}${message ? `: ${message}` : ""}`;
+  }
+
+  if (typeof code === "string") {
+    return `network error ${code}${message ? `: ${message}` : ""}`;
+  }
+
+  return message || "unknown error";
 }
 
 export async function fetchRepoStats(
@@ -58,7 +128,9 @@ export async function fetchRepoStats(
     cache.set(key, { data: stats, ts: Date.now() });
     return stats;
   } catch (err) {
-    console.error(`GitHub fetch failed for ${owner}/${repo}:`, err);
+    console.warn(
+      `GitHub stats unavailable for ${owner}/${repo}: ${summarizeGitHubStatsError(err)}`,
+    );
     const stats = emptyStats();
     cache.set(key, { data: stats, ts: Date.now() });
     return stats;
