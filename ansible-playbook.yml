@@ -8,26 +8,24 @@
     metrics_dir: "/var/lib/frontpage-metrics"
     metrics_config_dir: "/etc/frontpage-metrics"
     metrics_user: "frontpage-metrics"
+    owner_github_login: "Reedtrullz"
 
   pre_tasks:
-    - name: Resolve GitHub token owner for app owner checks
-      no_log: true
+    - name: Resolve GitHub owner id for app owner checks
       delegate_to: localhost
       become: false
       ansible.builtin.uri:
-        url: https://api.github.com/user
+        url: "https://api.github.com/users/{{ owner_github_login }}"
         headers:
-          Authorization: "Bearer {{ vault_github_token }}"
           Accept: "application/vnd.github+json"
           X-GitHub-Api-Version: "2022-11-28"
         return_content: false
         status_code: 200
-      register: github_token_user
+      register: github_owner_user
 
     - name: Set app owner GitHub id fact
-      no_log: true
       ansible.builtin.set_fact:
-        app_owner_github_id: "{{ github_token_user.json.id | string }}"
+        app_owner_github_id: "{{ github_owner_user.json.id | string }}"
 
     - name: Get current container image
       community.docker.docker_container_info:
