@@ -46,6 +46,7 @@ next-env.d.ts
 
 # runtime data (generated at build time)
 public/data/
+/data/
 
 # ansible
 .vault_pass.txt
