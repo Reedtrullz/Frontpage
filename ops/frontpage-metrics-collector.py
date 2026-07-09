@@ -40,6 +40,8 @@ def _reject_secret_url(url):
         raise ValueError("Service URL must be http or https")
     if parsed.username or parsed.password:
         raise ValueError("Service URL must not contain credentials")
+    if parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("Service URL must not contain params, query, or fragment")
 
 
 def load_config(path):

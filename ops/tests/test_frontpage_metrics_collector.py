@@ -18,29 +18,36 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(collector.clamp_timeout_ms(50000), 10000)
 
     def test_load_config_rejects_secret_url(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            config_path = Path(tmp) / "config.json"
-            config_path.write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "services": [
-                            {
-                                "id": "bad",
-                                "label": "Bad",
-                                "visibility": "public",
-                                "url": "https://user:pass@example.com/health",
-                                "expected_status": 200,
-                                "timeout_ms": 5000,
-                            }
-                        ],
-                        "containers": [],
-                    }
+        urls = [
+            "https://user:pass@example.com/health",
+            "https://example.com/health?token=secret",
+            "https://example.com/health#token",
+            "https://example.com/health;token=secret",
+        ]
+        for url in urls:
+            with self.subTest(url=url), tempfile.TemporaryDirectory() as tmp:
+                config_path = Path(tmp) / "config.json"
+                config_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "services": [
+                                {
+                                    "id": "bad",
+                                    "label": "Bad",
+                                    "visibility": "public",
+                                    "url": url,
+                                    "expected_status": 200,
+                                    "timeout_ms": 5000,
+                                }
+                            ],
+                            "containers": [],
+                        }
+                    )
                 )
-            )
 
-            with self.assertRaises(ValueError):
-                collector.load_config(config_path)
+                with self.assertRaises(ValueError):
+                    collector.load_config(config_path)
 
     def test_service_result_sanitizes_errors(self):
         result = collector.service_result(
