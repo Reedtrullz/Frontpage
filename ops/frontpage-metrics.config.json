@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "services": [
+    {
+      "id": "frontpage-public",
+      "label": "Frontpage",
+      "project_slug": "frontpage",
+      "visibility": "public",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "frontpage-internal",
+      "label": "Frontpage internal",
+      "project_slug": "frontpage",
+      "visibility": "owner",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "timeout_ms": 3000
+    }
+  ],
+  "containers": [
+    {
+      "id": "frontpage-container",
+      "label": "Frontpage container",
+      "project_slug": "frontpage",
+      "name": "frontpage"
+    }
+  ]
+}

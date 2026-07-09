@@ -1359,7 +1359,7 @@ Create `ops/frontpage-metrics.config.json`:
       "label": "Frontpage",
       "project_slug": "frontpage",
       "visibility": "public",
-      "url": "https://reidar.tech/api/health",
+      "url": "http://127.0.0.1:3002/api/health",
       "expected_status": 200,
       "timeout_ms": 5000
     },
