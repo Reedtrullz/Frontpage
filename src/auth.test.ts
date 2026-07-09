@@ -9,6 +9,10 @@ const githubProviderMock = vi.fn(() => ({
 const isOwnerUserMock = vi.fn();
 let capturedConfig: {
   callbacks: {
+    session: (args: {
+      session: { user?: { id?: string; email?: string } };
+      token: { sub?: string };
+    }) => { user?: { id?: string; email?: string } };
     authorized: (args: { auth: { user?: { id?: string; email?: string } } | null }) => boolean;
   };
 };
@@ -60,5 +64,16 @@ describe("auth authorized callback", () => {
 
     expect(isOwnerUserMock).toHaveBeenCalledWith(user);
     expect(result).toBe(true);
+  });
+
+  it("copies the GitHub subject into the session user id", async () => {
+    await import("./auth");
+
+    const session = capturedConfig.callbacks.session({
+      session: { user: { email: "owner@example.com" } },
+      token: { sub: "12345" },
+    });
+
+    expect(session.user?.id).toBe("12345");
   });
 });
