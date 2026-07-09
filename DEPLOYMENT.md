@@ -72,6 +72,35 @@ curl -s https://reidar.tech/api/health | jq
 curl -s -o /dev/null -w "%{http_code}\n" https://reidar.tech
 ```
 
+## VPS metrics collector
+
+Frontpage v1 ships a host collector installed by Ansible:
+
+- `/usr/local/bin/frontpage-metrics-collector`
+- `/etc/frontpage-metrics/config.json`
+- `/var/lib/frontpage-metrics/latest.json`
+- `/var/lib/frontpage-metrics/history.json`
+- `frontpage-metrics-collector.service`
+- `frontpage-metrics-collector.timer`
+
+The collector service runs as `frontpage-metrics` with supplementary `docker`
+group access so it can inspect the static allowlist. The Frontpage app
+container does not receive Docker socket access; it only reads
+`/metrics/latest.json` and `/metrics/history.json` through a read-only bind
+mount.
+
+Verify on the VPS:
+
+```bash
+ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer"
+ssh deploy@198.23.137.16 "sudo systemctl start frontpage-metrics-collector.service && sudo test -s /var/lib/frontpage-metrics/latest.json"
+ssh deploy@198.23.137.16 "docker exec frontpage test -r /metrics/latest.json"
+ssh deploy@198.23.137.16 "docker exec frontpage sh -lc '! touch /metrics/write-test'"
+```
+
+Non-claim: `/api/health` remains app-health only; host status is surfaced by
+the dashboard and `/status`.
+
 ## Rollback
 
 Automatic: the playbook captures the previous image hash before swapping and

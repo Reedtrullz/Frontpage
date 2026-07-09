@@ -5,6 +5,9 @@
     docker_image: "ghcr.io/reedtrullz/frontpage:latest"
     container_name: "frontpage"
     image_tag: "{{ lookup('env', 'GITHUB_SHA') | default(lookup('pipe', 'git -C ' ~ playbook_dir ~ ' rev-parse --short HEAD 2>/dev/null || echo latest'), true) }}"
+    metrics_dir: "/var/lib/frontpage-metrics"
+    metrics_config_dir: "/etc/frontpage-metrics"
+    metrics_user: "frontpage-metrics"
 
   pre_tasks:
     - name: Get current container image
@@ -18,6 +21,90 @@
         previous_image: "{{ (current_container.container.Config.Image) if (current_container.container is not none) else 'none' }}"
 
   tasks:
+    - name: Ensure docker group exists
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: present
+
+    - name: Create metrics collector user
+      become: true
+      ansible.builtin.user:
+        name: "{{ metrics_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        groups: docker
+        append: true
+
+    - name: Create metrics directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ metrics_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0755" }
+        - { path: "{{ metrics_config_dir }}", owner: "root", group: "root", mode: "0755" }
+
+    - name: Install metrics collector script
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics-collector.py
+        dest: /usr/local/bin/frontpage-metrics-collector
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install metrics collector config
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics.config.json
+        dest: "{{ metrics_config_dir }}/config.json"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install metrics collector systemd units
+      become: true
+      ansible.builtin.copy:
+        src: "ops/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - frontpage-metrics-collector.service
+        - frontpage-metrics-collector.timer
+      notify: Reload systemd
+
+    - name: Enable metrics collector timer
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Run metrics collector once before app swap
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.service
+        state: started
+
+    - name: Verify metrics latest file exists
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metrics_dir }}/latest.json"
+      register: metrics_latest
+
+    - name: Fail if metrics latest file is missing
+      ansible.builtin.fail:
+        msg: "Frontpage metrics collector did not write latest.json"
+      when: not metrics_latest.stat.exists
+
     - name: Pull latest image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
@@ -58,8 +145,10 @@
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
+          METRICS_DIR: "/metrics"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
+          - "{{ metrics_dir }}:/metrics:ro"
 
     - name: Wait for application to become healthy
       uri:
@@ -107,8 +196,10 @@
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
+          METRICS_DIR: "/metrics"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
+          - "{{ metrics_dir }}:/metrics:ro"
       when:
         - health_check is not succeeded or health_check.json.status != "healthy"
         - previous_image != "none"
@@ -124,6 +215,19 @@
         name: "{{ container_name }}"
       register: container_info
 
+    - name: Verify app container can read metrics read-only
+      community.docker.docker_container_exec:
+        container: "{{ container_name }}"
+        command: "node -e \"const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); try { fs.writeFileSync('/metrics/.write-test', 'x'); process.exit(2); } catch { process.exit(0); }\""
+      register: metrics_mount_check
+      changed_when: false
+
     - name: Report deployment status
       debug:
         msg: "✅ Frontpage deployed successfully: {{ container_info.container.State.Status }}"
+
+  handlers:
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
