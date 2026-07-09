@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { isOwnerUser } from "@/lib/authz";
 import { saveProjects } from "@/lib/data";
 import { syncToGithub } from "@/lib/github";
 import { z } from "zod";
@@ -73,14 +74,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const ownerGitHubId = process.env.OWNER_GITHUB_ID;
-  const ownerEmail = process.env.OWNER_EMAIL;
-  const isOwner = Boolean(
-    user &&
-      ((ownerGitHubId && user.id && String(user.id) === ownerGitHubId) ||
-        (ownerEmail && user.email && user.email === ownerEmail)),
-  );
-  if (!isOwner) {
+  if (!isOwnerUser(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
