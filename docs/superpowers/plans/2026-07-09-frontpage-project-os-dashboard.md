@@ -48,8 +48,10 @@ Create and modify these focused units:
 
 - `vitest.config.ts`: Vitest config with `@/*` alias and Node test environment.
 - `package.json` and `package-lock.json`: add `test` script and `vitest` dev dependency.
-- `src/lib/authz.ts`: shared owner-check helper used by admin, status, and API routes.
+- `src/lib/authz.ts`: shared owner-check helper used by Auth.js, admin, status, and API routes.
 - `src/lib/authz.test.ts`: owner-check tests.
+- `src/auth.ts`: Auth.js `authorized` callback delegates owner checks to `isOwnerUser`.
+- `src/auth.test.ts`: focused Auth.js callback delegation tests.
 - `src/lib/metrics/types.ts`: shared metrics TypeScript types, constants, and public/owner model interfaces.
 - `src/lib/metrics/schema.ts`: Zod schemas and parse helpers mirroring the committed JSON Schema v1 contract.
 - `src/lib/metrics/schema.test.ts`: schema, timestamp, duplicate ID, and history validation tests.
@@ -93,6 +95,8 @@ Task boundaries:
 - Create: `vitest.config.ts`
 - Create: `src/lib/authz.ts`
 - Create: `src/lib/authz.test.ts`
+- Modify: `src/auth.ts`
+- Create: `src/auth.test.ts`
 - Modify: `src/app/api/data/projects/route.ts`
 - Modify: `src/app/api/data/personal/route.ts`
 - Modify: `src/app/admin/layout.tsx`
@@ -315,27 +319,115 @@ if (!isOwnerUser(req.auth?.user)) {
 }
 ```
 
-- [ ] **Step 7: Run focused and safety checks**
+- [ ] **Step 7: Add Auth.js callback delegation coverage**
+
+Create `src/auth.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const nextAuthMock = vi.fn();
+const githubProviderMock = vi.fn(() => ({
+  id: "github",
+  name: "GitHub",
+  type: "oauth",
+}));
+const isOwnerUserMock = vi.fn();
+let capturedConfig: {
+  callbacks: {
+    authorized: (args: { auth: { user?: { id?: string; email?: string } } | null }) => boolean;
+  };
+};
+
+vi.mock("next-auth", () => ({
+  default: nextAuthMock,
+}));
+
+vi.mock("next-auth/providers/github", () => ({
+  default: githubProviderMock,
+}));
+
+vi.mock("@/lib/authz", () => ({
+  isOwnerUser: isOwnerUserMock,
+}));
+
+describe("auth authorized callback", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    nextAuthMock.mockImplementation((config) => {
+      capturedConfig = config;
+
+      return {
+        handlers: {},
+        signIn: vi.fn(),
+        signOut: vi.fn(),
+        auth: vi.fn(),
+      };
+    });
+  });
+
+  it("returns false for missing users", async () => {
+    await import("./auth");
+    const result = capturedConfig.callbacks.authorized({ auth: null });
+
+    expect(result).toBe(false);
+    expect(isOwnerUserMock).not.toHaveBeenCalled();
+  });
+
+  it("delegates signed-in owner checks to isOwnerUser", async () => {
+    isOwnerUserMock.mockReturnValue(true);
+
+    await import("./auth");
+    const user = { id: "12345", email: "owner@example.com" };
+    const result = capturedConfig.callbacks.authorized({
+      auth: { user },
+    });
+
+    expect(isOwnerUserMock).toHaveBeenCalledWith(user);
+    expect(result).toBe(true);
+  });
+});
+```
+
+In `src/auth.ts`, import:
+
+```ts
+import { isOwnerUser } from "@/lib/authz";
+```
+
+Replace the inline owner check in the `authorized` callback with:
+
+```ts
+authorized({ auth }) {
+  const user = auth?.user;
+  if (!user) return false;
+
+  return isOwnerUser(user);
+},
+```
+
+- [ ] **Step 8: Run focused and safety checks**
 
 Run:
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 22
-npm test -- src/lib/authz.test.ts
+npm test -- src/lib/authz.test.ts src/auth.test.ts
 npm run lint
 git diff --check
 ```
 
 Expected:
 
-- `npm test -- src/lib/authz.test.ts`: PASS.
+- `npm test -- src/lib/authz.test.ts src/auth.test.ts`: PASS.
 - `npm run lint`: exit 0.
 - `git diff --check`: no output.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add package.json package-lock.json vitest.config.ts src/lib/authz.ts src/lib/authz.test.ts src/app/api/data/projects/route.ts src/app/api/data/personal/route.ts src/app/admin/layout.tsx src/middleware.ts
+git add package.json package-lock.json vitest.config.ts src/lib/authz.ts src/lib/authz.test.ts src/auth.ts src/auth.test.ts src/app/api/data/projects/route.ts src/app/api/data/personal/route.ts src/app/admin/layout.tsx src/middleware.ts
 git commit -m "test: add owner auth test foundation"
 ```
 
@@ -1429,8 +1521,8 @@ def service_result(service, opener=urllib.request.urlopen, now=utc_now):
     try:
         request = urllib.request.Request(service["url"], method="GET")
         with opener(request, timeout=timeout_seconds) as response:
-          latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-          status = "up" if response.status == int(service.get("expected_status", 200)) else "down"
+            latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
+            status = "up" if response.status == int(service.get("expected_status", 200)) else "down"
     except urllib.error.HTTPError as error:
         latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
         status = "up" if error.code == int(service.get("expected_status", 200)) else "down"
