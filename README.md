@@ -72,6 +72,13 @@ Public views intentionally do not expose exact CPU, RAM, disk, load, uptime, con
 
 Admin UI and write APIs are owner-only. Owner checks prefer immutable GitHub identity where configured, with login/email as explicit fallbacks. Do not expose Auth.js secrets, OAuth secrets, GitHub tokens, vault passwords, `.env` values, or any production runtime data.
 
+## GitHub stats
+
+Repository stats require `GITHUB_TOKEN` by default. This keeps clean builds and
+CI from burning unauthenticated GitHub API quota. For local experiments without
+a token, set `GITHUB_STATS_ALLOW_UNAUTHENTICATED=true`; the app will still fall
+back safely if GitHub is unavailable or rate-limited.
+
 ## Project status labels
 
 Project card copy is intentionally conservative:

@@ -31,12 +31,12 @@ jobs:
       - run: |
           npm ci --include=optional
           npm install --no-save --no-package-lock \
-            lightningcss-linux-x64-gnu \
-            @tailwindcss/oxide-linux-x64-gnu \
-            @rolldown/binding-linux-x64-gnu \
-            @unrs/resolver-binding-linux-x64-gnu \
-            @img/sharp-linux-x64 \
-            @img/sharp-libvips-linux-x64
+            lightningcss-linux-x64-gnu@1.32.0 \
+            @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+            @rolldown/binding-linux-x64-gnu@1.1.5 \
+            @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
+            @img/sharp-linux-x64@0.34.5 \
+            @img/sharp-libvips-linux-x64@1.2.4
       - run: npm run lint
       - run: npm run build
         env:

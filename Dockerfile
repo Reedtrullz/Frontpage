@@ -7,20 +7,39 @@ ARG NODE_VERSION=22
 # ---------- 1. Dependencies ----------
 FROM node:${NODE_VERSION}-slim AS deps
 WORKDIR /app
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
-RUN npm ci --include=optional \
- && npm install --no-save --no-package-lock \
-      lightningcss-linux-x64-gnu \
-      @tailwindcss/oxide-linux-x64-gnu \
-      @rolldown/binding-linux-x64-gnu \
-      @unrs/resolver-binding-linux-x64-gnu \
-      @img/sharp-linux-x64 \
-      @img/sharp-libvips-linux-x64
+RUN set -eux; \
+    npm ci --include=optional; \
+    case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
+      amd64|x64) \
+        npm install --no-save --no-package-lock \
+          lightningcss-linux-x64-gnu@1.32.0 \
+          @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+          @rolldown/binding-linux-x64-gnu@1.1.5 \
+          @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
+          @img/sharp-linux-x64@0.34.5 \
+          @img/sharp-libvips-linux-x64@1.2.4 \
+        ;; \
+      arm64|aarch64) \
+        npm install --no-save --no-package-lock \
+          lightningcss-linux-arm64-gnu@1.32.0 \
+          @tailwindcss/oxide-linux-arm64-gnu@4.2.4 \
+          @rolldown/binding-linux-arm64-gnu@1.1.5 \
+          @unrs/resolver-binding-linux-arm64-gnu@1.11.1 \
+          @img/sharp-linux-arm64@0.34.5 \
+          @img/sharp-libvips-linux-arm64@1.2.4 \
+        ;; \
+      *) \
+        echo "Unsupported Docker target architecture: ${TARGETARCH:-$(dpkg --print-architecture)}"; \
+        exit 1 \
+        ;; \
+    esac
 
 # ---------- 2. Build ----------
 FROM node:${NODE_VERSION}-slim AS builder
