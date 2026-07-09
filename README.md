@@ -19,6 +19,7 @@ This is the public narrative layer for the portfolio: project cards, project det
 - TypeScript
 - Tailwind CSS 4
 - Auth.js v5 with GitHub OAuth
+- Vitest
 - ESLint
 
 ## Local development
@@ -37,10 +38,9 @@ Useful commands:
 
 ```bash
 npm run lint
+npm test
 npm run build
 ```
-
-There is currently no `npm run test` script in `package.json`; do not report test success unless a test script is added and actually run.
 
 ## Runtime data
 
@@ -56,6 +56,17 @@ DATA_DIR="$(mktemp -d)" npm run build
 ```
 
 Production/runtime deployments should mount a persistent data directory and set a version value so runtime-edited data is not overwritten accidentally while bundled defaults can still be refreshed intentionally.
+
+## VPS status dashboard
+
+Frontpage includes a Project OS Dashboard surface:
+
+- `/` shows the public workbench: curated project posture, public-safe service health, VPS freshness, and coarse disk/service state.
+- `/status` shows public service status and, when signed in as the owner, exact VPS metrics.
+- The Next.js app reads metrics from `METRICS_DIR`; it does not SSH to the host, shell out, or need privileged host access.
+- The host collector writes `latest.json` and `history.json` under `/var/lib/frontpage-metrics` through a systemd timer.
+
+Public views intentionally do not expose exact CPU, RAM, disk, load, uptime, container inventory, or internal-only service labels.
 
 ## Authentication and admin safety
 

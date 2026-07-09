@@ -26,6 +26,12 @@ export async function Header() {
           >
             Projects
           </Link>
+          <Link
+            href="/status"
+            className="text-sm text-zinc-400 hover:text-zinc-100 transition-colors"
+          >
+            Status
+          </Link>
           {session?.user && (
             <>
               <a

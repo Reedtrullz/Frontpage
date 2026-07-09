@@ -1,4 +1,5 @@
 import { auth, signOut } from "@/auth";
+import { isOwnerUser } from "@/lib/authz";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -9,15 +10,9 @@ export default async function AdminLayout({
 }) {
   const session = await auth();
   const user = session?.user;
-  const ownerGitHubId = process.env.OWNER_GITHUB_ID;
-  const ownerEmail = process.env.OWNER_EMAIL;
   if (!user) redirect("/api/auth/signin");
 
-  const isOwner =
-    (ownerGitHubId && user.id && String(user.id) === ownerGitHubId) ||
-    (ownerEmail && user.email === ownerEmail);
-
-  if (!isOwner) redirect("/api/auth/signin");
+  if (!isOwnerUser(user)) redirect("/api/auth/signin");
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">

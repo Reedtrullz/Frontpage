@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { isOwnerUser } from "@/lib/authz";
 import { NextResponse } from "next/server";
 
 export default auth((req) => {
@@ -7,17 +8,7 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
-  const user = req.auth?.user;
-  const ownerGitHubId = process.env.OWNER_GITHUB_ID;
-  const ownerEmail = process.env.OWNER_EMAIL;
-
-  const isOwner = Boolean(
-    user &&
-      ((ownerGitHubId && user.id && String(user.id) === ownerGitHubId) ||
-        (ownerEmail && user.email && user.email === ownerEmail)),
-  );
-
-  if (!isOwner) {
+  if (!isOwnerUser(req.auth?.user)) {
     const signInUrl = new URL("/api/auth/signin", req.nextUrl.origin);
     signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
     return NextResponse.redirect(signInUrl);
