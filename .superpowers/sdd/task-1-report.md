@@ -78,3 +78,54 @@ Observed results:
 
 - `npm install --save-dev vitest` resolved to `vitest@4.1.10`; I kept the lockfile-generated version.
 - No changes were made outside the task-owned files and this report file.
+
+## Task 1 review fix
+
+### Files changed
+
+- `src/auth.ts`
+- `src/auth.test.ts`
+- `.superpowers/sdd/task-1-report.md`
+
+### Review fix summary
+
+- Replaced the duplicated `authorized` owner predicate in `src/auth.ts` with the shared `isOwnerUser` helper from `@/lib/authz`.
+- Preserved the existing anonymous-user behavior by keeping the early `false` return when `auth?.user` is missing.
+- Added a focused Vitest spec that proved the callback did not delegate before the change, then passed after the change.
+
+### Commands and results
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && npm test -- src/auth.test.ts
+```
+
+- Exit code: `1` before the fix
+- Failure: `expected "vi.fn()" to be called with arguments` because `isOwnerUser` was not called
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && npm test -- src/auth.test.ts
+```
+
+- Exit code: `0`
+- `Test Files  1 passed (1)`
+- `Tests  2 passed (2)`
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && npm test -- src/lib/authz.test.ts
+```
+
+- Exit code: `0`
+- `Test Files  1 passed (1)`
+- `Tests  4 passed (4)`
+
+```bash
+source ~/.nvm/nvm.sh && nvm use 22 >/dev/null && npm run lint
+```
+
+- Exit code: `0`
+
+```bash
+git diff --check
+```
+
+- No output
