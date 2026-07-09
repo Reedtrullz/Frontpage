@@ -2,15 +2,33 @@
   hosts: vps
   gather_facts: false
   vars:
-    docker_image: "ghcr.io/reedtrullz/frontpage:latest"
+    github_repository: "Reedtrullz/Frontpage"
+    docker_image_repository: "ghcr.io/reedtrullz/frontpage"
     container_name: "frontpage"
-    image_tag: "{{ lookup('env', 'GITHUB_SHA') | default(lookup('pipe', 'git -C ' ~ playbook_dir ~ ' rev-parse --short HEAD 2>/dev/null || echo latest'), true) }}"
+    requested_commit_sha: "{{ lookup('env', 'GITHUB_SHA') | default('', true) }}"
+    docker_image: "{{ docker_image_repository }}:sha-{{ deploy_commit_sha }}"
     metrics_dir: "/var/lib/frontpage-metrics"
     metrics_config_dir: "/etc/frontpage-metrics"
     metrics_user: "frontpage-metrics"
     owner_github_login: "Reedtrullz"
 
   pre_tasks:
+    - name: Validate requested deployment commit
+      ansible.builtin.assert:
+        that:
+          - requested_commit_sha == '' or requested_commit_sha is match('^[a-f0-9]{40}$')
+        fail_msg: "GITHUB_SHA must be a full 40 character lowercase Git commit SHA."
+
+    - name: Validate required deployment secrets
+      ansible.builtin.assert:
+        that:
+          - vault_auth_secret is defined
+          - vault_auth_github_id is defined
+          - vault_auth_github_secret is defined
+          - vault_github_token is defined
+        fail_msg: "Required encrypted deployment variables are missing."
+      no_log: true
+
     - name: Resolve GitHub owner id for app owner checks
       delegate_to: localhost
       become: false
@@ -23,19 +41,41 @@
         status_code: 200
       register: github_owner_user
 
-    - name: Set app owner GitHub id fact
+    - name: Resolve current main commit for immutable deployment
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/{{ github_repository }}/commits/main"
+        headers:
+          Accept: "application/vnd.github+json"
+          X-GitHub-Api-Version: "2022-11-28"
+        return_content: false
+        status_code: 200
+      register: github_main_commit
+      when: requested_commit_sha | length == 0
+
+    - name: Set deployment identity facts
       ansible.builtin.set_fact:
         app_owner_github_id: "{{ github_owner_user.json.id | string }}"
+        deploy_commit_sha: "{{ requested_commit_sha if requested_commit_sha | length > 0 else github_main_commit.json.sha }}"
 
-    - name: Get current container image
+    - name: Inspect current container
       community.docker.docker_container_info:
         name: "{{ container_name }}"
       register: current_container
-      ignore_errors: yes
 
-    - name: Set previous image fact
-      set_fact:
-        previous_image: "{{ current_container.container.Config.Image | default('none') }}"
+    - name: Set previous deployment facts
+      ansible.builtin.set_fact:
+        previous_image: "{{ current_container.container.Image if current_container.exists else 'none' }}"
+        previous_version: >-
+          {{
+            (current_container.container.Config.Env if current_container.exists else [])
+            | select('match', '^VERSION=')
+            | list
+            | first
+            | default('VERSION=unknown', true)
+            | regex_replace('^VERSION=', '')
+          }}
 
   tasks:
     - name: Ensure docker group exists
@@ -122,7 +162,7 @@
         msg: "Frontpage metrics collector did not write latest.json"
       when: not metrics_latest.stat.exists
 
-    - name: Pull latest image from GHCR
+    - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
         source: pull
@@ -155,7 +195,7 @@
           NODE_ENV: production
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
-          VERSION: "{{ image_tag }}"
+          VERSION: "{{ deploy_commit_sha }}"
           DATA_DIR: "/data"
           AUTH_URL: "https://reidar.tech"
           AUTH_SECRET: "{{ vault_auth_secret }}"
@@ -210,6 +250,7 @@
           NODE_ENV: production
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
+          VERSION: "{{ previous_version }}"
           DATA_DIR: "/data"
           AUTH_URL: "https://reidar.tech"
           AUTH_SECRET: "{{ vault_auth_secret }}"

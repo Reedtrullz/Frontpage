@@ -44,6 +44,31 @@ const CONFLICT_MESSAGE =
   "Published content changed after this draft was created. Refresh before publishing.";
 const FAILURE_MESSAGE = "Publication failed. The draft was preserved.";
 
+function safeProperty(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object" || !(key in value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+export function summarizePublicationError(error: unknown): string {
+  const rawName = safeProperty(error, "name");
+  const name =
+    typeof rawName === "string" && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(rawName)
+      ? rawName
+      : "Error";
+  const status = safeProperty(error, "status");
+  if (typeof status === "number" && Number.isInteger(status)) {
+    return `${name} (HTTP ${status})`;
+  }
+  const rawCode = safeProperty(error, "code");
+  if (
+    typeof rawCode === "string" &&
+    /^[A-Za-z0-9_.-]{1,64}$/.test(rawCode)
+  ) {
+    return `${name} (${rawCode})`;
+  }
+  return name;
+}
+
 function isRefConflict(error: unknown): boolean {
   if (typeof error !== "object" || error === null || !("status" in error)) {
     return false;
@@ -114,7 +139,10 @@ export async function publishCanonicalContent(
       return { kind: "conflict", message: CONFLICT_MESSAGE };
     }
 
-    console.error("Canonical content publication failed", error);
+    console.error(
+      "Canonical content publication failed",
+      summarizePublicationError(error),
+    );
     savePublishReceipt(
       {
         schemaVersion: 1,

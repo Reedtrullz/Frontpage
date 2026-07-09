@@ -67,13 +67,21 @@ test.describe("application shell", () => {
   });
 
   test("uses branded sign-in and not-found surfaces", async ({ page }) => {
-    await page.goto("/signin");
+    await page.goto("/signin?callbackUrl=/ansible");
     await expect(
       page.getByRole("heading", { name: "Owner sign in" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Continue with GitHub/i }),
     ).toBeVisible();
+    await expect(page.locator('input[name="callbackUrl"]')).toHaveValue(
+      "/ansible",
+    );
+
+    await page.goto("/signin?callbackUrl=https://example.com/admin");
+    await expect(page.locator('input[name="callbackUrl"]')).toHaveValue(
+      "/admin",
+    );
 
     await page.goto("/this-route-does-not-exist");
     await expect(
@@ -134,6 +142,20 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Current limitations" }),
     ).toBeVisible();
+
+    for (const [slug, accessibleName] of [
+      ["rfmc", /VirtualCDU training mission selector/i],
+      ["heimdall", /Heimdall THORChain operations console/i],
+    ] as const) {
+      await page.goto(`/projects/${slug}`);
+      const proofImage = page.getByRole("img", { name: accessibleName });
+      await expect(proofImage).toBeVisible();
+      expect(
+        await proofImage.evaluate(
+          (element) => (element as HTMLImageElement).naturalWidth,
+        ),
+      ).toBeGreaterThan(0);
+    }
 
     await page.goto("/projects/nytt");
     await expect(

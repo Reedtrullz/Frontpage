@@ -8,6 +8,7 @@ import {
   getProjectHealthBySlug,
   readMetricsFromDir,
 } from "./reader";
+import type { MetricsSnapshot } from "./types";
 
 const tempDirs: string[] = [];
 
@@ -23,7 +24,7 @@ afterEach(() => {
   }
 });
 
-const snapshot = {
+const snapshot: MetricsSnapshot = {
   schema_version: 1,
   collected_at: "2026-07-09T02:00:00Z",
   host: {
@@ -110,6 +111,25 @@ describe("readMetricsFromDir", () => {
     expect(result.diagnostics.join(" ")).toContain("history.json");
   });
 
+  it("classifies schema-invalid metrics without exposing parser details", () => {
+    const dir = makeTempDir();
+    fs.writeFileSync(
+      path.join(dir, "latest.json"),
+      JSON.stringify({ ...snapshot, schema_version: 99 }),
+    );
+
+    const result = readMetricsFromDir(
+      dir,
+      new Date("2026-07-09T02:00:30Z"),
+    );
+
+    expect(result.latest).toBeNull();
+    expect(result.diagnostics).toContain(
+      "latest.json failed schema validation.",
+    );
+    expect(result.diagnostics.join(" ")).not.toContain("schema_version");
+  });
+
   it("marks old metrics unavailable after five minutes", () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(snapshot));
@@ -187,6 +207,21 @@ describe("derivePublicMetrics", () => {
 
     expect(model.frontpage?.status).toBe("up");
   });
+
+  it("does not claim services are healthy when telemetry is stale", () => {
+    const model = derivePublicMetrics(
+      {
+        freshness: "stale",
+        latest: snapshot,
+        history: [snapshot],
+        diagnostics: [],
+      },
+      new Date("2026-07-09T02:02:00Z"),
+    );
+
+    expect(model.services[0]?.status).toBe("unknown");
+    expect(model.host.serviceSummary).toMatchObject({ up: 0, unknown: 1 });
+  });
 });
 
 describe("deriveOwnerMetrics", () => {
@@ -202,5 +237,19 @@ describe("deriveOwnerMetrics", () => {
     expect(ownerModel?.latest?.host.ram_used_bytes).toBe(20);
     expect(ownerModel?.latest?.services).toHaveLength(2);
     expect(ownerModel?.latest?.containers).toHaveLength(1);
+  });
+
+  it("keeps diagnostics when no schema-valid latest sample exists", () => {
+    const ownerModel = deriveOwnerMetrics({
+      freshness: "unavailable",
+      latest: null,
+      history: [],
+      diagnostics: ["latest.json failed schema validation."],
+    });
+
+    expect(ownerModel.latest).toBeNull();
+    expect(ownerModel.diagnostics).toEqual([
+      "latest.json failed schema validation.",
+    ]);
   });
 });

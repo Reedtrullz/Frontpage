@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { parseMetricsHistory, parseMetricsSnapshot } from "./schema";
+import {
+  MetricsValidationError,
+  parseMetricsHistory,
+  parseMetricsSnapshot,
+} from "./schema";
 import {
   FRESH_MS,
   UNAVAILABLE_MS,
@@ -79,12 +83,7 @@ function diagnosticFor(filename: string, error: unknown): string {
   if (error instanceof SyntaxError) {
     return `${filename} contains invalid JSON.`;
   }
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "name" in error &&
-    error.name === "ZodError"
-  ) {
+  if (error instanceof MetricsValidationError) {
     return `${filename} failed schema validation.`;
   }
   return `${filename} could not be read.`;
@@ -186,7 +185,10 @@ function ageLabel(snapshot: MetricsSnapshot | null, now: Date): string {
   return `${Math.round(seconds / 60)}m ago`;
 }
 
-function publicServices(snapshot: MetricsSnapshot | null): PublicServiceStatus[] {
+function publicServices(
+  snapshot: MetricsSnapshot | null,
+  freshness: MetricsFreshness,
+): PublicServiceStatus[] {
   if (!snapshot) return [];
   return snapshot.services
     .filter((service) => service.visibility === "public")
@@ -194,7 +196,7 @@ function publicServices(snapshot: MetricsSnapshot | null): PublicServiceStatus[]
       id: service.id,
       label: service.label,
       projectSlug: service.project_slug,
-      status: service.status,
+      status: freshness === "fresh" ? service.status : "unknown",
       latencyMs: service.latency_ms,
       checkedAt: service.checked_at,
     }));
@@ -216,7 +218,7 @@ export function derivePublicMetrics(
   result: MetricsReadResult,
   now: Date = new Date(),
 ): PublicMetricsModel {
-  const services = publicServices(result.latest);
+  const services = publicServices(result.latest, result.freshness);
   const serviceSummary = services.reduce(
     (summary, service) => {
       summary.total += 1;
@@ -252,8 +254,7 @@ export function derivePublicMetrics(
 
 export function deriveOwnerMetrics(
   result: MetricsReadResult,
-): OwnerMetricsModel | null {
-  if (!result.latest) return null;
+): OwnerMetricsModel {
   return {
     freshness: result.freshness,
     latest: result.latest,

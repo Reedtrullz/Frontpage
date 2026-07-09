@@ -3,7 +3,10 @@ import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
 import { getCanonicalPersonal, getCanonicalProjects } from "@/lib/content";
 import { readDraftBundle } from "@/lib/content/drafts";
-import { publishCanonicalContent } from "@/lib/content/publication";
+import {
+  publishCanonicalContent,
+  summarizePublicationError,
+} from "@/lib/content/publication";
 import { createGitHubPublicationClient } from "@/lib/github";
 
 export async function POST() {
@@ -73,7 +76,10 @@ export async function POST() {
       { status: result.kind === "conflict" ? 409 : 502 },
     );
   } catch (error) {
-    console.error("Failed to publish content", error);
+    console.error(
+      "Failed to publish content",
+      summarizePublicationError(error),
+    );
     return NextResponse.json(
       { error: "Content publication could not be completed.", state: "publish-failed" },
       { status: 500 },

@@ -195,6 +195,12 @@ export function buildAdminContentView(input: {
       ),
     ),
   );
+  const draftSavedAt = [
+    input.drafts.personal?.savedAt,
+    input.drafts.projects?.savedAt,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .toSorted((left, right) => Date.parse(right) - Date.parse(left))[0] ?? null;
   const projectValidation = projects.map(summarizeProjectValidation);
 
   return {
@@ -218,6 +224,7 @@ export function buildAdminContentView(input: {
     ),
     publicationState: derivePublicationState({
       draftChanged: draftCount > 0,
+      draftSavedAt,
       receipt: input.drafts.receipt,
       deployedVersion: input.deployedVersion,
     }),

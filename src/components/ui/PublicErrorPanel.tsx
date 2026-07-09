@@ -22,8 +22,10 @@ export function PublicErrorPanel({
   const copy = getPublicErrorCopy(scope, error);
 
   useEffect(() => {
-    console.error(`Public ${scope} route error`, error);
-  }, [error, scope]);
+    console.error(`Public ${scope} route error`, {
+      digest: error.digest ?? "unavailable",
+    });
+  }, [error.digest, scope]);
 
   return (
     <div className="mx-auto flex min-h-[60vh] max-w-7xl items-center px-4 py-16 sm:px-6">

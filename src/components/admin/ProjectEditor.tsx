@@ -74,12 +74,10 @@ function issueLines(
 
 export function ProjectEditor({
   initial,
-  canonical,
   allProjects,
   hasDraft,
 }: {
   initial: ProjectContent;
-  canonical: ProjectContent;
   allProjects: ProjectContent[];
   hasDraft: boolean;
 }) {
@@ -156,13 +154,9 @@ export function ProjectEditor({
         setMessage("The projects draft could not be discarded.");
         return;
       }
-      setProject(canonical);
-      const canonicalGallery = JSON.stringify(canonical.media?.gallery ?? [], null, 2);
-      setGalleryJson(canonicalGallery);
-      setBaseline(JSON.stringify({ project: canonical, galleryJson: canonicalGallery }));
       setDraftExists(false);
       setMessage("Projects draft discarded. Published content is unchanged.");
-      router.replace(`/admin/projects/${canonical.slug}`);
+      router.replace("/admin/projects");
       router.refresh();
     } finally {
       setBusy(false);

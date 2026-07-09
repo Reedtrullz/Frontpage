@@ -117,7 +117,7 @@ export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
           <a
             href="https://github.com/Reedtrullz"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             aria-label="Reidar on GitHub"
             title="GitHub"
             className="inline-flex h-11 w-11 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"

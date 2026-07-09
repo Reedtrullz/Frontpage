@@ -1,7 +1,5 @@
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import { ProjectList } from "@/components/projects/ProjectList";
-import { LoadingState } from "@/components/ui/LoadingState";
 import { getCanonicalProjects } from "@/lib/content";
 import {
   extractRepoPairs,
@@ -26,12 +24,10 @@ export default async function ProjectsPage() {
   }
 
   return (
-    <Suspense fallback={<LoadingState label="Loading project catalogue" />}>
-      <ProjectList
-        projects={projects}
-        statsBySlug={statsBySlug}
-        nowIso={new Date().toISOString()}
-      />
-    </Suspense>
+    <ProjectList
+      projects={projects}
+      statsBySlug={statsBySlug}
+      nowIso={new Date().toISOString()}
+    />
   );
 }

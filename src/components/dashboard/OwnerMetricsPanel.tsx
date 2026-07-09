@@ -54,12 +54,33 @@ function ServiceGroup({ title, services }: { title: string; services: ServiceChe
   );
 }
 
+function CollectorDiagnostics({ diagnostics }: { diagnostics: string[] }) {
+  if (diagnostics.length === 0) return null;
+  return (
+    <details className="mt-8 border-y border-[var(--border)] py-4">
+      <summary className="min-h-11 cursor-pointer text-sm font-semibold text-[var(--text)]">
+        Collector diagnostics ({diagnostics.length})
+      </summary>
+      <ul className="mt-3 space-y-2 font-mono text-xs text-[var(--text-muted)]">
+        {diagnostics.map((diagnostic) => (
+          <li key={diagnostic}>{diagnostic}</li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | null }) {
   if (!metrics?.latest) {
     return (
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
         <h2 className="text-2xl font-semibold text-[var(--text)]">Owner telemetry</h2>
         <p className="mt-3 text-sm text-[var(--text-muted)]">Exact metrics are unavailable. Review owner diagnostics and the operations runbook.</p>
+        <CollectorDiagnostics diagnostics={metrics?.diagnostics ?? []} />
+        <Link href="/ansible" className="secondary-command mt-6">
+          <ServerCog className="h-4 w-4" aria-hidden="true" />
+          Operations runbook
+        </Link>
       </section>
     );
   }
@@ -115,14 +136,7 @@ export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | nu
         </div>
       </section>
 
-      {metrics.diagnostics.length ? (
-        <details className="mt-12 border-y border-[var(--border)] py-4">
-          <summary className="min-h-11 cursor-pointer text-sm font-semibold text-[var(--text)]">Collector diagnostics ({metrics.diagnostics.length})</summary>
-          <ul className="mt-3 space-y-2 font-mono text-xs text-[var(--text-muted)]">
-            {metrics.diagnostics.map((diagnostic) => <li key={diagnostic}>{diagnostic}</li>)}
-          </ul>
-        </details>
-      ) : null}
+      <CollectorDiagnostics diagnostics={metrics.diagnostics} />
 
       <section className="mt-12 border-t border-[var(--border)] pt-8">
         <h3 className="text-lg font-semibold text-[var(--text)]">Owner destinations</h3>

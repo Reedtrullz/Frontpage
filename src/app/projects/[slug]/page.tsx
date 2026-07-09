@@ -96,13 +96,13 @@ export default async function ProjectDetail({ params }: Props) {
           {(project.liveUrl || project.repoUrl) ? (
             <div className="mt-8 flex flex-wrap gap-3">
               {project.liveUrl ? (
-                <a href={project.liveUrl} target="_blank" rel="noreferrer" className="primary-command">
+                <a href={project.liveUrl} target="_blank" rel="noopener noreferrer" className="primary-command">
                   <ExternalLink className="h-4 w-4" aria-hidden="true" />
                   Open live product
                 </a>
               ) : null}
               {project.repoUrl ? (
-                <a href={project.repoUrl} target="_blank" rel="noreferrer" className="secondary-command">
+                <a href={project.repoUrl} target="_blank" rel="noopener noreferrer" className="secondary-command">
                   <GitFork className="h-4 w-4" aria-hidden="true" />
                   View repository
                 </a>

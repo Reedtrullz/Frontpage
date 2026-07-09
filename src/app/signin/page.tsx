@@ -4,15 +4,17 @@ import { redirect } from "next/navigation";
 import { signInWithGitHub } from "@/app/actions/auth";
 import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
+import { ownerCallbackPath } from "@/lib/owner-navigation";
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ callbackUrl?: string; error?: string }>;
 }) {
   const [session, params] = await Promise.all([auth(), searchParams]);
+  const callbackUrl = ownerCallbackPath(params.callbackUrl);
   if (isOwnerUser(session?.user)) {
-    redirect("/admin");
+    redirect(callbackUrl);
   }
 
   return (
@@ -36,6 +38,7 @@ export default async function SignInPage({
         ) : null}
 
         <form action={signInWithGitHub} className="mt-8">
+          <input type="hidden" name="callbackUrl" value={callbackUrl} />
           <button
             type="submit"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--text)] px-4 py-2 text-sm font-semibold text-[var(--surface)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"

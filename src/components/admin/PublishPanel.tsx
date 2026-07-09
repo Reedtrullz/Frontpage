@@ -97,7 +97,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
           {publishing ? "Publishing" : "Publish to GitHub"}
         </button>
         {resultUrl ? (
-          <a href={resultUrl} target="_blank" rel="noreferrer" className="secondary-command">
+          <a href={resultUrl} target="_blank" rel="noopener noreferrer" className="secondary-command">
             Commit receipt <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
           </a>
         ) : null}

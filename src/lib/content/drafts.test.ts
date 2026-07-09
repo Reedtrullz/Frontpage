@@ -124,4 +124,23 @@ describe("publication state", () => {
       }),
     ).toMatchObject({ kind: "deployed", label: "Deployed" });
   });
+
+  it("treats a new draft save as newer than an old conflict receipt", () => {
+    const receipt: PublishReceipt = {
+      schemaVersion: 1,
+      kind: "conflict",
+      recordedAt: "2026-07-09T19:00:00.000Z",
+      baseVersion: "abc1234",
+      message: "Published content changed.",
+    };
+
+    expect(
+      derivePublicationState({
+        draftChanged: true,
+        draftSavedAt: "2026-07-09T19:01:00.000Z",
+        receipt,
+        deployedVersion: "abc1234",
+      }),
+    ).toEqual({ kind: "draft-saved", label: "Draft saved" });
+  });
 });

@@ -22,6 +22,13 @@ const utcDateTimeSchema = z
 const idSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 const statusSchema = z.enum(["up", "down", "unknown"]);
 
+export class MetricsValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MetricsValidationError";
+  }
+}
+
 export function assertUniqueIds(
   items: { id: string }[],
   label: string,
@@ -91,7 +98,9 @@ export const metricsHistorySchema = z
 export function parseMetricsSnapshot(input: unknown): MetricsSnapshot {
   const parsed = metricsSnapshotSchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(`Invalid metrics snapshot: ${parsed.error.message}`);
+    throw new MetricsValidationError(
+      `Invalid metrics snapshot: ${parsed.error.message}`,
+    );
   }
   assertUniqueIds(parsed.data.services, "service");
   assertUniqueIds(parsed.data.containers, "container");
@@ -101,7 +110,9 @@ export function parseMetricsSnapshot(input: unknown): MetricsSnapshot {
 export function parseMetricsHistory(input: unknown): MetricsHistory {
   const parsed = metricsHistorySchema.safeParse(input);
   if (!parsed.success) {
-    throw new Error(`Invalid metrics history: ${parsed.error.message}`);
+    throw new MetricsValidationError(
+      `Invalid metrics history: ${parsed.error.message}`,
+    );
   }
   for (const sample of parsed.data.samples) {
     assertUniqueIds(sample.services, "service");

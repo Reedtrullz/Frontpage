@@ -242,17 +242,31 @@ export function versionsMatch(left: string, right: string): boolean {
 
 export function derivePublicationState(input: {
   draftChanged: boolean;
+  draftSavedAt?: string | null;
   receipt: PublishReceipt | null;
   deployedVersion: string;
 }): ContentPublicationState {
-  if (input.draftChanged && input.receipt?.kind === "conflict") {
+  const receiptPredatesDraft = Boolean(
+    input.receipt &&
+      input.draftSavedAt &&
+      Date.parse(input.receipt.recordedAt) < Date.parse(input.draftSavedAt),
+  );
+  if (
+    input.draftChanged &&
+    !receiptPredatesDraft &&
+    input.receipt?.kind === "conflict"
+  ) {
     return {
       kind: "conflict",
       label: "Conflict",
       message: input.receipt.message,
     };
   }
-  if (input.draftChanged && input.receipt?.kind === "failed") {
+  if (
+    input.draftChanged &&
+    !receiptPredatesDraft &&
+    input.receipt?.kind === "failed"
+  ) {
     return {
       kind: "publish-failed",
       label: "Publish failed",

@@ -6,6 +6,7 @@ import { getCanonicalPersonal, getCanonicalProjects } from "./index";
 import { readDraftBundle, saveProjectsDraft } from "./drafts";
 import {
   publishCanonicalContent,
+  summarizePublicationError,
   type GitPublicationClient,
 } from "./publication";
 
@@ -48,6 +49,17 @@ afterEach(() => {
 });
 
 describe("canonical content publication", () => {
+  it("summarizes provider failures without logging request credentials", () => {
+    const summary = summarizePublicationError({
+      name: "RequestError",
+      status: 502,
+      request: { headers: { authorization: "token secret-value" } },
+    });
+
+    expect(summary).toBe("RequestError (HTTP 502)");
+    expect(summary).not.toContain("secret-value");
+  });
+
   it("publishes both files through one tree and one commit", async () => {
     const dataDir = makeTempDir();
     saveProjectsDraft(getCanonicalProjects(), {

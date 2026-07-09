@@ -133,12 +133,12 @@ CI runs unit, lint, type, Python, production build, browser/accessibility, and D
 
 ## Deployment
 
-Pushes to `main` build commit-addressed GHCR images after CI passes. Deployment remains a separate operator action:
+Pushes to `main` build commit-addressed GHCR images after CI passes. The playbook resolves current `main` (or an explicit full `GITHUB_SHA`), pulls that immutable `sha-<commit>` tag before stopping the current container, and passes the exact commit as `VERSION`. Deployment remains a separate operator action:
 
 ```bash
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
 ```
 
-The playbook records the prior image, replaces the container with a brief maintenance window, polls `/api/health`, and restores the previous image if the new container fails health checks.
+The playbook records the prior image ID and deployed `VERSION`, replaces the container with a brief maintenance window, polls `/api/health`, and restores the previous immutable image identity if the new container fails health checks.
 
 This README does not claim the current working tree is live. Verify the exact CI run, deployed `VERSION`, image digest/commit, and live browser/API behavior before reporting deployment success.

@@ -21,7 +21,7 @@ export function Footer({ name, socials }: FooterProps) {
               key={social.label}
               href={social.url}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="inline-flex min-h-11 items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
             >
               {social.label}

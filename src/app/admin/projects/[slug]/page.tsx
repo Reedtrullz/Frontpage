@@ -13,11 +13,6 @@ export default async function ProjectAdminPage({
   const view = readAdminContentView();
   const project = view.projects.find((item) => item.slug === slug);
   if (!project) notFound();
-  const canonical =
-    view.canonicalProjects.find((item) => item.slug === slug) ??
-    view.canonicalProjects.find((item) => item.name === project.name) ??
-    project;
-
   return (
     <div>
       <Link href="/admin/projects" className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"><ArrowLeft className="h-4 w-4" aria-hidden="true" />All project editors</Link>
@@ -27,7 +22,7 @@ export default async function ProjectAdminPage({
         <p className="mt-4 text-base leading-7 text-[var(--text-muted)]">Every canonical field is editable here. Saving writes the complete validated project bundle as one local draft.</p>
       </header>
       <div className="mt-10">
-        <ProjectEditor initial={project} canonical={canonical} allProjects={view.projects} hasDraft={view.hasProjectsDraft} />
+        <ProjectEditor initial={project} allProjects={view.projects} hasDraft={view.hasProjectsDraft} />
       </div>
     </div>
   );

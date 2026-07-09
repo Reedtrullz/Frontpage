@@ -31,7 +31,7 @@ export default defineConfig({
       PORT: String(port),
       VERSION: "e2e-version",
     },
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

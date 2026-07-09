@@ -49,4 +49,13 @@ describe("canonical project content", () => {
       projectSchema.parse({ ...validProject, liveUrl: "javascript:alert(1)" }),
     ).toThrow(/http/i);
   });
+
+  it("rejects credentials embedded in public URLs", () => {
+    expect(() =>
+      projectSchema.parse({
+        ...validProject,
+        liveUrl: "https://token:secret@example.com/product",
+      }),
+    ).toThrow(/credentials/i);
+  });
 });

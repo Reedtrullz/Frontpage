@@ -15,6 +15,12 @@ const httpUrlSchema = z.string().superRefine((value, ctx) => {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       ctx.addIssue({ code: "custom", message: "Must use http or https." });
     }
+    if (parsed.username || parsed.password) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Public URLs must not contain credentials.",
+      });
+    }
   } catch {
     ctx.addIssue({ code: "custom", message: "Must be a valid http URL." });
   }
