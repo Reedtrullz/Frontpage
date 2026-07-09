@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { parseMetricsHistory, parseMetricsSnapshot } from "./schema";
+import {
+  assertUniqueIds,
+  parseMetricsHistory,
+  parseMetricsSnapshot,
+} from "./schema";
+
+const acceptsGenericLabel: (
+  items: { id: string }[],
+  label: string,
+) => void = assertUniqueIds;
 
 const validSnapshot = {
   schema_version: 1,
@@ -66,6 +75,39 @@ describe("parseMetricsSnapshot", () => {
     ).toThrow("Duplicate service id");
   });
 
+  it("rejects duplicate container ids", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        containers: [validSnapshot.containers[0], validSnapshot.containers[0]],
+      }),
+    ).toThrow("Duplicate container id");
+  });
+
+  it("rejects more than 64 services", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        services: Array.from({ length: 65 }, (_, index) => ({
+          ...validSnapshot.services[0],
+          id: `frontpage-public-${index}`,
+        })),
+      }),
+    ).toThrow("Invalid metrics snapshot");
+  });
+
+  it("rejects more than 64 containers", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        containers: Array.from({ length: 65 }, (_, index) => ({
+          ...validSnapshot.containers[0],
+          id: `frontpage-container-${index}`,
+        })),
+      }),
+    ).toThrow("Invalid metrics snapshot");
+  });
+
   it("allows null latency for timed-out checks", () => {
     const parsed = parseMetricsSnapshot({
       ...validSnapshot,
@@ -74,9 +116,53 @@ describe("parseMetricsSnapshot", () => {
 
     expect(parsed.services[0]?.latency_ms).toBeNull();
   });
+
+  it("rejects non-UTC checked_at timestamps", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        services: [
+          {
+            ...validSnapshot.services[0],
+            checked_at: "2026-07-09T02:00:00+02:00",
+          },
+        ],
+      }),
+    ).toThrow("Invalid metrics snapshot");
+  });
+
+  it("rejects fractional latency values", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        services: [{ ...validSnapshot.services[0], latency_ms: 42.5 }],
+      }),
+    ).toThrow("Invalid metrics snapshot");
+  });
+
+  it("rejects latency values above 10000ms", () => {
+    expect(() =>
+      parseMetricsSnapshot({
+        ...validSnapshot,
+        services: [{ ...validSnapshot.services[0], latency_ms: 10001 }],
+      }),
+    ).toThrow("Invalid metrics snapshot");
+  });
 });
 
 describe("parseMetricsHistory", () => {
+  it("accepts the generic assertUniqueIds label contract", () => {
+    expect(() =>
+      acceptsGenericLabel(
+        [
+          { id: "frontpage-public" },
+          { id: "frontpage-public" },
+        ],
+        "service",
+      ),
+    ).toThrow("Duplicate service id");
+  });
+
   it("accepts a bounded history wrapper", () => {
     expect(
       parseMetricsHistory({
@@ -94,6 +180,15 @@ describe("parseMetricsHistory", () => {
       parseMetricsHistory({
         schema_version: 1,
         samples: [{ ...validSnapshot, schema_version: 2 }],
+      }),
+    ).toThrow("Invalid metrics history");
+  });
+
+  it("rejects more than 1440 history samples", () => {
+    expect(() =>
+      parseMetricsHistory({
+        schema_version: 1,
+        samples: Array.from({ length: 1441 }, () => validSnapshot),
       }),
     ).toThrow("Invalid metrics history");
   });

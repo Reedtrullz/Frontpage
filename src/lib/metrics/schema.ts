@@ -24,7 +24,7 @@ const statusSchema = z.enum(["up", "down", "unknown"]);
 
 export function assertUniqueIds(
   items: { id: string }[],
-  label: "service" | "container",
+  label: string,
 ): void {
   const seen = new Set<string>();
   for (const item of items) {
@@ -95,7 +95,7 @@ export function parseMetricsSnapshot(input: unknown): MetricsSnapshot {
   }
   assertUniqueIds(parsed.data.services, "service");
   assertUniqueIds(parsed.data.containers, "container");
-  return parsed.data as MetricsSnapshot;
+  return parsed.data;
 }
 
 export function parseMetricsHistory(input: unknown): MetricsHistory {
@@ -107,5 +107,5 @@ export function parseMetricsHistory(input: unknown): MetricsHistory {
     assertUniqueIds(sample.services, "service");
     assertUniqueIds(sample.containers, "container");
   }
-  return parsed.data as MetricsHistory;
+  return parsed.data;
 }
