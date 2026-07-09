@@ -39,17 +39,26 @@ afterEach(() => {
 });
 
 describe("runtime data files", () => {
-  it("initializes an empty DATA_DIR without logging missing version-file errors", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("keeps published content canonical when stale runtime files exist", async () => {
     const dataDir = makeTempDir();
-    const { getProjects } = await importDataModule(dataDir);
+    fs.writeFileSync(
+      path.join(dataDir, "personal.json"),
+      JSON.stringify({ name: "Stale runtime owner" }),
+    );
+    fs.writeFileSync(path.join(dataDir, "projects.json"), "[]");
+    fs.writeFileSync(path.join(dataDir, ".data_version"), "old-version");
+    const { getPersonal, getProjects } = await importDataModule(dataDir);
 
+    const personal = getPersonal();
     const projects = getProjects();
 
-    expect(projects.length).toBeGreaterThan(0);
-    expect(fs.readFileSync(path.join(dataDir, ".data_version"), "utf8")).toBe(
-      "test-version",
+    expect(personal.name).toBe("Reidar");
+    expect(projects).toHaveLength(14);
+    expect(fs.readFileSync(path.join(dataDir, "projects.json"), "utf8")).toBe(
+      "[]",
     );
-    expect(errorSpy).not.toHaveBeenCalled();
+    expect(fs.readFileSync(path.join(dataDir, ".data_version"), "utf8")).toBe(
+      "old-version",
+    );
   });
 });
