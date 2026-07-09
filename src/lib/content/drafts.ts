@@ -214,6 +214,20 @@ export function clearDrafts(dataDir?: string): void {
   fs.rmSync(path.join(directory, "projects.json"), { force: true });
 }
 
+export function discardPersonalDraft(dataDir?: string): void {
+  fs.rmSync(
+    path.join(resolveDataDir(dataDir), "drafts", "personal.json"),
+    { force: true },
+  );
+}
+
+export function discardProjectsDraft(dataDir?: string): void {
+  fs.rmSync(
+    path.join(resolveDataDir(dataDir), "drafts", "projects.json"),
+    { force: true },
+  );
+}
+
 function commitToken(value: string): string | null {
   return value.toLowerCase().match(/[a-f0-9]{7,40}/)?.[0] ?? null;
 }
@@ -231,14 +245,14 @@ export function derivePublicationState(input: {
   receipt: PublishReceipt | null;
   deployedVersion: string;
 }): ContentPublicationState {
-  if (input.receipt?.kind === "conflict") {
+  if (input.draftChanged && input.receipt?.kind === "conflict") {
     return {
       kind: "conflict",
       label: "Conflict",
       message: input.receipt.message,
     };
   }
-  if (input.receipt?.kind === "failed") {
+  if (input.draftChanged && input.receipt?.kind === "failed") {
     return {
       kind: "publish-failed",
       label: "Publish failed",

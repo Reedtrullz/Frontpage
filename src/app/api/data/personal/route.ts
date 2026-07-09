@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
-import { savePersonalDraft } from "@/lib/content/drafts";
+import {
+  discardPersonalDraft,
+  savePersonalDraft,
+} from "@/lib/content/drafts";
 
 function validationMessage(error: z.ZodError): string {
   return error.issues
@@ -47,4 +50,17 @@ export async function PUT(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function DELETE() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isOwnerUser(session.user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  discardPersonalDraft();
+  return NextResponse.json({ ok: true, state: "discarded" });
 }

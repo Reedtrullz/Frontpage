@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getCanonicalPersonal, getCanonicalProjects } from "./index";
 import {
   derivePublicationState,
+  discardPersonalDraft,
   readDraftBundle,
   savePersonalDraft,
   saveProjectsDraft,
@@ -67,6 +68,23 @@ describe("content drafts", () => {
     expect(fs.existsSync(path.join(dataDir, "drafts", "personal.json"))).toBe(
       false,
     );
+  });
+
+  it("discards one draft without deleting the other", () => {
+    const dataDir = makeTempDir();
+    savePersonalDraft(getCanonicalPersonal(), {
+      dataDir,
+      baseVersion: "abc1234",
+    });
+    saveProjectsDraft(getCanonicalProjects(), {
+      dataDir,
+      baseVersion: "abc1234",
+    });
+
+    discardPersonalDraft(dataDir);
+
+    expect(readDraftBundle(dataDir).personal).toBeNull();
+    expect(readDraftBundle(dataDir).projects).not.toBeNull();
   });
 });
 

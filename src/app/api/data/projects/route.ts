@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
-import { saveProjectsDraft } from "@/lib/content/drafts";
+import { getCanonicalProjects } from "@/lib/content";
+import {
+  discardProjectsDraft,
+  saveProjectsDraft,
+} from "@/lib/content/drafts";
+import { parseProjects } from "@/lib/content/schema";
 
 function validationMessage(error: z.ZodError): string {
   return error.issues
@@ -23,7 +28,20 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const draft = saveProjectsDraft(await request.json(), {
+    const projects = parseProjects(await request.json());
+    const allowedHealthIds = new Set(
+      getCanonicalProjects().flatMap((project) => project.healthServiceIds ?? []),
+    );
+    const unsafeBinding = projects
+      .flatMap((project) => project.healthServiceIds ?? [])
+      .find((id) => !allowedHealthIds.has(id));
+    if (unsafeBinding) {
+      return NextResponse.json(
+        { error: `healthServiceIds: ${unsafeBinding} is not in the configured safe allowlist.` },
+        { status: 400 },
+      );
+    }
+    const draft = saveProjectsDraft(projects, {
       baseVersion: process.env.VERSION || "dev",
     });
     return NextResponse.json({
@@ -50,4 +68,17 @@ export async function PUT(request: Request) {
       { status: 500 },
     );
   }
+}
+
+export async function DELETE() {
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isOwnerUser(session.user)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  discardProjectsDraft();
+  return NextResponse.json({ ok: true, state: "discarded" });
 }

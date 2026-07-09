@@ -50,6 +50,16 @@ test.describe("application shell", () => {
     await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Back home" })).toBeVisible();
   });
+
+  test("fails closed on owner routes", async ({ page }) => {
+    await page.goto("/admin");
+    await expect(page).toHaveURL(/\/signin\?callbackUrl=%2Fadmin|\/signin\?callbackUrl=\/admin/);
+    await expect(page.getByRole("heading", { name: "Owner sign in" })).toBeVisible();
+
+    await page.goto("/ansible");
+    await expect(page).toHaveURL(/\/signin\?callbackUrl=%2Fansible|\/signin\?callbackUrl=\/ansible/);
+    await expect(page.getByRole("heading", { name: "Owner sign in" })).toBeVisible();
+  });
 });
 
 test.describe("public project experience", () => {

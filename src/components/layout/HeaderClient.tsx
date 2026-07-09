@@ -77,7 +77,7 @@ function PublicLink({
       {label}
       {statusKind ? (
         <span className="ml-1 hidden text-xs text-[var(--text-subtle)] xl:inline">
-          {statusLabels[statusKind]}
+          · {statusLabels[statusKind]}
         </span>
       ) : null}
     </Link>
