@@ -141,13 +141,19 @@ export default function AnsiblePage() {
           {`cd /Users/reidar/Projectos/Frontpage
 git pull origin main
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \\
-  --vault-password-file ~/.vault_pass.txt`}
+  --vault-password-file .vault_pass`}
         </CodeBlock>
+        <p className="mt-3">
+          The Frontpage checkout uses a repo-local ignored{" "}
+          <Code>.vault_pass</Code> file for its Ansible Vault. If you migrate
+          it to the shared vault password, verify decryption before deploy.
+        </p>
         <p className="mt-3">
           To pin a specific image tag instead of :latest:
         </p>
         <CodeBlock>
           {`ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \\
+  --vault-password-file .vault_pass \\
   -e "docker_image=ghcr.io/reedtrullz/frontpage:sha-cc8e9a5"`}
         </CodeBlock>
       </Section>
@@ -162,17 +168,18 @@ ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \\
 group_vars/vps/vault.yml  (THORNode API, CoinGecko key, etc.)
 
 # Frontpage
-group_vars/vps/vault.yml  (AUTH_SECRET, GitHub OAuth, GITHUB_TOKEN)
+group_vars/all/vault.yml  (AUTH_SECRET, GitHub OAuth, GITHUB_TOKEN)
 
 # inebotten
 deploy/group_vars/vps/vault.yml  (OpenRouter API key)`}
         </CodeBlock>
         <p className="mt-3">
-          All vaults share the same password file at{" "}
-          <Code>~/.vault_pass.txt</Code>. Edit with:
+          Older project vaults may use the shared{" "}
+          <Code>~/.vault_pass.txt</Code> file; Frontpage currently uses its
+          ignored <Code>.vault_pass</Code> file. Edit with:
         </p>
         <CodeBlock>
-          ansible-vault edit group_vars/vps/vault.yml
+          ansible-vault edit group_vars/all/vault.yml --vault-password-file .vault_pass
         </CodeBlock>
       </Section>
 
