@@ -16,6 +16,10 @@ function getGitHubProfileId(profile: unknown): string | undefined {
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  pages: {
+    signIn: "/signin",
+    error: "/signin",
+  },
   providers: [
     GitHub({
       clientId: process.env.AUTH_GITHUB_ID,

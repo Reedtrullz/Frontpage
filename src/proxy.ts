@@ -12,7 +12,7 @@ export const proxy = auth((req) => {
   }
 
   if (!isOwnerUser(req.auth?.user)) {
-    const signInUrl = new URL("/api/auth/signin", req.nextUrl.origin);
+    const signInUrl = new URL("/signin", req.nextUrl.origin);
     signInUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
     return NextResponse.redirect(signInUrl);
   }

@@ -26,13 +26,16 @@ export function ProjectDashboard({
     <div className="mx-auto max-w-6xl px-6 py-10">
       <section className="grid gap-6 border-b border-zinc-800 pb-10 lg:grid-cols-[1.35fr_0.65fr]">
         <div>
-          <p className="mb-4 font-mono text-xs uppercase text-green-400">
-            reidar.tech / project OS
+          <p className="mb-4 font-mono text-xs uppercase text-[var(--accent)]">
+            reidar.tech / Project OS
           </p>
-          <h1 className="max-w-3xl text-4xl font-semibold tracking-normal text-zinc-100 sm:text-5xl">
-            Live workbench for projects, infra, and trust signals.
+          <h1 className="max-w-3xl text-5xl font-semibold tracking-normal text-[var(--text)] sm:text-6xl">
+            {personal.name}
           </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-zinc-400">
+          <p className="mt-3 text-lg font-medium text-[var(--text)]">
+            {personal.title}
+          </p>
+          <p className="mt-5 max-w-2xl text-base leading-7 text-[var(--text-muted)]">
             {personal.bio}
           </p>
           <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
