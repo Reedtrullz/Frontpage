@@ -3,6 +3,10 @@ export interface AuthzUser {
   email?: string | null;
 }
 
+export type AuthzEnv =
+  | NodeJS.ProcessEnv
+  | Partial<Record<"OWNER_GITHUB_ID" | "OWNER_EMAIL", string | undefined>>;
+
 export class ForbiddenError extends Error {
   constructor() {
     super("Forbidden");
@@ -12,7 +16,7 @@ export class ForbiddenError extends Error {
 
 export function isOwnerUser(
   user: AuthzUser | null | undefined,
-  env: Pick<NodeJS.ProcessEnv, "OWNER_GITHUB_ID" | "OWNER_EMAIL"> = process.env,
+  env: AuthzEnv = process.env,
 ): boolean {
   if (!user) {
     return false;
@@ -33,7 +37,7 @@ export function isOwnerUser(
 
 export function requireOwnerUser(
   user: AuthzUser | null | undefined,
-  env: Pick<NodeJS.ProcessEnv, "OWNER_GITHUB_ID" | "OWNER_EMAIL"> = process.env,
+  env: AuthzEnv = process.env,
 ): void {
   if (!isOwnerUser(user, env)) {
     throw new ForbiddenError();
