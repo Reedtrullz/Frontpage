@@ -1,53 +1,68 @@
 import Link from "next/link";
-import type { Project } from "@/data/projects";
+import type { ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
 import type { PublicServiceStatus } from "@/lib/metrics/reader";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { StatusToken } from "./StatusToken";
+import { repositoryActivity } from "@/lib/projects/presentation";
+import {
+  PostureBadge,
+  type ProjectHealthPosture,
+} from "@/components/ui/PostureBadge";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 
-function repoSignal(stats: GitHubStats | null): string {
-  if (!stats?.lastCommitDate) return "no repo signal";
-  const days = Math.floor(
-    (Date.now() - new Date(stats.lastCommitDate).getTime()) / 86_400_000,
+function healthPosture(
+  health: PublicServiceStatus | undefined,
+): ProjectHealthPosture {
+  if (!health) return "not-monitored";
+  if (health.status === "up") return "healthy";
+  if (health.status === "down") return "disruption";
+  return "unavailable";
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 md:block">
+      <span className="text-xs text-[var(--text-subtle)] md:hidden">{label}</span>
+      <div className="min-w-0">{children}</div>
+    </div>
   );
-  if (days <= 0) return "updated today";
-  if (days === 1) return "updated 1d ago";
-  return `updated ${days}d ago`;
 }
 
 export function ProjectHealthRow({
   project,
   stats,
   health,
+  now,
 }: {
-  project: Project;
+  project: ProjectContent;
   stats: GitHubStats | null;
   health?: PublicServiceStatus;
+  now: Date;
 }) {
+  const activity = repositoryActivity(stats);
   return (
     <Link
       href={`/projects/${project.slug}`}
-      className="grid gap-3 border-t border-zinc-800 px-1 py-4 transition-colors hover:bg-zinc-900/40 sm:grid-cols-[1.2fr_0.8fr_0.8fr_0.7fr]"
+      className="grid gap-4 border-t border-[var(--border)] px-1 py-5 transition-colors hover:bg-[var(--surface-raised)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus)] md:grid-cols-[minmax(180px,1.4fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)] md:items-center md:px-3"
     >
-      <div>
-        <h3 className="font-mono text-sm text-zinc-100">{project.name}</h3>
-        <p className="mt-1 line-clamp-2 text-sm text-zinc-500">
-          {project.shortDescription}
-        </p>
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-semibold text-[var(--text)]">{project.name}</h3>
+        <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--text-muted)]">{project.outcome}</p>
       </div>
-      <div className="flex items-center">
-        <StatusBadge status={project.status} />
-      </div>
-      <div className="flex items-center">
-        {health ? (
-          <StatusToken value={health.status} />
+      <Field label="Lifecycle">
+        <PostureBadge dimension="lifecycle" value={project.lifecycle} />
+      </Field>
+      <Field label="Live health">
+        <PostureBadge dimension="health" value={healthPosture(health)} />
+      </Field>
+      <Field label="Repository">
+        {activity?.lastCommitDate ? (
+          <span className="text-sm text-[var(--text-muted)]">
+            Updated <RelativeTime value={activity.lastCommitDate} now={now} />
+          </span>
         ) : (
-          <span className="font-mono text-xs text-zinc-600">not probed</span>
+          <span className="text-sm text-[var(--text-subtle)]">No public activity</span>
         )}
-      </div>
-      <div className="flex items-center font-mono text-xs text-zinc-600">
-        {repoSignal(stats)}
-      </div>
+      </Field>
     </Link>
   );
 }

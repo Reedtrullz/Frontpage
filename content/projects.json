@@ -39,6 +39,15 @@
     "featuredRank": 2,
     "repoUrl": "https://github.com/Reedtrullz/RFS",
     "liveUrl": "https://fly.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/rfs/cover.webp",
+        "alt": "RFS flight simulator showing Trondheim runway scenery, takeoff setup, primary flight display, and mode control panel",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live simulator at Trondheim Vaernes, captured July 2026."
+      }
+    },
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -66,6 +75,15 @@
     "featuredRank": 3,
     "repoUrl": "https://github.com/Reedtrullz/RFMC",
     "liveUrl": "https://fmc.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/rfmc/cover.webp",
+        "alt": "VirtualCDU training mission selector for Boeing 737 FMC and Airbus A320 MCDU procedure practice",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live VirtualCDU mission workspace, captured July 2026."
+      }
+    },
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -93,6 +111,15 @@
     "featuredRank": 4,
     "repoUrl": "https://github.com/Reedtrullz/Heimdall",
     "liveUrl": "https://bond.thorchain.no",
+    "media": {
+      "cover": {
+        "src": "/projects/heimdall/cover.webp",
+        "alt": "Heimdall THORChain operations console with bond provider lookup and read-only trust boundary summary",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live read-only operations console, captured July 2026."
+      }
+    },
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",

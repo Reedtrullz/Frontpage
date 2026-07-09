@@ -1,6 +1,5 @@
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
-import { getPersonal } from "@/lib/data";
-import { getProjects } from "@/lib/data";
+import { getCanonicalPersonal, getCanonicalProjects } from "@/lib/content";
 import {
   extractRepoPairs,
   fetchAllRepoStats,
@@ -15,9 +14,11 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const personal = getPersonal();
-  const projects = getProjects();
-  const featuredProjects = projects.filter((project) => project.featured);
+  const personal = getCanonicalPersonal();
+  const projects = getCanonicalProjects();
+  const featuredProjects = projects.filter(
+    (project) => project.featuredRank !== undefined,
+  );
   const repoPairs = extractRepoPairs(featuredProjects);
   const [statsMap, readResult] = await Promise.all([
     fetchAllRepoStats(repoPairs),

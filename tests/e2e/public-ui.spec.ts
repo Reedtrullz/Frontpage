@@ -8,8 +8,13 @@ test.describe("application shell", () => {
     await page.goto("/");
 
     await expect(page.getByRole("heading", { level: 1, name: /Reidar/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Projects" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Status" })).toBeVisible();
+    const primary = page.getByRole("navigation", { name: "Primary" });
+    await expect(
+      primary.getByRole("link", { name: "Projects", exact: true }),
+    ).toBeVisible();
+    await expect(
+      primary.getByRole("link", { name: "Status", exact: true }),
+    ).toBeVisible();
 
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Skip to content" })).toBeFocused();
@@ -44,5 +49,42 @@ test.describe("application shell", () => {
     await page.goto("/this-route-does-not-exist");
     await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Back home" })).toBeVisible();
+  });
+});
+
+test.describe("public project experience", () => {
+  test("persists catalogue filters in the URL", async ({ page }) => {
+    await page.goto("/projects");
+    await expect(
+      page.getByRole("heading", { name: "Published projects" }),
+    ).toBeVisible();
+    await expect(page.getByText("14 of 14 projects")).toBeVisible();
+
+    await page.getByLabel("Maturity").selectOption("experimental");
+    await expect(page).toHaveURL(/maturity=experimental/);
+    await expect(page.getByText("5 of 14 projects")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "THORArb" }),
+    ).toBeVisible();
+  });
+
+  test("shows real project media and structured limits", async ({ page }) => {
+    await page.goto("/projects/rfs");
+    await expect(page.getByRole("heading", { level: 1, name: "RFS" })).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: /RFS flight simulator showing Trondheim/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Current limitations" }),
+    ).toBeVisible();
+  });
+
+  test("does not overflow a narrow mobile viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/projects");
+    const overflows = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflows).toBe(false);
   });
 });
