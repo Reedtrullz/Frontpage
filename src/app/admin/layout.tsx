@@ -1,6 +1,9 @@
-import { auth, signOut } from "@/auth";
 import Link from "next/link";
+import { ArrowUpRight, ShieldCheck } from "lucide-react";
 import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { isOwnerUser } from "@/lib/authz";
+import { AdminNav } from "@/components/admin/AdminNav";
 
 export default async function AdminLayout({
   children,
@@ -8,50 +11,31 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  const user = session?.user;
-  const ownerGitHubId = process.env.OWNER_GITHUB_ID;
-  const ownerEmail = process.env.OWNER_EMAIL;
-  if (!user) redirect("/api/auth/signin");
-
-  const isOwner =
-    (ownerGitHubId && user.id && String(user.id) === ownerGitHubId) ||
-    (ownerEmail && user.email === ownerEmail);
-
-  if (!isOwner) redirect("/api/auth/signin");
+  if (!isOwnerUser(session?.user)) {
+    redirect("/signin?callbackUrl=/admin");
+  }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-800">
-        <div className="flex items-center gap-6">
-          <Link
-            href="/admin"
-            className="font-mono text-sm text-green-500 hover:text-green-400"
-          >
-            admin
-          </Link>
-          <nav className="flex gap-4 text-sm text-zinc-400">
-            <Link href="/" className="hover:text-zinc-200">
-              View site →
+    <div>
+      <header className="bg-[var(--surface-raised)]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div>
+            <div className="flex items-center gap-2 text-sm text-[var(--role-info)]">
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              Owner authenticated
+            </div>
+            <p className="mt-2 text-xl font-semibold text-[var(--text)]">Content and operations workspace</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-5 text-sm">
+            <span className="text-[var(--text-subtle)]">{session?.user?.email ?? "GitHub owner"}</span>
+            <Link href="/" className="inline-flex min-h-11 items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]">
+              View public site <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
             </Link>
-          </nav>
+          </div>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-zinc-500 font-mono">
-            {user.email}
-          </span>
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/" });
-            }}
-          >
-            <button className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
-              Sign out
-            </button>
-          </form>
-        </div>
-      </div>
-      {children}
+      </header>
+      <AdminNav />
+      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12">{children}</div>
     </div>
   );
 }

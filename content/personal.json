@@ -1,0 +1,36 @@
+{
+  "name": "Reidar",
+  "title": "Software builder and operator",
+  "location": "Norway",
+  "bio": "I build and operate web products, technical tools, and infrastructure with clear evidence and honest limits. I like systems that work without babysitting.",
+  "whatIDo": [
+    "Build full-stack products with Next.js, TypeScript, and operationally useful interfaces",
+    "Create technical tools for transport, aviation, DeFi, and infrastructure workflows",
+    "Turn live data into clear decisions with provenance, freshness, and explicit limitations",
+    "Harden deployment, monitoring, and automation paths so claims can be verified"
+  ],
+  "skills": [
+    "TypeScript",
+    "Next.js",
+    "React",
+    "Tailwind CSS",
+    "Node.js",
+    "Python",
+    "Swift",
+    "PostgreSQL",
+    "Three.js",
+    "THORChain",
+    "Docker",
+    "Ansible"
+  ],
+  "socials": [
+    {
+      "label": "GitHub",
+      "url": "https://github.com/Reedtrullz"
+    },
+    {
+      "label": "Twitter",
+      "url": "https://x.com/Reedtrullz"
+    }
+  ]
+}

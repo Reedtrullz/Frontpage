@@ -1,94 +1,84 @@
 import { Octokit } from "@octokit/rest";
+import type { GitPublicationClient } from "@/lib/content/publication";
 
-const GITHUB_REPO = process.env.GITHUB_REPO || "Reedtrullz/Frontpage";
-const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
-
-let octokit: Octokit | null = null;
-function getOctokit() {
-  if (!octokit) {
-    const token = process.env.GITHUB_TOKEN;
-    if (!token) return null;
-    octokit = new Octokit({ auth: token });
+function repositoryConfig(): { owner: string; repo: string; branch: string } {
+  const repository = process.env.GITHUB_REPO || "Reedtrullz/Frontpage";
+  const [owner, repo, ...extra] = repository.split("/");
+  if (!owner || !repo || extra.length > 0) {
+    throw new Error("GITHUB_REPO must use the owner/repository format.");
   }
-  return octokit;
+  return {
+    owner,
+    repo,
+    branch: process.env.GITHUB_BRANCH || "main",
+  };
 }
 
-function getGithubErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  return "Unknown GitHub error";
-}
+export function createGitHubPublicationClient(): GitPublicationClient | null {
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return null;
 
-function logGithubSyncError(filePath: string, error: unknown) {
-  const message = getGithubErrorMessage(error);
-  const status = typeof error === "object" && error && "status" in error ? (error as { status?: number }).status : undefined;
-  const code = typeof error === "object" && error && "code" in error ? (error as { code?: string }).code : undefined;
+  const octokit = new Octokit({ auth: token });
+  const { owner, repo, branch } = repositoryConfig();
 
-  if (status === 401 || (status === 403 && !message.toLowerCase().includes("rate limit"))) {
-    console.error(`GitHub sync failed for ${filePath}: authentication/authorization error`, error);
-    return;
-  }
-
-  if (status === 429 || (status === 403 && message.toLowerCase().includes("rate limit"))) {
-    console.error(`GitHub sync failed for ${filePath}: rate limit exceeded`, error);
-    return;
-  }
-
-  if (code && ["ENOTFOUND", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(code)) {
-    console.error(`GitHub sync failed for ${filePath}: network error (${code})`, error);
-    return;
-  }
-
-  console.error(`GitHub sync failed for ${filePath}: ${message}`, error);
-}
-
-export async function syncToGithub(files: { path: string; content: string }[]) {
-  const gh = getOctokit();
-  if (!gh) {
-    console.log("No GITHUB_TOKEN configured — skipping GitHub sync");
-    return false;
-  }
-
-  const [owner, repo] = GITHUB_REPO.split("/");
-
-  for (const file of files) {
-    const content = Buffer.from(file.content).toString("base64");
-
-    let sha: string | undefined;
-    try {
-      const { data } = await gh.repos.getContent({
+  return {
+    async getHead() {
+      const { data: ref } = await octokit.git.getRef({
         owner,
         repo,
-        path: file.path,
-        ref: GITHUB_BRANCH,
+        ref: `heads/${branch}`,
       });
-      if (!Array.isArray(data)) {
-        sha = data.sha;
-      }
-    } catch (error: unknown) {
-      if (typeof error === "object" && error && "status" in error && (error as { status?: number }).status === 404) {
-        // file doesn't exist yet — create it
-      } else {
-        logGithubSyncError(file.path, error);
-        return false;
-      }
-    }
-
-    try {
-      await gh.repos.createOrUpdateFileContents({
+      const { data: commit } = await octokit.git.getCommit({
         owner,
         repo,
-        path: file.path,
-        message: `Update ${file.path} via admin panel`,
+        commit_sha: ref.object.sha,
+      });
+      return { commitSha: ref.object.sha, treeSha: commit.tree.sha };
+    },
+    async createBlob(content) {
+      const { data } = await octokit.git.createBlob({
+        owner,
+        repo,
         content,
-        branch: GITHUB_BRANCH,
-        sha,
+        encoding: "utf-8",
       });
-    } catch (error: unknown) {
-      logGithubSyncError(file.path, error);
-      return false;
-    }
-  }
-
-  return true;
+      return data.sha;
+    },
+    async createTree(baseTreeSha, files) {
+      const { data } = await octokit.git.createTree({
+        owner,
+        repo,
+        base_tree: baseTreeSha,
+        tree: files.map((file) => ({
+          path: file.path,
+          mode: "100644" as const,
+          type: "blob" as const,
+          sha: file.blobSha,
+        })),
+      });
+      return data.sha;
+    },
+    async createCommit(input) {
+      const { data } = await octokit.git.createCommit({
+        owner,
+        repo,
+        message: input.message,
+        tree: input.treeSha,
+        parents: [input.parentSha],
+      });
+      return data.sha;
+    },
+    async updateHead(commitSha) {
+      await octokit.git.updateRef({
+        owner,
+        repo,
+        ref: `heads/${branch}`,
+        sha: commitSha,
+        force: false,
+      });
+    },
+    getCommitUrl(commitSha) {
+      return `https://github.com/${owner}/${repo}/commit/${commitSha}`;
+    },
+  };
 }

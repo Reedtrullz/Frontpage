@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import type { SocialLink } from "@/data/personal";
 
 interface FooterProps {
@@ -7,19 +8,24 @@ interface FooterProps {
 
 export function Footer({ name, socials }: FooterProps) {
   return (
-    <footer className="border-t border-zinc-800 mt-auto">
-      <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-zinc-500">
-        <span>&copy; {new Date().getFullYear()} {name}</span>
-        <div className="flex items-center gap-4">
-          {socials.map((s) => (
+    <footer className="mt-auto border-t border-[var(--border)] bg-[var(--surface-raised)]">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-8 text-sm text-[var(--text-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <p>
+          <span className="text-[var(--text)]">{name}</span>
+          <span className="mx-2 text-[var(--border-strong)]" aria-hidden="true">/</span>
+          Built and operated in Norway
+        </p>
+        <div className="flex flex-wrap items-center gap-5">
+          {socials.map((social) => (
             <a
-              key={s.label}
-              href={s.url}
+              key={social.label}
+              href={social.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="hover:text-zinc-300 transition-colors"
+              className="inline-flex min-h-11 items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
             >
-              {s.label}
+              {social.label}
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
             </a>
           ))}
         </div>

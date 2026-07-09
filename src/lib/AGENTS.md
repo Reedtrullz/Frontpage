@@ -1,28 +1,36 @@
 # src/lib KNOWLEDGE BASE
 
-**Scope:** Data layer, GitHub integrations, and server-side utilities.
-
-## OVERVIEW
-Runtime data persistence with bundled-default fallback, GitHub repo stats fetching with caching, and GitHub-backed sync for admin writes.
+**Scope:** Canonical content, owner drafts/publication, metrics, authz, GitHub integrations, and server utilities.
 
 ## WHERE TO LOOK
 | Task | Location | Notes |
 |------|----------|-------|
-| Read/write personal or projects | `data.ts` | JSON file I/O with version invalidation |
-| Fetch GitHub repo stats | `github-stats.ts` | Octokit + 5min in-memory cache |
-| Sync admin edits back to repo | `github.ts` | Commits `public/data/*.json` via API |
+| Read canonical content | `content/index.ts` | Parses repository JSON once, returns clones |
+| Change content types | `content/schema.ts` | Strict Zod schemas and posture enums |
+| Read/write owner drafts | `content/drafts.ts` | Atomic files under `DATA_DIR/drafts` |
+| Build owner diff/state | `content/admin-view.ts` | Canonical versus draft view model |
+| Publish content | `content/publication.ts`, `github.ts` | Two blobs, one tree, one non-force commit |
+| Read VPS metrics | `metrics/reader.ts` | Schema-bound latest/history reads |
+| Derive status | `metrics/status-page.ts` | Public-safe and exact owner models |
+| Check ownership | `authz.ts` | Prefer stable GitHub numeric ID |
+| Fetch repository context | `github-stats.ts` | Optional five-minute in-memory cache |
 
 ## CONVENTIONS
-- **Runtime data pattern**: `readJSON<T>` reads from `DATA_DIR` if version matches; otherwise rewrites bundled defaults.
-- **Version invalidation**: `process.env.VERSION` (default `"dev"`) stored in `.data_version`. Bump to force refresh.
-- **GitHub cache**: `fetchRepoStats` uses a `Map` with 5min TTL. Safe for single-instance deploys; not for serverless.
-- **Auth in API routes**: Every write route checks `session?.user` explicitly. No shared API auth middleware.
+- Public content never reads `DATA_DIR`; repository JSON bundled in the image is authoritative.
+- Runtime persistence contains drafts and publication receipts only. Draft envelopes always include schema version, base `VERSION`, and saved timestamp.
+- Publication validates both canonical files, compares the draft base to GitHub head, and updates the ref without force. Conflicts preserve drafts.
+- Metrics readers return sanitized diagnostics. Public models contain coarse buckets and public allowlisted checks only; exact values stay owner-only.
+- Write API routes authenticate and authorize independently of `src/proxy.ts`.
+- GitHub stats failure is optional context, not project posture.
 
 ## ANTI-PATTERNS
-- Do not bypass version check in `readJSON` — it prevents stale runtime data from persisting across deployments.
-- Do not remove auth checks from API routes that consume functions in this directory.
-- Do not expose `GITHUB_TOKEN` or other secrets in client-facing code.
+- Do not add runtime project/personal overrides or write owner data under `public/`.
+- Do not serialize exact metrics, internal service IDs, containers, or diagnostics into public models.
+- Do not turn publication into deployment or add host-control capabilities to this layer.
+- Do not force-update Git refs or clear drafts after a failed/conflicted publication.
+- Do not expose `GITHUB_TOKEN`, Auth.js secrets, request dumps, or raw provider errors.
 
 ## NOTES
-- `getOctokit()` in `github.ts` is a lazy singleton. It returns `null` when `GITHUB_TOKEN` is missing.
-- `syncToGithub` base64-encodes content before calling `repos.createOrUpdateFileContents`.
+- `VERSION` is the deployed image commit identity and is part of publication conflict/deploy-state handling.
+- `GITHUB_TOKEN` is server-only and currently supports both repository stats and owner publication.
+- The production metrics mount is read-only; the collector, not the web app, owns Docker inspection.

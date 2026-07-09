@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
+import { RotateCcw, TriangleAlert } from "lucide-react";
 
-export default function ErrorBoundary({
+export default function AdminError({
   error,
   reset,
 }: {
@@ -10,30 +11,15 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Admin route error", error);
+    console.error("Owner workspace route error", error);
   }, [error]);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6">
-      <p className="font-mono text-xs uppercase tracking-[0.2em] text-green-500">
-        Admin error
-      </p>
-      <h1 className="mt-3 text-2xl font-semibold text-zinc-100">
-        Something went wrong.
-      </h1>
-      <p className="mt-2 max-w-xl text-sm text-zinc-400">
-        The admin panel hit an unexpected issue. You can try again, or reload the
-        page if the problem persists.
-      </p>
-      <p className="mt-4 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-300">
-        {error.message}
-      </p>
-      <button
-        onClick={() => reset()}
-        className="mt-6 rounded-md border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-green-500 transition-colors hover:border-green-500/50 hover:text-green-400"
-      >
-        Try again
-      </button>
-    </div>
+    <section className="border-l-2 border-[var(--role-failure)] py-4 pl-6">
+      <TriangleAlert className="h-6 w-6 text-[var(--role-failure)]" aria-hidden="true" />
+      <h1 className="mt-4 text-2xl font-semibold text-[var(--text)]">Owner workspace unavailable</h1>
+      <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--text-muted)]">The workspace could not load. Draft files were not changed.</p>
+      <button type="button" onClick={reset} className="primary-command mt-6"><RotateCcw className="h-4 w-4" aria-hidden="true" />Try again</button>
+    </section>
   );
 }

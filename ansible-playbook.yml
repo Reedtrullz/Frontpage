@@ -2,23 +2,167 @@
   hosts: vps
   gather_facts: false
   vars:
-    docker_image: "ghcr.io/reedtrullz/frontpage:latest"
+    github_repository: "Reedtrullz/Frontpage"
+    docker_image_repository: "ghcr.io/reedtrullz/frontpage"
     container_name: "frontpage"
-    image_tag: "{{ lookup('env', 'GITHUB_SHA') | default(lookup('pipe', 'git -C ' ~ playbook_dir ~ ' rev-parse --short HEAD 2>/dev/null || echo latest'), true) }}"
+    requested_commit_sha: "{{ lookup('env', 'GITHUB_SHA') | default('', true) }}"
+    docker_image: "{{ docker_image_repository }}:sha-{{ deploy_commit_sha }}"
+    metrics_dir: "/var/lib/frontpage-metrics"
+    metrics_config_dir: "/etc/frontpage-metrics"
+    metrics_user: "frontpage-metrics"
+    owner_github_login: "Reedtrullz"
 
   pre_tasks:
-    - name: Get current container image
+    - name: Validate requested deployment commit
+      ansible.builtin.assert:
+        that:
+          - requested_commit_sha == '' or requested_commit_sha is match('^[a-f0-9]{40}$')
+        fail_msg: "GITHUB_SHA must be a full 40 character lowercase Git commit SHA."
+
+    - name: Validate required deployment secrets
+      ansible.builtin.assert:
+        that:
+          - vault_auth_secret is defined
+          - vault_auth_github_id is defined
+          - vault_auth_github_secret is defined
+          - vault_github_token is defined
+        fail_msg: "Required encrypted deployment variables are missing."
+      no_log: true
+
+    - name: Resolve GitHub owner id for app owner checks
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "https://api.github.com/users/{{ owner_github_login }}"
+        headers:
+          Accept: "application/vnd.github+json"
+          X-GitHub-Api-Version: "2022-11-28"
+        return_content: false
+        status_code: 200
+      register: github_owner_user
+
+    - name: Resolve current main commit for immutable deployment
+      delegate_to: localhost
+      become: false
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/{{ github_repository }}/commits/main"
+        headers:
+          Accept: "application/vnd.github+json"
+          X-GitHub-Api-Version: "2022-11-28"
+        return_content: false
+        status_code: 200
+      register: github_main_commit
+      when: requested_commit_sha | length == 0
+
+    - name: Set deployment identity facts
+      ansible.builtin.set_fact:
+        app_owner_github_id: "{{ github_owner_user.json.id | string }}"
+        deploy_commit_sha: "{{ requested_commit_sha if requested_commit_sha | length > 0 else github_main_commit.json.sha }}"
+
+    - name: Inspect current container
       community.docker.docker_container_info:
         name: "{{ container_name }}"
       register: current_container
-      ignore_errors: yes
 
-    - name: Set previous image fact
-      set_fact:
-        previous_image: "{{ (current_container.container.Config.Image) if (current_container.container is not none) else 'none' }}"
+    - name: Set previous deployment facts
+      ansible.builtin.set_fact:
+        previous_image: "{{ current_container.container.Image if current_container.exists else 'none' }}"
+        previous_version: >-
+          {{
+            (current_container.container.Config.Env if current_container.exists else [])
+            | select('match', '^VERSION=')
+            | list
+            | first
+            | default('VERSION=unknown', true)
+            | regex_replace('^VERSION=', '')
+          }}
 
   tasks:
-    - name: Pull latest image from GHCR
+    - name: Ensure docker group exists
+      become: true
+      ansible.builtin.group:
+        name: docker
+        state: present
+
+    - name: Create metrics collector user
+      become: true
+      ansible.builtin.user:
+        name: "{{ metrics_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        groups: docker
+        append: true
+
+    - name: Create metrics directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ metrics_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0755" }
+        - { path: "{{ metrics_config_dir }}", owner: "root", group: "root", mode: "0755" }
+
+    - name: Install metrics collector script
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics-collector.py
+        dest: /usr/local/bin/frontpage-metrics-collector
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install metrics collector config
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics.config.json
+        dest: "{{ metrics_config_dir }}/config.json"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install metrics collector systemd units
+      become: true
+      ansible.builtin.copy:
+        src: "ops/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - frontpage-metrics-collector.service
+        - frontpage-metrics-collector.timer
+      notify: Reload systemd
+
+    - name: Enable metrics collector timer
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Run metrics collector once before app swap
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.service
+        state: started
+
+    - name: Verify metrics latest file exists
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metrics_dir }}/latest.json"
+      register: metrics_latest
+
+    - name: Fail if metrics latest file is missing
+      ansible.builtin.fail:
+        msg: "Frontpage metrics collector did not write latest.json"
+      when: not metrics_latest.stat.exists
+
+    - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
         source: pull
@@ -51,15 +195,18 @@
           NODE_ENV: production
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
-          VERSION: "{{ image_tag }}"
+          VERSION: "{{ deploy_commit_sha }}"
           DATA_DIR: "/data"
           AUTH_URL: "https://reidar.tech"
           AUTH_SECRET: "{{ vault_auth_secret }}"
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          OWNER_GITHUB_ID: "{{ app_owner_github_id }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
+          METRICS_DIR: "/metrics"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
+          - "{{ metrics_dir }}:/metrics:ro"
 
     - name: Wait for application to become healthy
       uri:
@@ -67,7 +214,9 @@
         return_content: yes
         timeout: 5
       register: health_check
-      until: health_check is succeeded and health_check.json.status == "healthy"
+      until:
+        - (health_check.status | default(0)) == 200
+        - (health_check.json.status | default("")) == "healthy"
       retries: 10
       delay: 5
       failed_when: false
@@ -76,7 +225,7 @@
       fail:
         msg: "Frontpage health check failed: {{ health_check }}"
       when:
-        - health_check is not succeeded or health_check.json.status != "healthy"
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image == "none"
 
     - name: Rollback to previous image on failure
@@ -101,29 +250,46 @@
           NODE_ENV: production
           PORT: "3000"
           HOSTNAME: "0.0.0.0"
+          VERSION: "{{ previous_version }}"
           DATA_DIR: "/data"
           AUTH_URL: "https://reidar.tech"
           AUTH_SECRET: "{{ vault_auth_secret }}"
           AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
           AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
+          OWNER_GITHUB_ID: "{{ app_owner_github_id }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
+          METRICS_DIR: "/metrics"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
+          - "{{ metrics_dir }}:/metrics:ro"
       when:
-        - health_check is not succeeded or health_check.json.status != "healthy"
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image != "none"
       register: rollback
 
     - name: Fail with rollback message
       fail:
         msg: "Deployment failed, rolled back to {{ previous_image }}"
-      when: rollback.changed
+      when: rollback is defined and rollback.changed | default(false)
 
     - name: Verify container is running
       community.docker.docker_container_info:
         name: "{{ container_name }}"
       register: container_info
 
+    - name: Verify app container can read metrics read-only
+      community.docker.docker_container_exec:
+        container: "{{ container_name }}"
+        command: "node -e \"const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); try { fs.writeFileSync('/metrics/.write-test', 'x'); process.exit(2); } catch { process.exit(0); }\""
+      register: metrics_mount_check
+      changed_when: false
+
     - name: Report deployment status
       debug:
         msg: "✅ Frontpage deployed successfully: {{ container_info.container.State.Status }}"
+
+  handlers:
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true

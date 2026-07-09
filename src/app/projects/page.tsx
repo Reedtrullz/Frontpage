@@ -1,42 +1,33 @@
-import { getProjects } from "@/lib/data";
+import type { Metadata } from "next";
 import { ProjectList } from "@/components/projects/ProjectList";
+import { getCanonicalProjects } from "@/lib/content";
 import {
   extractRepoPairs,
-  fetchRepoStats,
+  fetchAllRepoStats,
   type GitHubStats,
 } from "@/lib/github-stats";
-import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Projects — Reidar",
-  description: "All projects — DeFi, bots, frontends, and tooling.",
+  title: "Projects",
+  description: "Published products, tools, and infrastructure with explicit lifecycle, maturity, evidence, and limitations.",
 };
 
-function placeholderStats(): GitHubStats {
-  return {
-    stars: 0,
-    language: "—",
-    lastCommitDate: null,
-    lastCommitMessage: null,
-    updatedAt: null,
-    fetchedAt: new Date().toISOString(),
-  };
-}
-
 export default async function ProjectsPage() {
-  const projects = getProjects();
+  const projects = getCanonicalProjects();
   const repoPairs = extractRepoPairs(projects);
-  const statsEntries = await Promise.all(
-    repoPairs.map(async ({ owner, repo, slug }) => {
-      try {
-        const stats = await fetchRepoStats(owner, repo);
-        return [slug, stats] as const;
-      } catch {
-        return [slug, placeholderStats()] as const;
-      }
-    }),
-  );
-  const statsBySlug = Object.fromEntries(statsEntries);
+  const stats = await fetchAllRepoStats(repoPairs);
+  const statsBySlug: Record<string, GitHubStats> = {};
 
-  return <ProjectList projects={projects} statsBySlug={statsBySlug} />;
+  for (const pair of repoPairs) {
+    const value = stats.get(`${pair.owner}/${pair.repo}`);
+    if (value) statsBySlug[pair.slug] = value;
+  }
+
+  return (
+    <ProjectList
+      projects={projects}
+      statsBySlug={statsBySlug}
+      nowIso={new Date().toISOString()}
+    />
+  );
 }

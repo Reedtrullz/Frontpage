@@ -48,8 +48,10 @@ Create and modify these focused units:
 
 - `vitest.config.ts`: Vitest config with `@/*` alias and Node test environment.
 - `package.json` and `package-lock.json`: add `test` script and `vitest` dev dependency.
-- `src/lib/authz.ts`: shared owner-check helper used by admin, status, and API routes.
+- `src/lib/authz.ts`: shared owner-check helper used by Auth.js, admin, status, and API routes.
 - `src/lib/authz.test.ts`: owner-check tests.
+- `src/auth.ts`: Auth.js `authorized` callback delegates owner checks to `isOwnerUser`.
+- `src/auth.test.ts`: focused Auth.js callback delegation tests.
 - `src/lib/metrics/types.ts`: shared metrics TypeScript types, constants, and public/owner model interfaces.
 - `src/lib/metrics/schema.ts`: Zod schemas and parse helpers mirroring the committed JSON Schema v1 contract.
 - `src/lib/metrics/schema.test.ts`: schema, timestamp, duplicate ID, and history validation tests.
@@ -93,6 +95,8 @@ Task boundaries:
 - Create: `vitest.config.ts`
 - Create: `src/lib/authz.ts`
 - Create: `src/lib/authz.test.ts`
+- Modify: `src/auth.ts`
+- Create: `src/auth.test.ts`
 - Modify: `src/app/api/data/projects/route.ts`
 - Modify: `src/app/api/data/personal/route.ts`
 - Modify: `src/app/admin/layout.tsx`
@@ -315,27 +319,115 @@ if (!isOwnerUser(req.auth?.user)) {
 }
 ```
 
-- [ ] **Step 7: Run focused and safety checks**
+- [ ] **Step 7: Add Auth.js callback delegation coverage**
+
+Create `src/auth.test.ts`:
+
+```ts
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const nextAuthMock = vi.fn();
+const githubProviderMock = vi.fn(() => ({
+  id: "github",
+  name: "GitHub",
+  type: "oauth",
+}));
+const isOwnerUserMock = vi.fn();
+let capturedConfig: {
+  callbacks: {
+    authorized: (args: { auth: { user?: { id?: string; email?: string } } | null }) => boolean;
+  };
+};
+
+vi.mock("next-auth", () => ({
+  default: nextAuthMock,
+}));
+
+vi.mock("next-auth/providers/github", () => ({
+  default: githubProviderMock,
+}));
+
+vi.mock("@/lib/authz", () => ({
+  isOwnerUser: isOwnerUserMock,
+}));
+
+describe("auth authorized callback", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    nextAuthMock.mockImplementation((config) => {
+      capturedConfig = config;
+
+      return {
+        handlers: {},
+        signIn: vi.fn(),
+        signOut: vi.fn(),
+        auth: vi.fn(),
+      };
+    });
+  });
+
+  it("returns false for missing users", async () => {
+    await import("./auth");
+    const result = capturedConfig.callbacks.authorized({ auth: null });
+
+    expect(result).toBe(false);
+    expect(isOwnerUserMock).not.toHaveBeenCalled();
+  });
+
+  it("delegates signed-in owner checks to isOwnerUser", async () => {
+    isOwnerUserMock.mockReturnValue(true);
+
+    await import("./auth");
+    const user = { id: "12345", email: "owner@example.com" };
+    const result = capturedConfig.callbacks.authorized({
+      auth: { user },
+    });
+
+    expect(isOwnerUserMock).toHaveBeenCalledWith(user);
+    expect(result).toBe(true);
+  });
+});
+```
+
+In `src/auth.ts`, import:
+
+```ts
+import { isOwnerUser } from "@/lib/authz";
+```
+
+Replace the inline owner check in the `authorized` callback with:
+
+```ts
+authorized({ auth }) {
+  const user = auth?.user;
+  if (!user) return false;
+
+  return isOwnerUser(user);
+},
+```
+
+- [ ] **Step 8: Run focused and safety checks**
 
 Run:
 
 ```bash
 source ~/.nvm/nvm.sh && nvm use 22
-npm test -- src/lib/authz.test.ts
+npm test -- src/lib/authz.test.ts src/auth.test.ts
 npm run lint
 git diff --check
 ```
 
 Expected:
 
-- `npm test -- src/lib/authz.test.ts`: PASS.
+- `npm test -- src/lib/authz.test.ts src/auth.test.ts`: PASS.
 - `npm run lint`: exit 0.
 - `git diff --check`: no output.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add package.json package-lock.json vitest.config.ts src/lib/authz.ts src/lib/authz.test.ts src/app/api/data/projects/route.ts src/app/api/data/personal/route.ts src/app/admin/layout.tsx src/middleware.ts
+git add package.json package-lock.json vitest.config.ts src/lib/authz.ts src/lib/authz.test.ts src/auth.ts src/auth.test.ts src/app/api/data/projects/route.ts src/app/api/data/personal/route.ts src/app/admin/layout.tsx src/middleware.ts
 git commit -m "test: add owner auth test foundation"
 ```
 
@@ -496,6 +588,7 @@ export type ServiceVisibility = "public" | "owner";
 export type MetricsFreshness = "fresh" | "stale" | "unavailable";
 export type PublicVpsState = "online" | "pressure" | "stale" | "unknown";
 export type DiskPressure = "ok" | "watch" | "critical" | "unknown";
+export type PublicMetricBucket = "low" | "medium" | "high" | "unknown";
 
 export interface HostMetrics {
   cpu_percent: number;
@@ -809,12 +902,26 @@ describe("derivePublicMetrics", () => {
   it("derives coarse public status without exact host metrics", () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(snapshot));
+    fs.writeFileSync(
+      path.join(dir, "history.json"),
+      JSON.stringify({ schema_version: 1, samples: [snapshot] }),
+    );
     const result = readMetricsFromDir(dir, new Date("2026-07-09T02:00:30Z"));
 
     const publicModel = derivePublicMetrics(result, new Date("2026-07-09T02:00:30Z"));
     expect(publicModel.host.diskPressure).toBe("ok");
     expect(publicModel.services).toHaveLength(1);
+    expect(publicModel.history[0]).toEqual({
+      collectedAt: "2026-07-09T02:00:00Z",
+      cpu: "low",
+      ram: "low",
+      disk: "ok",
+    });
     expect(JSON.stringify(publicModel)).not.toContain("ram_used_bytes");
+    expect(JSON.stringify(publicModel)).not.toContain("cpu_percent");
+    expect(JSON.stringify(publicModel)).not.toContain("cpuPercent");
+    expect(JSON.stringify(publicModel)).not.toContain("ramPercent");
+    expect(JSON.stringify(publicModel)).not.toContain("diskPercent");
     expect(JSON.stringify(publicModel)).not.toContain("load_1m");
   });
 
@@ -874,6 +981,7 @@ import {
   type DiskPressure,
   type MetricsFreshness,
   type MetricsSnapshot,
+  type PublicMetricBucket,
   type PublicVpsState,
 } from "./types";
 
@@ -911,9 +1019,9 @@ export interface PublicMetricsModel {
   projectHealthBySlug: Record<string, PublicServiceStatus>;
   history: Array<{
     collectedAt: string;
-    cpuPercent: number;
-    ramPercent: number;
-    diskPercent: number;
+    cpu: PublicMetricBucket;
+    ram: PublicMetricBucket;
+    disk: DiskPressure;
   }>;
   diagnostics: string[];
 }
@@ -986,12 +1094,22 @@ function percent(used: number, total: number): number {
   return total > 0 ? Math.round((used / total) * 1000) / 10 : 0;
 }
 
-function diskPressure(snapshot: MetricsSnapshot | null): DiskPressure {
-  if (!snapshot) return "unknown";
-  const diskPercent = percent(snapshot.host.disk_used_bytes, snapshot.host.disk_total_bytes);
+function diskPressureFromPercent(diskPercent: number): DiskPressure {
   if (diskPercent >= 90) return "critical";
   if (diskPercent >= 75) return "watch";
   return "ok";
+}
+
+function diskPressure(snapshot: MetricsSnapshot | null): DiskPressure {
+  if (!snapshot) return "unknown";
+  return diskPressureFromPercent(percent(snapshot.host.disk_used_bytes, snapshot.host.disk_total_bytes));
+}
+
+function usageBucket(percentValue: number): PublicMetricBucket {
+  if (!Number.isFinite(percentValue)) return "unknown";
+  if (percentValue >= 85) return "high";
+  if (percentValue >= 60) return "medium";
+  return "low";
 }
 
 function publicState(freshness: MetricsFreshness, snapshot: MetricsSnapshot | null): PublicVpsState {
@@ -1060,9 +1178,9 @@ export function derivePublicMetrics(
     projectHealthBySlug: getProjectHealthBySlug(services),
     history: result.history.map((sample) => ({
       collectedAt: sample.collected_at,
-      cpuPercent: sample.host.cpu_percent,
-      ramPercent: percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes),
-      diskPercent: percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
+      cpu: usageBucket(sample.host.cpu_percent),
+      ram: usageBucket(percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes)),
+      disk: diskPressureFromPercent(percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes)),
     })),
     diagnostics: result.diagnostics,
   };
@@ -1241,7 +1359,7 @@ Create `ops/frontpage-metrics.config.json`:
       "label": "Frontpage",
       "project_slug": "frontpage",
       "visibility": "public",
-      "url": "https://reidar.tech/api/health",
+      "url": "http://127.0.0.1:3002/api/health",
       "expected_status": 200,
       "timeout_ms": 5000
     },
@@ -1403,8 +1521,8 @@ def service_result(service, opener=urllib.request.urlopen, now=utc_now):
     try:
         request = urllib.request.Request(service["url"], method="GET")
         with opener(request, timeout=timeout_seconds) as response:
-          latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-          status = "up" if response.status == int(service.get("expected_status", 200)) else "down"
+            latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
+            status = "up" if response.status == int(service.get("expected_status", 200)) else "down"
     except urllib.error.HTTPError as error:
         latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
         status = "up" if error.code == int(service.get("expected_status", 200)) else "down"
@@ -1579,6 +1697,7 @@ After=network-online.target docker.service
 Type=oneshot
 User=frontpage-metrics
 Group=frontpage-metrics
+SupplementaryGroups=docker
 ExecStart=/usr/local/bin/frontpage-metrics-collector --config /etc/frontpage-metrics/config.json --metrics-dir /var/lib/frontpage-metrics
 NoNewPrivileges=true
 PrivateTmp=true
@@ -1623,6 +1742,8 @@ Before `Pull latest image from GHCR`, add tasks:
         system: true
         shell: /usr/sbin/nologin
         create_home: false
+        groups: docker
+        append: true
 
     - name: Create metrics directories
       become: true
@@ -1745,6 +1866,8 @@ Frontpage v1 ships a host collector installed by Ansible:
 - `/var/lib/frontpage-metrics/history.json`
 - `frontpage-metrics-collector.service`
 - `frontpage-metrics-collector.timer`
+
+The collector service runs as `frontpage-metrics` with supplementary `docker` group access so it can inspect the static allowlist. The Frontpage app container does not receive Docker socket access; it only reads `/metrics/latest.json` and `/metrics/history.json` through a read-only bind mount.
 
 Verify on the VPS:
 
@@ -1969,8 +2092,8 @@ import type { PersonalData } from "@/data/personal";
 import type { Project } from "@/data/projects";
 import type { GitHubStats } from "@/lib/github-stats";
 import type { PublicMetricsModel } from "@/lib/metrics/reader";
-import { MetricsSparkline } from "./MetricsSparkline";
 import { ProjectHealthRow } from "./ProjectHealthRow";
+import { StatusToken } from "./StatusToken";
 import { VpsStatusSummary } from "./VpsStatusSummary";
 
 export function ProjectDashboard({
@@ -2018,7 +2141,7 @@ export function ProjectDashboard({
         <VpsStatusSummary metrics={metrics} />
       </section>
 
-      <section className="grid gap-6 border-b border-zinc-800 py-10 lg:grid-cols-[1fr_280px]">
+      <section className="grid gap-6 border-b border-zinc-800 py-10 lg:grid-cols-[1fr_300px]">
         <div>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-mono text-sm text-green-400">Project Operations</h2>
@@ -2035,11 +2158,35 @@ export function ProjectDashboard({
             ))}
           </div>
         </div>
-        <div className="grid content-start gap-3">
-          <MetricsSparkline label="CPU" values={metrics.history.map((point) => point.cpuPercent)} />
-          <MetricsSparkline label="RAM" values={metrics.history.map((point) => point.ramPercent)} />
-          <MetricsSparkline label="Disk" values={metrics.history.map((point) => point.diskPercent)} />
-        </div>
+        <aside className="border border-zinc-800 bg-zinc-900/30 p-4">
+          <h2 className="font-mono text-sm text-green-400">Recent Signals</h2>
+          <div className="mt-4 space-y-3">
+            {metrics.services.slice(0, 5).map((service) => (
+              <div key={service.id} className="flex items-center justify-between gap-3 border-t border-zinc-800 pt-3">
+                <div>
+                  <div className="font-mono text-xs text-zinc-200">{service.label}</div>
+                  <div className="mt-1 font-mono text-[11px] text-zinc-600">
+                    {service.latencyMs === null ? "no latency" : `${service.latencyMs}ms`}
+                  </div>
+                </div>
+                <StatusToken value={service.status} />
+              </div>
+            ))}
+            {metrics.services.length === 0 ? (
+              <p className="border-t border-zinc-800 pt-3 text-sm text-zinc-500">No public service checks are configured.</p>
+            ) : null}
+          </div>
+          <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-zinc-800 pt-4 text-sm">
+            <div>
+              <dt className="font-mono text-xs text-zinc-600">host</dt>
+              <dd className="text-zinc-200">{metrics.host.state}</dd>
+            </div>
+            <div>
+              <dt className="font-mono text-xs text-zinc-600">disk</dt>
+              <dd className="text-zinc-200">{metrics.host.diskPressure}</dd>
+            </div>
+          </dl>
+        </aside>
       </section>
     </div>
   );
@@ -2225,6 +2372,10 @@ const readResult: MetricsReadResult = {
   history: [],
 };
 
+if (readResult.latest) {
+  readResult.history = [readResult.latest];
+}
+
 describe("createStatusPageModel", () => {
   it("does not include exact owner metrics for public visitors", () => {
     const model = createStatusPageModel({
@@ -2234,7 +2385,17 @@ describe("createStatusPageModel", () => {
     });
 
     expect(model.owner).toBeNull();
+    expect(model.public.history[0]).toEqual({
+      collectedAt: "2026-07-09T02:00:00Z",
+      cpu: "low",
+      ram: "low",
+      disk: "ok",
+    });
     expect(JSON.stringify(model.public)).not.toContain("load_1m");
+    expect(JSON.stringify(model.public)).not.toContain("cpu_percent");
+    expect(JSON.stringify(model.public)).not.toContain("cpuPercent");
+    expect(JSON.stringify(model.public)).not.toContain("ramPercent");
+    expect(JSON.stringify(model.public)).not.toContain("diskPercent");
     expect(JSON.stringify(model.public)).not.toContain("frontpage-internal");
   });
 
@@ -2475,7 +2636,7 @@ npm run dev
 In another terminal:
 
 ```bash
-curl -s http://localhost:3000/status | grep -E "load_1m|ram_used_bytes|frontpage-internal|frontpage-container" && exit 1 || exit 0
+curl -s http://localhost:3000/status | grep -E "cpu_percent|cpuPercent|ram_used_bytes|ramPercent|disk_used_bytes|diskPercent|load_1m|frontpage-internal|frontpage-container" && exit 1 || exit 0
 ```
 
 Expected: exit 0, meaning public HTML did not include exact owner-only strings.
@@ -2560,8 +2721,9 @@ Verify:
 
 - Homepage first viewport reads as Project OS Dashboard.
 - `/status` public view renders service inventory.
-- Sparklines render from the single sample as empty/no-history or one-point-tolerant state without layout breakage.
-- Public source does not contain `load_1m`, `ram_used_bytes`, `frontpage-internal`, or `frontpage-container`.
+- Public dashboard renders recent service signals without CPU/RAM/disk sparklines.
+- Owner-only sparklines render from the single sample as empty/no-history or one-point-tolerant state without layout breakage when an owner session is available.
+- Public source does not contain `cpu_percent`, `cpuPercent`, `ram_used_bytes`, `ramPercent`, `disk_used_bytes`, `diskPercent`, `load_1m`, `frontpage-internal`, or `frontpage-container`.
 - Mobile width does not overlap text.
 
 Stop the dev server and remove the temp metrics directory:

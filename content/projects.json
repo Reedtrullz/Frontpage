@@ -1,0 +1,390 @@
+[
+  {
+    "slug": "nytt",
+    "name": "Nytt",
+    "outcome": "Explains Trondheim transport disruptions with provenance and practical traveller context.",
+    "shortDescription": "A provenance-first public-transport intelligence app for Trondheim-area disruptions, stop and line impact, and Situation Room analysis.",
+    "longDescription": "Nytt turns Entur alerts, DATEX traffic context, stop and line impact, and source freshness into a practical disruption workspace. The product is designed to explain why an incident matters before promoting it to travellers.",
+    "lifecycle": "active",
+    "maturity": "flagship",
+    "category": "frontend",
+    "tags": ["transport", "trondheim", "maps", "alerts", "provenance", "situation-room"],
+    "techStack": ["Next.js", "TypeScript", "Python", "PostgreSQL", "GIS"],
+    "featuredRank": 1,
+    "liveUrl": "https://nytt.reidar.tech",
+    "healthServiceIds": ["nytt-public"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Source, product posture, and operational boundaries reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Transport alerts are often technically correct but difficult to translate into a traveller decision."],
+      "currentState": ["Active flagship with disruption mapping, source freshness, line and stop context, and Situation Room explanations."],
+      "howItWorks": ["Combines Entur service alerts with DATEX traffic context and preserves source provenance through ingestion and presentation."],
+      "nextPriorities": ["Continue improving evidence quality, incident explanation, and restore rehearsal proof."]
+    },
+    "limitations": ["Coverage and certainty depend on upstream transport sources.", "Source freshness is evidence, not a guarantee that every disruption is represented."]
+  },
+  {
+    "slug": "rfs",
+    "name": "RFS",
+    "outcome": "Makes technical flight simulation playable while keeping physics and unsupported modes honest.",
+    "shortDescription": "A browser-based flight simulator focused on credible physics, usable cockpit systems, and explicit validation boundaries.",
+    "longDescription": "RFS is an active technical flagship for browser-based flight simulation. It combines aerodynamic modelling, cockpit and primary-flight displays, camera and input ergonomics, and incremental validation instead of visual-only simulation.",
+    "lifecycle": "active",
+    "maturity": "flagship",
+    "category": "tooling",
+    "tags": ["aviation", "flight-sim", "physics", "autopilot", "webgl"],
+    "techStack": ["React", "TypeScript", "Vite", "Three.js", "Zustand"],
+    "featuredRank": 2,
+    "repoUrl": "https://github.com/Reedtrullz/RFS",
+    "liveUrl": "https://fly.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/rfs/cover.webp",
+        "alt": "RFS flight simulator showing Trondheim runway scenery, takeoff setup, primary flight display, and mode control panel",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live simulator at Trondheim Vaernes, captured July 2026."
+      }
+    },
+    "healthServiceIds": ["rfs-public"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Current technical posture and validation limits reviewed in source."
+    },
+    "sections": {
+      "whatItSolves": ["Browser flight simulators often look convincing without making aircraft behaviour or cockpit feedback credible."],
+      "currentState": ["Active technical flagship with playable flight, cockpit instrumentation, and validation in progress."],
+      "howItWorks": ["Uses an explicit flight model, state store, Three.js scene, and cockpit displays with bounded unsupported-mode behaviour."],
+      "nextPriorities": ["Expand data-backed flight-dynamics validation and training-route coverage."]
+    },
+    "limitations": ["Physics validation remains in progress.", "It is a technical simulator, not certified training software."]
+  },
+  {
+    "slug": "rfmc",
+    "name": "RFMC / VirtualCDU",
+    "outcome": "Provides focused CDU and MCDU procedure practice in a touch-friendly browser trainer.",
+    "shortDescription": "A Boeing 737 NG CDU/FMC and scoped Airbus MCDU procedure trainer with cockpit displays and offline PWA support.",
+    "longDescription": "RFMC is a browser-based avionics procedure trainer for route setup, cockpit scanning, navigation-display interpretation, and trainer-level autoflight concepts. It supports Boeing 737 NG foundations with scoped Airbus A320 pages.",
+    "lifecycle": "active",
+    "maturity": "flagship",
+    "category": "tooling",
+    "tags": ["aviation", "fmc", "boeing", "airbus", "training", "pwa"],
+    "techStack": ["React 18", "TypeScript", "Vite", "Zustand", "Node.js", "WebSocket"],
+    "featuredRank": 3,
+    "repoUrl": "https://github.com/Reedtrullz/RFMC",
+    "liveUrl": "https://fmc.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/rfmc/cover.webp",
+        "alt": "VirtualCDU training mission selector for Boeing 737 FMC and Airbus A320 MCDU procedure practice",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live VirtualCDU mission workspace, captured July 2026."
+      }
+    },
+    "healthServiceIds": ["rfmc-public"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Trainer scope and unsupported-versus-real behaviour reviewed in source."
+    },
+    "sections": {
+      "whatItSolves": ["Learners need repeatable avionics procedure practice without requiring a full simulator setup."],
+      "currentState": ["Active technical flagship with CDU, MCDU, PFD, navigation display, and task-oriented practice surfaces."],
+      "howItWorks": ["Runs as an offline-capable PWA with hardware-style panels, instrument presentations, and optional simulator bridging."],
+      "nextPriorities": ["Continue validation of LOC, glide-slope, and autoflight boundaries."]
+    },
+    "limitations": ["Not certified training software.", "Some autoflight and approach modes are intentionally unsupported or still being validated."]
+  },
+  {
+    "slug": "heimdall",
+    "name": "Heimdall",
+    "outcome": "Helps THORChain bond providers understand rewards, node posture, and slash exposure.",
+    "shortDescription": "A THORChain intelligence dashboard for bond providers covering bonded RUNE, rewards, node state, and provider risk.",
+    "longDescription": "Heimdall is an active THORChain intelligence dashboard centred on bond-provider decisions. It tracks bonded RUNE, valuation, weighted APY, node status, slash points, jail state, churn risk, and provider context.",
+    "lifecycle": "active",
+    "maturity": "flagship",
+    "category": "defi",
+    "tags": ["thorchain", "dashboard", "defi", "monitoring", "bonds"],
+    "techStack": ["Next.js 16", "TypeScript", "Tailwind CSS 4", "Vitest", "Playwright"],
+    "featuredRank": 4,
+    "repoUrl": "https://github.com/Reedtrullz/Heimdall",
+    "liveUrl": "https://bond.thorchain.no",
+    "media": {
+      "cover": {
+        "src": "/projects/heimdall/cover.webp",
+        "alt": "Heimdall THORChain operations console with bond provider lookup and read-only trust boundary summary",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live read-only operations console, captured July 2026."
+      }
+    },
+    "healthServiceIds": ["heimdall-public"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Provider-centred posture, source trust, and risk framing reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Bond providers need a provider-centred view of rewards and slash exposure rather than a generic node score."],
+      "currentState": ["Active flagship for THORChain intelligence with conservative source and risk framing."],
+      "howItWorks": ["Combines THORNode and market data into provider positions, APY context, node state, and risk explanations."],
+      "nextPriorities": ["Keep provider alerts, source freshness, and decision guidance explicit."]
+    },
+    "limitations": ["Third-party and protocol data can be delayed or incomplete.", "The dashboard supports decisions but does not replace protocol or operator verification."]
+  },
+  {
+    "slug": "thorchain-wiki",
+    "name": "tcwiki / THORChain Wiki",
+    "outcome": "Turns THORChain concepts and live data into reviewable decision guidance.",
+    "shortDescription": "A THORChain knowledge and data workspace with freshness metadata, guided answers, and live-data trust boundaries.",
+    "longDescription": "tcwiki is an active knowledge workspace for THORChain concepts, RUNE economics, protocol mechanics, and data exploration. It links static explanations with live data while keeping freshness and source posture visible.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "wiki",
+    "tags": ["thorchain", "wiki", "documentation", "charts", "data"],
+    "techStack": ["Next.js 16", "React 19", "Recharts", "lunr", "SWR", "date-fns"],
+    "repoUrl": "https://github.com/Reedtrullz/thorchain-wiki",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Knowledge, search, and live-data trust surfaces reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Protocol information is difficult to use when static explanation and current data are separated."],
+      "currentState": ["Active knowledge and data workspace with broad trust-first remediation underway."],
+      "howItWorks": ["Combines structured documentation, search, guided answers, charts, and source-labelled live data."],
+      "nextPriorities": ["Continue source review, freshness labelling, and decision-journey polish."]
+    },
+    "limitations": ["Live protocol data changes independently of the written explanations.", "Readers should verify high-stakes protocol actions at primary sources."]
+  },
+  {
+    "slug": "thorarb",
+    "name": "THORArb",
+    "outcome": "Explores cross-venue THOR arbitrage while keeping real execution disabled by default.",
+    "shortDescription": "An experimental THOR arbitrage monitor with guarded execution paths; it is not production-safe trading infrastructure.",
+    "longDescription": "THORArb monitors THOR opportunities across multiple venues. Recent hardening added disabled-by-default execution, dry-run startup, typed opportunity handling, and minimum-output enforcement for supported paths.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "bot",
+    "tags": ["thorchain", "arbitrage", "defi", "trading", "experimental", "safety"],
+    "techStack": ["TypeScript", "Node.js", "ethers.js", "Jest", "GitHub Actions"],
+    "repoUrl": "https://github.com/Reedtrullz/THORArb",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Execution guards and unsupported trading paths reviewed in source."
+    },
+    "sections": {
+      "whatItSolves": ["Cross-venue pricing differences are hard to inspect with realistic gas, slippage, and liquidity constraints."],
+      "currentState": ["Experimental monitor with real execution disabled by default."],
+      "howItWorks": ["Collects venue quotes, models candidate routes, and applies explicit safety gates before any supported execution path."],
+      "nextPriorities": ["Complete quote and execution safety review before any production claim."]
+    },
+    "limitations": ["Not production-safe trading infrastructure.", "Some venues are quote-only or explicitly refused.", "Real trading requires deliberate opt-in and further review."]
+  },
+  {
+    "slug": "thor-maya-swap",
+    "name": "thor-maya-swap",
+    "outcome": "Explores THORChain and Maya swap quotes without pretending transaction execution is ready.",
+    "shortDescription": "An experimental quotes-only THORChain and Maya frontend; wallet signing and real swap execution remain disabled.",
+    "longDescription": "thor-maya-swap is a quote exploration frontend for THORChain and Maya. Its current public posture is quotes-only until slippage, minimum output, address validation, signing, and security gates are complete.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "frontend",
+    "tags": ["thorchain", "maya", "swap", "frontend", "quotes-only", "experimental"],
+    "techStack": ["Next.js 15", "React 19", "Zustand", "Vitest", "Tailwind"],
+    "repoUrl": "https://github.com/Reedtrullz/thor-maya-swap-frontend",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Quotes-only boundary and no-execution safeguards reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Users need to compare cross-chain quote paths without being misled into unsafe execution."],
+      "currentState": ["Experimental quotes-only interface."],
+      "howItWorks": ["Builds validated quote requests and presents provider responses while transaction execution stays out of scope."],
+      "nextPriorities": ["Complete min-out, signing, wallet, and security design before execution."]
+    },
+    "limitations": ["No wallet signing or real swap execution.", "Quotes are not a guarantee of settlement."]
+  },
+  {
+    "slug": "harmony-sync",
+    "name": "Harmony Sync",
+    "outcome": "Tests a mobile-to-backend music analysis workflow without overstating model readiness.",
+    "shortDescription": "An experimental mobile and backend music-analysis prototype with durability, cleanup, auth, and model boundaries still in progress.",
+    "longDescription": "Harmony Sync is a prototype for submitting a media URL, creating a backend analysis job, and eventually returning chords and lyrics. Backend durability and honest model boundaries remain planned work.",
+    "lifecycle": "paused",
+    "maturity": "experimental",
+    "category": "tooling",
+    "tags": ["mobile", "music", "machine-learning", "expo", "prototype", "experimental"],
+    "techStack": ["Expo", "React Native", "Python", "FastAPI", "yt-dlp"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Prototype boundaries and planned backend hardening reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Music analysis prototypes often blur the line between a queued workflow and a reliable model result."],
+      "currentState": ["Paused experimental prototype."],
+      "howItWorks": ["A mobile client submits work to a FastAPI backend that coordinates media processing and analysis jobs."],
+      "nextPriorities": ["Add durable jobs, cleanup, authentication, rate limits, and explicit model-result semantics."]
+    },
+    "limitations": ["Not a durable production service.", "Chord and lyric outputs are not represented as validated model results."]
+  },
+  {
+    "slug": "vifty",
+    "name": "Vifty",
+    "outcome": "Provides local macOS thermal visibility and guarded fan control with explicit privilege boundaries.",
+    "shortDescription": "A native macOS fan-control utility for Apple Silicon with menu-bar telemetry and privileged XPC safety boundaries.",
+    "longDescription": "Vifty reads temperature sensors, presents menu-bar telemetry, and steers fan speeds through a privileged XPC helper with explicit client validation and fail-safe recovery.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "tooling",
+    "tags": ["macos", "fan-control", "swift", "menu-bar", "utility", "xpc"],
+    "techStack": ["Swift 6", "SwiftUI", "XPC", "IOKit", "SMC"],
+    "repoUrl": "https://github.com/Reedtrullz/Vifty",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Current native architecture and privileged safety boundaries reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Mac users need thermal visibility and predictable fan controls without hiding privileged risk."],
+      "currentState": ["Active local and signed-distribution utility with ongoing trust and usability work."],
+      "howItWorks": ["A SwiftUI app reads telemetry and communicates with a validated privileged XPC helper for bounded fan operations."],
+      "nextPriorities": ["Continue release readiness, UI decomposition, signing, and notarization work."]
+    },
+    "limitations": ["Broad consumer distribution is not yet claimed.", "Fan writes require a trusted privileged helper and explicit safeguards."]
+  },
+  {
+    "slug": "hermes-antigravity-auth",
+    "name": "Hermes Antigravity Auth",
+    "outcome": "Bridges Antigravity-backed model access into Hermes while exposing the integration risk.",
+    "shortDescription": "Unofficial high-risk Hermes OAuth and request-adapter infrastructure for Antigravity-backed model access.",
+    "longDescription": "Hermes Antigravity Auth bridges Google Antigravity OAuth into Hermes model access, request transformation, token handling, and account rotation. It depends on external provider behaviour and runtime integration seams.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "infra",
+    "tags": ["hermes", "oauth", "claude", "gemini", "plugin", "antigravity", "high-risk"],
+    "techStack": ["Python", "httpx", "PKCE OAuth", "YAML", "pytest"],
+    "repoUrl": "https://github.com/Reedtrullz/hermes-antigravity-auth",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "OAuth, request adaptation, and provider-risk boundaries reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Hermes integrations need an explicit adapter for provider-specific OAuth and request formats."],
+      "currentState": ["Active experimental infrastructure with high external-provider risk."],
+      "howItWorks": ["Performs PKCE OAuth, token/session handling, request transformation, and account routing around external provider behaviour."],
+      "nextPriorities": ["Keep exact-version smoke tests and provider-policy awareness current."]
+    },
+    "limitations": ["Unofficial integration with external Terms-of-Service and provider-change risk.", "Runtime patching can disrupt authentication when upstream assumptions change."]
+  },
+  {
+    "slug": "codex-antigravity-auth",
+    "name": "codex-antigravity-auth",
+    "outcome": "Explores Codex and Antigravity authentication integration without calling adapter glue a stable product.",
+    "shortDescription": "An experimental Codex Desktop and Antigravity auth adapter with version-specific integration risk.",
+    "longDescription": "codex-antigravity-auth explores authentication integration between Codex Desktop and Antigravity. Previous shim work showed that app or provider changes can break login and history, so the project remains adapter research.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "infra",
+    "tags": ["codex", "antigravity", "auth", "adapter", "experimental", "infra"],
+    "techStack": ["Python", "OAuth", "pytest", "GitHub Actions"],
+    "repoUrl": "https://github.com/Reedtrullz/codex-antigravity-auth",
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Adapter scope, CI posture, and version-specific risk reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Provider-specific authentication experiments need repeatable adapters and smoke checks."],
+      "currentState": ["Active experimental adapter research."],
+      "howItWorks": ["Applies OAuth and request compatibility layers around exact app and provider versions."],
+      "nextPriorities": ["Prove CI, import smoke checks, and exact-version patch behaviour before stability claims."]
+    },
+    "limitations": ["Not a stable platform feature.", "Version-specific patching can break Codex authentication and history."]
+  },
+  {
+    "slug": "inebotten",
+    "name": "inebotten",
+    "outcome": "Automates community operations and THORChain utility workflows through a Discord bot.",
+    "shortDescription": "An active Discord and community automation bot with signed-session hardening and ongoing modular extraction.",
+    "longDescription": "inebotten handles moderation, THORChain information, scheduled announcements, and external API integrations. Recent work tightened session handling and modular boundaries.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "bot",
+    "tags": ["discord", "bot", "automation", "community", "thorchain"],
+    "techStack": ["TypeScript", "discord.js", "Node.js"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Current routing, health, and session-hardening posture reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Community operations need repeatable moderation, information, and scheduled automation."],
+      "currentState": ["Active deployed community infrastructure with ongoing modular extraction."],
+      "howItWorks": ["Uses discord.js commands, events, schedules, and external data integrations."],
+      "nextPriorities": ["Continue modular extraction and operational health visibility."]
+    },
+    "limitations": ["Behaviour depends on Discord and external APIs.", "Public status does not currently expose a dedicated service probe."]
+  },
+  {
+    "slug": "thornode-watcher",
+    "name": "THORNode Watcher",
+    "outcome": "Preserves an older automated THORNode monitoring approach as a historical reference.",
+    "shortDescription": "Older Puppeteer-based THORNode bond-monitoring automation retained as a historical tooling reference.",
+    "longDescription": "THORNode Watcher scraped and logged bond amounts, node status, and churn data on a schedule. Heimdall and tcwiki now carry the primary THORChain intelligence work.",
+    "lifecycle": "archived",
+    "maturity": "reference",
+    "category": "tooling",
+    "tags": ["thorchain", "monitoring", "puppeteer", "nodes", "automation"],
+    "techStack": ["JavaScript", "Puppeteer", "Node.js"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T18:00:00Z",
+      "level": "source-reviewed",
+      "note": "Historical role and replacement by current intelligence surfaces reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Historical bond-provider workflows needed scheduled node and bond snapshots."],
+      "currentState": ["Archived reference replaced by newer intelligence surfaces."],
+      "howItWorks": ["Used headless browser automation to collect and log node information." ]
+    },
+    "limitations": ["Not maintained as the current THORChain intelligence source."]
+  },
+  {
+    "slug": "frontpage",
+    "name": "Frontpage",
+    "outcome": "Keeps Reidar's project claims, public service posture, and owner operations in one verifiable index.",
+    "shortDescription": "This site: a trust-first project index with public-safe status and an owner-only operations workspace.",
+    "longDescription": "Frontpage is the public index for Reidar's projects and the owner surface for exact VPS metrics, content drafts, and deployment runbooks. Its core rule is to keep project and deployment claims conservative and evidence-backed.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "frontend",
+    "tags": ["portfolio", "nextjs", "tailwind", "personal-site", "projects", "status"],
+    "techStack": ["Next.js 16", "TypeScript", "Tailwind CSS 4", "Auth.js", "Ansible"],
+    "repoUrl": "https://github.com/Reedtrullz/Frontpage",
+    "liveUrl": "https://reidar.tech",
+    "healthServiceIds": ["frontpage-public"],
+    "evidence": {
+      "reviewedAt": "2026-07-09T20:04:00Z",
+      "level": "live-verified",
+      "commitSha": "6e4feb3",
+      "url": "https://reidar.tech/api/health",
+      "note": "Main CI, image publish, Ansible deploy, public routes, and collector health verified."
+    },
+    "sections": {
+      "whatItSolves": ["A project portfolio is not useful when status, maturity, and evidence are mixed into vague marketing claims."],
+      "currentState": ["Active trust-first portfolio and operations surface."],
+      "howItWorks": ["Combines canonical project content, GitHub metadata, public-safe collector output, and owner-gated exact metrics."],
+      "nextPriorities": ["Complete the trust-first UI, canonical content migration, and owner draft/publish workflow."]
+    },
+    "limitations": ["Only configured public services receive runtime health.", "Deployment remains a deliberate external Ansible action."]
+  }
+]

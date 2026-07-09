@@ -1,107 +1,98 @@
 import Link from "next/link";
-import type { Project } from "@/data/projects";
-import { StatusBadge } from "@/components/ui/StatusBadge";
-import { TechBadge } from "@/components/ui/TechBadge";
+import {
+  ArrowUpRight,
+  Code2,
+  GitCommitHorizontal,
+  Star,
+} from "lucide-react";
+import type { ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
+import { repositoryActivity } from "@/lib/projects/presentation";
+import { PostureBadge } from "@/components/ui/PostureBadge";
+import {
+  ProjectMedia,
+  ProjectMediaUnavailable,
+} from "@/components/ui/ProjectMedia";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 
 interface ProjectCardProps {
-  project: Project;
+  project: ProjectContent;
   stats?: GitHubStats | null;
+  now: Date;
+  priority?: boolean;
 }
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
-
-function Stars({ count }: { count: number }) {
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-zinc-500 font-mono">
-      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-      </svg>
-      {count}
-    </span>
-  );
-}
-
-function GitStats({ stats }: { stats: GitHubStats | null }) {
-  if (!stats || (!stats.language && !stats.lastCommitDate && !stats.stars)) {
-    return null;
-  }
+export function ProjectCard({ project, stats, now, priority = false }: ProjectCardProps) {
+  const activity = repositoryActivity(stats);
 
   return (
-    <div className="flex items-center gap-3 mt-3 pt-3 border-t border-zinc-800/50">
-      {stats.stars > 0 && <Stars count={stats.stars} />}
-      {stats.language && stats.language !== "—" && (
-        <span className="inline-flex items-center gap-1 text-xs text-zinc-500 font-mono">
-          <span
-            className="w-2 h-2 rounded-full inline-block"
-            style={{ backgroundColor: langColor(stats.language) }}
-          />
-          {stats.language}
-        </span>
-      )}
-      {stats.lastCommitDate && (
-        <span className="text-xs text-zinc-600 font-mono" title={stats.lastCommitMessage ?? undefined}>
-          {timeAgo(stats.lastCommitDate)}
-        </span>
-      )}
-    </div>
-  );
-}
-
-// GitHub language colors — common ones
-function langColor(lang: string): string {
-  const colors: Record<string, string> = {
-    TypeScript: "#3178c6",
-    JavaScript: "#f1e05a",
-    Python: "#3572a5",
-    Swift: "#f05138",
-    CSS: "#563d7c",
-    HTML: "#e34c26",
-    Go: "#00ADD8",
-    Rust: "#dea584",
-    Shell: "#89e051",
-  };
-  return colors[lang] ?? "#8b949e";
-}
-
-export function ProjectCard({ project, stats }: ProjectCardProps) {
-  return (
-    <Link
-      href={`/projects/${project.slug}`}
-      aria-label={`Open ${project.name} project details`}
-      className="block p-5 rounded-lg border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 hover:border-zinc-700 transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500/40"
-    >
-      <div className="flex items-start justify-between mb-3">
-        <h3 className="font-mono text-sm text-green-400 group-hover:text-green-300 transition-colors">
-          {project.name}
-        </h3>
-        <StatusBadge status={project.status} />
-      </div>
-      <p className="text-sm text-zinc-400 leading-relaxed mb-4 line-clamp-3">
-        {project.shortDescription}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {project.techStack.slice(0, 4).map((tech) => (
-          <TechBadge key={tech} tech={tech} />
-        ))}
-        {project.techStack.length > 4 && (
-          <span className="inline-block px-2.5 py-0.5 text-xs text-zinc-600 font-mono">
-            +{project.techStack.length - 4}
-          </span>
+    <article className="group relative flex min-h-full flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] transition-colors hover:border-[var(--border-strong)]">
+      <div className="border-b border-[var(--border)]">
+        {project.media ? (
+          <ProjectMedia media={project.media.cover} priority={priority} sizes="(min-width: 1024px) 40vw, 100vw" />
+        ) : (
+          <ProjectMediaUnavailable projectName={project.name} />
         )}
       </div>
-      <GitStats stats={stats ?? null} />
-    </Link>
+      <div className="flex flex-1 flex-col p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-xs uppercase text-[var(--text-subtle)]">
+              {project.category}
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-[var(--text)]">
+              <Link
+                href={`/projects/${project.slug}`}
+                className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] after:absolute after:inset-0"
+              >
+                {project.name}
+              </Link>
+            </h2>
+          </div>
+          <ArrowUpRight className="h-5 w-5 shrink-0 text-[var(--text-subtle)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden="true" />
+        </div>
+
+        <p className="mt-3 text-sm font-medium leading-6 text-[var(--text)]">
+          {project.outcome}
+        </p>
+        <p className="mt-2 line-clamp-3 text-sm leading-6 text-[var(--text-muted)]">
+          {project.shortDescription}
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          <PostureBadge dimension="lifecycle" value={project.lifecycle} />
+          <PostureBadge dimension="maturity" value={project.maturity} />
+        </div>
+
+        <div className="mt-auto pt-6">
+          <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-[var(--border)] pt-4 text-xs text-[var(--text-subtle)]">
+            <span>
+              Evidence <RelativeTime value={project.evidence.reviewedAt} now={now} />
+            </span>
+            {activity?.stars ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Star className="h-3.5 w-3.5" aria-hidden="true" />
+                {activity.stars}
+              </span>
+            ) : null}
+            {activity?.language ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Code2 className="h-3.5 w-3.5" aria-hidden="true" />
+                {activity.language}
+              </span>
+            ) : null}
+            {activity?.lastCommitDate ? (
+              <span
+                className="inline-flex items-center gap-1.5"
+                title={activity.lastCommitMessage ?? undefined}
+              >
+                <GitCommitHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                <RelativeTime value={activity.lastCommitDate} now={now} />
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </article>
   );
 }

@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { getPersonal, getProjects } from "@/lib/data";
+import { getCanonicalPersonal, getCanonicalProjects } from "@/lib/content";
 
 export function GET() {
-  return NextResponse.json({
-    personal: getPersonal(),
-    projects: getProjects(),
-  });
+  return NextResponse.json(
+    {
+      personal: getCanonicalPersonal(),
+      projects: getCanonicalProjects(),
+    },
+    {
+      headers: {
+        "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+      },
+    },
+  );
 }

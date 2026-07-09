@@ -21,6 +21,7 @@ Same pattern as Heimdall. The VPS is a target, never a source.
 ### Local (control node)
 - Ansible: `brew install ansible`
 - SSH key at `~/.ssh/id_rsa_racknerd`
+- Frontpage vault password file at `.vault_pass` (ignored by git, `0600`)
 
 ### VPS (managed node)
 - Docker
@@ -43,7 +44,15 @@ After adding, reload: `sudo systemctl reload caddy`
 ```bash
 cd /Users/reidar/Projectos/Frontpage
 git pull origin main
-ansible-playbook -i inventory/hosts.yml ansible-playbook.yml
+ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass
+```
+
+If a local checkout has migrated this vault to the shared password file, first
+verify it can decrypt `group_vars/all/vault.yml`:
+
+```bash
+ansible-vault view group_vars/all/vault.yml --vault-password-file ~/.vault_pass.txt >/dev/null
 ```
 
 The playbook:
@@ -56,6 +65,7 @@ The playbook:
 ### Force a specific tag
 ```bash
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass \
   -e "docker_image=ghcr.io/reedtrullz/frontpage:sha-<short-sha>"
 ```
 
@@ -71,6 +81,35 @@ curl -s https://reidar.tech/api/health | jq
 # Homepage
 curl -s -o /dev/null -w "%{http_code}\n" https://reidar.tech
 ```
+
+## VPS metrics collector
+
+Frontpage v1 ships a host collector installed by Ansible:
+
+- `/usr/local/bin/frontpage-metrics-collector`
+- `/etc/frontpage-metrics/config.json`
+- `/var/lib/frontpage-metrics/latest.json`
+- `/var/lib/frontpage-metrics/history.json`
+- `frontpage-metrics-collector.service`
+- `frontpage-metrics-collector.timer`
+
+The collector service runs as `frontpage-metrics` with supplementary `docker`
+group access so it can inspect the static allowlist. The Frontpage app
+container does not receive Docker socket access; it only reads
+`/metrics/latest.json` and `/metrics/history.json` through a read-only bind
+mount.
+
+Verify on the VPS:
+
+```bash
+ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer"
+ssh deploy@198.23.137.16 "sudo systemctl start frontpage-metrics-collector.service && sudo test -s /var/lib/frontpage-metrics/latest.json"
+ssh deploy@198.23.137.16 "docker exec frontpage test -r /metrics/latest.json"
+ssh deploy@198.23.137.16 "docker exec frontpage sh -lc '! touch /metrics/write-test'"
+```
+
+Non-claim: `/api/health` remains app-health only; host status is surfaced by
+the dashboard and `/status`.
 
 ## Rollback
 

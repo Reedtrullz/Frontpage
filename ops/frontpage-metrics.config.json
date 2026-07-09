@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "services": [
+    {
+      "id": "frontpage-public",
+      "label": "Frontpage",
+      "project_slug": "frontpage",
+      "visibility": "public",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "frontpage-internal",
+      "label": "Frontpage internal",
+      "project_slug": "frontpage",
+      "visibility": "owner",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "timeout_ms": 3000
+    },
+    {
+      "id": "nytt-public",
+      "label": "Nytt",
+      "project_slug": "nytt",
+      "visibility": "public",
+      "url": "https://nytt.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfs-public",
+      "label": "RFS",
+      "project_slug": "rfs",
+      "visibility": "public",
+      "url": "https://fly.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfmc-public",
+      "label": "VirtualCDU",
+      "project_slug": "rfmc",
+      "visibility": "public",
+      "url": "https://fmc.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "heimdall-public",
+      "label": "Heimdall",
+      "project_slug": "heimdall",
+      "visibility": "public",
+      "url": "https://bond.thorchain.no/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    }
+  ],
+  "containers": [
+    {
+      "id": "frontpage-container",
+      "label": "Frontpage container",
+      "project_slug": "frontpage",
+      "name": "frontpage"
+    }
+  ]
+}
