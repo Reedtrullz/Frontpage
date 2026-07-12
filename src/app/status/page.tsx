@@ -27,7 +27,7 @@ export default async function StatusPage() {
 
   return (
     <div>
-      <header className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
+      <header className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12">
         <p className="font-mono text-sm text-[var(--accent)]">REIDAR.TECH / STATUS</p>
         <h1 className="mt-3 text-4xl font-semibold text-[var(--text)] sm:text-5xl">System status</h1>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
@@ -45,8 +45,11 @@ export default async function StatusPage() {
 
       <VpsStatusSummary metrics={model.public} overall={model.overall} />
 
-      <div className="mx-auto grid max-w-7xl gap-14 px-4 py-14 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <section aria-labelledby="history-heading">
+      <div className="mx-auto grid max-w-7xl gap-12 px-4 py-12 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+        <div className="lg:order-2">
+          <StatusInventory metrics={model.public} />
+        </div>
+        <section aria-labelledby="history-heading" className="lg:order-1">
           <p className="font-mono text-sm text-[var(--accent)]">24-HOUR WINDOW</p>
           <h2 id="history-heading" className="mt-2 text-2xl font-semibold text-[var(--text)]">Coarse pressure history</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Buckets show pressure bands only. Exact host values remain owner-only.</p>
@@ -101,7 +104,6 @@ export default async function StatusPage() {
             />
           </div>
         </section>
-        <StatusInventory metrics={model.public} />
       </div>
 
       {model.ownerAttention ? (

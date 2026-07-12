@@ -176,6 +176,48 @@ test.describe("public project experience", () => {
 });
 
 test.describe("public status", () => {
+  test("prioritizes fresh public checks before history on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/status");
+
+    await expect(page.getByText("Operational", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("1/1 up", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(/100% available across 8 known checks/i),
+    ).toBeVisible();
+    await expect(page.getByText("Coverage 100%", { exact: true })).toBeVisible();
+    await expect(page.getByText("24h ago", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("now", { exact: true }).first()).toBeVisible();
+
+    const inventory = page.getByRole("heading", { name: "Service inventory" });
+    const history = page.getByRole("heading", {
+      name: "Coarse pressure history",
+    });
+    const [inventoryBox, historyBox] = await Promise.all([
+      inventory.boundingBox(),
+      history.boundingBox(),
+    ]);
+
+    expect(inventoryBox).not.toBeNull();
+    expect(historyBox).not.toBeNull();
+    expect(inventoryBox!.y).toBeLessThan(historyBox!.y);
+    await expectNoHorizontalOverflow(page);
+    await expectNoSeriousAccessibilityViolations(page);
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/status");
+    const [desktopInventoryBox, desktopHistoryBox] = await Promise.all([
+      inventory.boundingBox(),
+      history.boundingBox(),
+    ]);
+
+    expect(desktopInventoryBox).not.toBeNull();
+    expect(desktopHistoryBox).not.toBeNull();
+    expect(desktopInventoryBox!.x).toBeGreaterThan(desktopHistoryBox!.x);
+    await expectNoHorizontalOverflow(page);
+    await expectNoSeriousAccessibilityViolations(page);
+  });
+
   test("renders coarse history and leaks no owner fields", async ({ page }) => {
     await page.goto("/status");
     await expect(
@@ -186,7 +228,7 @@ test.describe("public status", () => {
       page.getByRole("heading", { name: "Coarse pressure history" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("img", { name: /CPU pressure over the available 24-hour window/i }),
+      page.getByRole("img", { name: /CPU pressure history:/i }),
     ).toBeVisible();
     await expect(page.getByText("Frontpage", { exact: true })).toBeVisible();
 
