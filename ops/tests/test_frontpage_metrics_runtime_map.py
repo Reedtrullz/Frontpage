@@ -125,6 +125,12 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertNotIn("v2-shadow:/metrics", playbook)
         self.assertNotIn("/private:/metrics", playbook)
 
+    def test_ansible_runs_collector_preflights_as_the_observer_without_become_user(self):
+        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
+        self.assertNotIn("become_user:", playbook)
+        self.assertEqual(playbook.count("- /usr/sbin/runuser"), 2)
+        self.assertEqual(playbook.count('- "{{ observer_user }}"'), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

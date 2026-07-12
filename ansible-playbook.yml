@@ -344,9 +344,12 @@
 
     - name: Run observability collector shadow preflight
       become: true
-      become_user: "{{ observer_user }}"
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - "{{ observer_user }}"
+          - --
           - /usr/local/bin/frontpage-metrics-collector-v2
           - --config
           - "{{ metrics_config_dir }}/config-v2.json"
@@ -459,9 +462,12 @@
 
     - name: Seed promoted observability projections
       become: true
-      become_user: "{{ observer_user }}"
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - "{{ observer_user }}"
+          - --
           - /usr/local/bin/frontpage-metrics-collector-v2
           - --config
           - "{{ metrics_config_dir }}/config-v2.json"
