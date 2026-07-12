@@ -123,4 +123,3 @@ def legacy_service_result(
     if service.get("project_slug"):
         result["project_slug"] = service["project_slug"]
     return result
-

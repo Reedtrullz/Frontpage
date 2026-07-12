@@ -50,4 +50,3 @@ def migrate(connection) -> None:
         connection.execute("INSERT INTO schema_meta(version) VALUES(?)", (SCHEMA_VERSION,))
     elif len(rows) != 1 or rows[0][0] != SCHEMA_VERSION:
         raise RuntimeError("Unsupported observability database schema")
-
