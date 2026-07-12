@@ -4,6 +4,16 @@ import { describe, expect, it } from "vitest";
 import { OwnerMetricsPanel } from "./OwnerMetricsPanel";
 
 describe("OwnerMetricsPanel", () => {
+  it("renders nothing for an unavailable legacy source when v2 owns resources", () => {
+    expect(
+      renderToStaticMarkup(
+        createElement(OwnerMetricsPanel, {
+          metrics: null,
+          showResourceOverview: false,
+        }),
+      ),
+    ).toBe("");
+  });
   it("renders sanitized diagnostics when the latest sample is unavailable", () => {
     const markup = renderToStaticMarkup(
       createElement(OwnerMetricsPanel, {

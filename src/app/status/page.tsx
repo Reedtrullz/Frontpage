@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { CoarseHistoryStrip } from "@/components/dashboard/CoarseHistoryStrip";
 import { OwnerAttentionSummary } from "@/components/dashboard/OwnerAttentionSummary";
 import { OwnerMetricsPanel } from "@/components/dashboard/OwnerMetricsPanel";
+import { OwnerObservabilityPanel } from "@/components/dashboard/observability/OwnerObservabilityPanel";
 import { StatusInventory } from "@/components/dashboard/StatusInventory";
 import { VpsStatusSummary } from "@/components/dashboard/VpsStatusSummary";
 import { RelativeTime } from "@/components/ui/RelativeTime";
@@ -38,19 +39,22 @@ export default async function StatusPage() {
   const ownerLatestV2 = ownerV2Enabled
     ? readOwnerLatestV2(getOwnerMetricsRootV2())
     : null;
-  let ownerHostSeriesV2Available = false;
+  let ownerHostSeriesV2 = null;
   if (ownerV2Enabled) {
     try {
-      readSeriesV2(getOwnerMetricsRootV2(), {
+      ownerHostSeriesV2 = readSeriesV2(getOwnerMetricsRootV2(), {
         range: "1h",
         view: "host",
         resource: null,
       });
-      ownerHostSeriesV2Available = true;
     } catch {
-      ownerHostSeriesV2Available = false;
+      ownerHostSeriesV2 = null;
     }
   }
+  const ownerObservability =
+    ownerLatestV2?.data && ownerHostSeriesV2
+      ? { latest: ownerLatestV2.data, series: ownerHostSeriesV2 }
+      : null;
   const publicV2State = publicV2.data
     ? publicV2.data.freshness === "fresh"
       ? publicV2.data.overall_state
@@ -70,6 +74,15 @@ export default async function StatusPage() {
     : model.overall.label;
   const publicUpdatedAt =
     publicV2.data?.collected_at ?? model.public.host.lastUpdatedAt;
+  const ownerAttentionItems = ownerObservability
+    ? (model.ownerAttention ?? []).filter(
+        (item) =>
+          !item.id.startsWith("metrics-") &&
+          !item.id.startsWith("cpu-") &&
+          !item.id.startsWith("ram-") &&
+          !item.id.startsWith("disk-"),
+      )
+    : model.ownerAttention;
 
   return (
     <div>
@@ -152,12 +165,12 @@ export default async function StatusPage() {
         </section>
       </div>
 
-      {model.ownerAttention ? (
+      {ownerAttentionItems ? (
         <>
           <div
             className="border-t border-[var(--border)] pt-14"
             data-observability-v2={
-              ownerV2Enabled && ownerLatestV2?.data && ownerHostSeriesV2Available
+              ownerV2Enabled && ownerObservability
                 ? "available"
                 : "fallback"
             }
@@ -167,8 +180,22 @@ export default async function StatusPage() {
               <h2 className="mt-2 text-3xl font-semibold text-[var(--text)]">Owner status</h2>
             </div>
           </div>
-          <OwnerAttentionSummary items={model.ownerAttention} />
-          <OwnerMetricsPanel metrics={model.owner} />
+          <OwnerAttentionSummary items={ownerAttentionItems} observability={ownerObservability} />
+          {ownerObservability ? (
+            <OwnerObservabilityPanel
+              diskCapacity={
+                model.owner?.latest
+                  ? {
+                      usedBytes: model.owner.latest.host.disk_used_bytes,
+                      totalBytes: model.owner.latest.host.disk_total_bytes,
+                      freshness: model.owner.freshness,
+                    }
+                  : undefined
+              }
+              initial={ownerObservability}
+            />
+          ) : null}
+          <OwnerMetricsPanel metrics={model.owner} showResourceOverview={!ownerObservability} />
         </>
       ) : null}
     </div>

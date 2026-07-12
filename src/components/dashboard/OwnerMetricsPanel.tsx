@@ -104,8 +104,15 @@ function CollectorDiagnostics({ diagnostics }: { diagnostics: string[] }) {
   );
 }
 
-export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | null }) {
+export function OwnerMetricsPanel({
+  metrics,
+  showResourceOverview = true,
+}: {
+  metrics: OwnerMetricsModel | null;
+  showResourceOverview?: boolean;
+}) {
   if (!metrics?.latest) {
+    if (!showResourceOverview) return null;
     return (
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6">
         <h2 className="text-2xl font-semibold text-[var(--text)]">Owner telemetry</h2>
@@ -129,7 +136,7 @@ export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | nu
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-16">
-      <section aria-labelledby="owner-resources-heading">
+      {showResourceOverview ? <section aria-labelledby="owner-resources-heading">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="font-mono text-sm text-[var(--role-info)]">OWNER ONLY</p>
@@ -168,7 +175,7 @@ export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | nu
           <MetricsSparkline label="RAM" samples={metrics.history.map((sample, index) => ({ collectedAt: sample.collected_at, value: percentage(sample.host.ram_used_bytes, sample.host.ram_total_bytes), gapBefore: metrics.historyGapBefore[index] ?? false }))} warningAt={OWNER_RESOURCE_THRESHOLDS.ram.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.ram.critical} coverage={metrics.historyCoverage} />
           <MetricsSparkline label="Disk" samples={metrics.history.map((sample, index) => ({ collectedAt: sample.collected_at, value: percentage(sample.host.disk_used_bytes, sample.host.disk_total_bytes), gapBefore: metrics.historyGapBefore[index] ?? false }))} warningAt={OWNER_RESOURCE_THRESHOLDS.disk.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.disk.critical} coverage={metrics.historyCoverage} />
         </div>
-      </section>
+      </section> : null}
 
       <div id="owner-services" className="mt-14 scroll-mt-24 grid gap-10 lg:grid-cols-2">
         <ServiceGroup title="Public services" services={publicServices} />
