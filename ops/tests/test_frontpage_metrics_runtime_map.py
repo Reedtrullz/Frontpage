@@ -130,6 +130,9 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertNotIn("become_user:", playbook)
         self.assertEqual(playbook.count("- /usr/sbin/runuser"), 2)
         self.assertEqual(playbook.count('- "{{ observer_user }}"'), 2)
+        self.assertIn("name: acl", playbook)
+        self.assertIn("ansible.posix.acl:", playbook)
+        self.assertIn('permissions: x', playbook)
 
 
 if __name__ == "__main__":

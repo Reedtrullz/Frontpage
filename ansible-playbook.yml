@@ -119,6 +119,14 @@
         groups: ""
         append: false
 
+    - name: Install POSIX ACL support for collector isolation
+      become: true
+      ansible.builtin.apt:
+        name: acl
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
     - name: Resolve metrics group id
       become: true
       ansible.builtin.getent:
@@ -151,6 +159,15 @@
         - { path: "{{ metrics_dir }}/v2/owner", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
         - { path: "{{ observer_run_dir }}", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0750" }
         - { path: "{{ observer_lib_dir }}/ops", owner: "root", group: "root", mode: "0755" }
+
+    - name: Grant observer execute-only traversal of metrics root
+      become: true
+      ansible.posix.acl:
+        path: "{{ metrics_dir }}"
+        entity: "{{ observer_user }}"
+        etype: user
+        permissions: x
+        state: present
 
     - name: Inspect legacy root-level metrics files
       become: true
