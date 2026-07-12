@@ -11,6 +11,24 @@ export type MetricsFreshness = "fresh" | "stale" | "unavailable";
 export type PublicVpsState = "online" | "pressure" | "stale" | "unknown";
 export type DiskPressure = "ok" | "watch" | "critical" | "unknown";
 export type PublicMetricBucket = "low" | "medium" | "high" | "unknown";
+export type HistoryAvailability = "available" | "empty" | "unavailable";
+
+export interface HistoryCoverage {
+  availability: HistoryAvailability;
+  windowStartAt: string;
+  windowEndAt: string;
+  sampleCount: number;
+  gapCount: number;
+}
+
+export interface PublicServiceTrend {
+  knownChecks: number;
+  totalSamples: number;
+  availabilityPercent: number | null;
+  coveragePercent: number | null;
+  p95LatencyMs: number | null;
+  lastTransitionAt: string | null;
+}
 
 export interface HostMetrics {
   cpu_percent: number;

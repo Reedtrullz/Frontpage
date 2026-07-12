@@ -10,16 +10,33 @@ import {
   UNAVAILABLE_MS,
   type CheckStatus,
   type DiskPressure,
+  type HistoryAvailability,
+  type HistoryCoverage,
   type MetricsFreshness,
   type MetricsSnapshot,
   type PublicMetricBucket,
+  type PublicServiceTrend,
   type PublicVpsState,
 } from "./types";
+
+const HISTORY_WINDOW_MS = 24 * 60 * 60_000;
+const HISTORY_GAP_THRESHOLD_MS = 120_000;
+const HISTORY_METADATA = Symbol("historyMetadata");
+
+interface NormalizedHistoryMetadata {
+  coverage: HistoryCoverage;
+  gapBefore: boolean[];
+}
+
+type NormalizedHistory = MetricsSnapshot[] & {
+  [HISTORY_METADATA]?: NormalizedHistoryMetadata;
+};
 
 export interface MetricsReadResult {
   freshness: MetricsFreshness;
   latest: MetricsSnapshot | null;
   history: MetricsSnapshot[];
+  historyAvailability?: HistoryAvailability;
   diagnostics: string[];
 }
 
@@ -53,13 +70,17 @@ export interface PublicMetricsModel {
     cpu: PublicMetricBucket;
     ram: PublicMetricBucket;
     disk: DiskPressure;
+    gapBefore: boolean;
   }>;
+  historyCoverage: HistoryCoverage;
+  serviceTrends: Record<string, PublicServiceTrend>;
 }
 
 export interface OwnerMetricsModel {
   freshness: MetricsFreshness;
   latest: MetricsSnapshot | null;
   history: MetricsSnapshot[];
+  historyCoverage?: HistoryCoverage;
   diagnostics: string[];
 }
 
@@ -105,16 +126,108 @@ function freshnessFor(
   return "unavailable";
 }
 
+function normalizedHistory(
+  samples: MetricsSnapshot[],
+  latest: MetricsSnapshot | null,
+  sourceAvailability: HistoryAvailability,
+  now: Date,
+): NormalizedHistory {
+  const windowEndMs = now.getTime();
+  const windowStartMs = windowEndMs - HISTORY_WINDOW_MS;
+  const byTimestamp = new Map<
+    string,
+    { snapshot: MetricsSnapshot; timestampMs: number; reconciled: boolean }
+  >();
+  let hasFutureSample = false;
+
+  for (const sample of samples) {
+    const timestampMs = Date.parse(sample.collected_at);
+    if (timestampMs > windowEndMs) {
+      hasFutureSample = true;
+      continue;
+    }
+    if (timestampMs < windowStartMs) continue;
+    byTimestamp.set(sample.collected_at, {
+      snapshot: sample,
+      timestampMs,
+      reconciled: false,
+    });
+  }
+
+  const inWindowHistoryCount = byTimestamp.size;
+  if (latest) {
+    const timestampMs = Date.parse(latest.collected_at);
+    if (
+      timestampMs >= windowStartMs &&
+      timestampMs <= windowEndMs &&
+      !byTimestamp.has(latest.collected_at)
+    ) {
+      byTimestamp.set(latest.collected_at, {
+        snapshot: latest,
+        timestampMs,
+        reconciled: true,
+      });
+    }
+  }
+
+  const entries = [...byTimestamp.values()].sort(
+    (left, right) => left.timestampMs - right.timestampMs,
+  );
+  const history = entries.map((entry) => entry.snapshot) as NormalizedHistory;
+  const gapBefore = entries.map((entry, index) => {
+    if (entry.reconciled) return true;
+    if (index === 0) return false;
+    return entry.timestampMs - entries[index - 1].timestampMs > HISTORY_GAP_THRESHOLD_MS;
+  });
+  const availability =
+    sourceAvailability === "unavailable"
+      ? "unavailable"
+      : inWindowHistoryCount > 0
+        ? "available"
+        : hasFutureSample
+          ? "unavailable"
+          : "empty";
+  const coverage: HistoryCoverage = {
+    availability,
+    windowStartAt: new Date(windowStartMs).toISOString(),
+    windowEndAt: now.toISOString(),
+    sampleCount: history.length,
+    gapCount: gapBefore.filter(Boolean).length,
+  };
+
+  Object.defineProperty(history, HISTORY_METADATA, {
+    value: { coverage, gapBefore },
+    enumerable: false,
+  });
+  return history;
+}
+
+function metadataFor(
+  result: MetricsReadResult,
+  now: Date = new Date(),
+): NormalizedHistoryMetadata {
+  const metadata = (result.history as NormalizedHistory)[HISTORY_METADATA];
+  if (metadata) return metadata;
+  return normalizedHistory(
+    result.history,
+    null,
+    result.historyAvailability ?? (result.history.length > 0 ? "available" : "empty"),
+    now,
+  )[HISTORY_METADATA]!;
+}
+
 export function readMetricsFromDir(
   metricsDir: string | undefined,
   now: Date = new Date(),
 ): MetricsReadResult {
   const diagnostics: string[] = [];
   if (!metricsDir) {
+    const history = normalizedHistory([], null, "unavailable", now);
     return {
       freshness: "unavailable",
       latest: null,
-      history: [],
+      history,
+      historyAvailability: "unavailable",
       diagnostics: ["METRICS_DIR is not configured."],
     };
   }
@@ -128,19 +241,30 @@ export function readMetricsFromDir(
     diagnostics.push(diagnosticFor("latest.json", error));
   }
 
-  let history: MetricsSnapshot[] = [];
+  let historySamples: MetricsSnapshot[] = [];
+  let historyAvailability: HistoryAvailability = "unavailable";
   try {
-    history = parseMetricsHistory(
+    historySamples = parseMetricsHistory(
       readJsonFile(path.join(metricsDir, "history.json")),
     ).samples;
+    historyAvailability = "empty";
   } catch (error) {
     diagnostics.push(diagnosticFor("history.json", error));
   }
+
+  const history = normalizedHistory(
+    historySamples,
+    latest,
+    historyAvailability,
+    now,
+  );
+  historyAvailability = history[HISTORY_METADATA]!.coverage.availability;
 
   return {
     freshness: freshnessFor(latest, now),
     latest,
     history,
+    historyAvailability,
     diagnostics,
   };
 }
@@ -214,11 +338,84 @@ export function getProjectHealthBySlug(
   return bySlug;
 }
 
+function roundedPercent(numerator: number, denominator: number): number | null {
+  if (denominator === 0) return null;
+  return Math.round((numerator / denominator) * 1000) / 10;
+}
+
+function nearestRankP95(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.ceil(sorted.length * 0.95) - 1];
+}
+
+function publicServiceTrends(
+  history: MetricsSnapshot[],
+): Record<string, PublicServiceTrend> {
+  const trends = new Map<
+    string,
+    {
+      knownChecks: number;
+      observedChecks: number;
+      upChecks: number;
+      latencies: number[];
+      lastStatus: CheckStatus | null;
+      lastTransitionAt: string | null;
+    }
+  >();
+
+  for (const sample of history) {
+    for (const service of sample.services) {
+      if (service.visibility !== "public") continue;
+      const trend = trends.get(service.id) ?? {
+        knownChecks: 0,
+        observedChecks: 0,
+        upChecks: 0,
+        latencies: [],
+        lastStatus: null,
+        lastTransitionAt: null,
+      };
+      trend.observedChecks += 1;
+      if (service.status !== "unknown") {
+        trend.knownChecks += 1;
+        if (service.status === "up") trend.upChecks += 1;
+      }
+      if (service.latency_ms !== null) trend.latencies.push(service.latency_ms);
+      if (trend.lastStatus !== null && trend.lastStatus !== service.status) {
+        trend.lastTransitionAt = service.checked_at;
+      }
+      trend.lastStatus = service.status;
+      trends.set(service.id, trend);
+    }
+  }
+
+  return Object.fromEntries(
+    [...trends.entries()].map(([id, trend]) => [
+      id,
+      {
+        knownChecks: trend.knownChecks,
+        totalSamples: history.length,
+        availabilityPercent: roundedPercent(
+          trend.upChecks,
+          trend.knownChecks,
+        ),
+        coveragePercent: roundedPercent(
+          trend.observedChecks,
+          history.length,
+        ),
+        p95LatencyMs: nearestRankP95(trend.latencies),
+        lastTransitionAt: trend.lastTransitionAt,
+      },
+    ]),
+  );
+}
+
 export function derivePublicMetrics(
   result: MetricsReadResult,
   now: Date = new Date(),
 ): PublicMetricsModel {
   const services = publicServices(result.latest, result.freshness);
+  const historyMetadata = metadataFor(result, now);
   const serviceSummary = services.reduce(
     (summary, service) => {
       summary.total += 1;
@@ -239,16 +436,24 @@ export function derivePublicMetrics(
     },
     services,
     projectHealthBySlug: getProjectHealthBySlug(services),
-    history: result.history.map((sample) => ({
-      collectedAt: sample.collected_at,
-      cpu: usageBucket(sample.host.cpu_percent),
-      ram: usageBucket(
-        percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes),
-      ),
-      disk: diskPressureFromPercent(
-        percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
-      ),
-    })),
+    history: result.history.map(
+      (sample, index) =>
+        ({
+          collectedAt: sample.collected_at,
+          cpu: usageBucket(sample.host.cpu_percent),
+          ram: usageBucket(
+            percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes),
+          ),
+          disk: diskPressureFromPercent(
+            percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
+          ),
+          ...(result.historyAvailability !== undefined
+            ? { gapBefore: historyMetadata.gapBefore[index] ?? false }
+            : {}),
+        }) as PublicMetricsModel["history"][number],
+    ),
+    historyCoverage: historyMetadata.coverage,
+    serviceTrends: publicServiceTrends(result.history),
   };
 }
 
@@ -259,6 +464,7 @@ export function deriveOwnerMetrics(
     freshness: result.freshness,
     latest: result.latest,
     history: result.history,
+    historyCoverage: metadataFor(result).coverage,
     diagnostics: result.diagnostics,
   };
 }
