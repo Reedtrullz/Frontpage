@@ -170,10 +170,14 @@ jobs:
             VERSION=sha-${{ github.sha }}
 
       - name: Run published image smoke
-        run: node tests/docker-runtime-smoke.mjs --image ghcr.io/${{ github.repository }}:sha-${{ github.sha }} --version sha-${{ github.sha }}
+        run: |
+          image="$(printf '%s\n' "$DOCKER_METADATA_OUTPUT_TAGS" | awk '/:sha-/ { print; exit }')"
+          test -n "$image"
+          node tests/docker-runtime-smoke.mjs --image "$image" --version sha-${{ github.sha }}
 
       - name: Summary
         run: |
+          latest_image="$(printf '%s\n' "$DOCKER_METADATA_OUTPUT_TAGS" | head -n 1)"
           echo "### Image published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Tags:" >> $GITHUB_STEP_SUMMARY
@@ -181,4 +185,4 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Pull with: \`docker pull ghcr.io/${{ github.repository }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "Pull with: \`docker pull $latest_image\`" >> $GITHUB_STEP_SUMMARY
