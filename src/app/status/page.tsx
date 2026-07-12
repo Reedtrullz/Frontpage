@@ -9,6 +9,13 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 import { isOwnerUser } from "@/lib/authz";
 import { getMetricsDir, readMetricsFromDir } from "@/lib/metrics/reader";
 import { createStatusPageModel } from "@/lib/metrics/status-page";
+import {
+  getOwnerMetricsRootV2,
+  getPublicMetricsRootV2,
+  readOwnerLatestV2,
+  readPublicLatestV2,
+  readSeriesV2,
+} from "@/lib/metrics/v2/reader";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +26,50 @@ export const metadata: Metadata = {
 
 export default async function StatusPage() {
   const session = await auth();
+  const isOwner = isOwnerUser(session?.user);
   const readResult = readMetricsFromDir(getMetricsDir());
   const model = createStatusPageModel({
     readResult,
-    isOwner: isOwnerUser(session?.user),
+    isOwner,
   });
+  const publicV2 = readPublicLatestV2(getPublicMetricsRootV2());
+  const ownerV2Enabled =
+    isOwner && process.env.FRONTPAGE_OBSERVABILITY_V2 === "1";
+  const ownerLatestV2 = ownerV2Enabled
+    ? readOwnerLatestV2(getOwnerMetricsRootV2())
+    : null;
+  let ownerHostSeriesV2Available = false;
+  if (ownerV2Enabled) {
+    try {
+      readSeriesV2(getOwnerMetricsRootV2(), {
+        range: "1h",
+        view: "host",
+        resource: null,
+      });
+      ownerHostSeriesV2Available = true;
+    } catch {
+      ownerHostSeriesV2Available = false;
+    }
+  }
+  const publicV2State = publicV2.data
+    ? publicV2.data.freshness === "fresh"
+      ? publicV2.data.overall_state
+      : publicV2.data.freshness === "stale"
+        ? "delayed"
+        : "unknown"
+    : null;
+  const publicStatusLabel = publicV2State
+    ? {
+        operational: "Operational",
+        degraded: "Degraded",
+        disruption: "Service disruption",
+        maintenance: "Maintenance",
+        unknown: "Status unavailable",
+        delayed: "Status delayed",
+      }[publicV2State]
+    : model.overall.label;
+  const publicUpdatedAt =
+    publicV2.data?.collected_at ?? model.public.host.lastUpdatedAt;
 
   return (
     <div>
@@ -31,9 +77,9 @@ export default async function StatusPage() {
         <p className="font-mono text-sm text-[var(--accent)]">REIDAR.TECH / STATUS</p>
         <h1 className="mt-3 text-4xl font-semibold text-[var(--text)] sm:text-5xl">System status</h1>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-          <span className="font-semibold text-[var(--text)]">{model.overall.label}</span>
-          {model.public.host.lastUpdatedAt ? (
-            <span className="text-[var(--text-muted)]">Updated <RelativeTime value={model.public.host.lastUpdatedAt} /></span>
+          <span className="font-semibold text-[var(--text)]">{publicStatusLabel}</span>
+          {publicUpdatedAt ? (
+            <span className="text-[var(--text-muted)]">Updated <RelativeTime value={publicUpdatedAt} /></span>
           ) : (
             <span className="text-[var(--text-muted)]">No current sample</span>
           )}
@@ -108,7 +154,14 @@ export default async function StatusPage() {
 
       {model.ownerAttention ? (
         <>
-          <div className="border-t border-[var(--border)] pt-14">
+          <div
+            className="border-t border-[var(--border)] pt-14"
+            data-observability-v2={
+              ownerV2Enabled && ownerLatestV2?.data && ownerHostSeriesV2Available
+                ? "available"
+                : "fallback"
+            }
+          >
             <div className="mx-auto max-w-7xl px-4 pb-6 sm:px-6">
               <p className="font-mono text-sm text-[var(--role-info)]">PRIVATE OPERATOR VIEW</p>
               <h2 className="mt-2 text-3xl font-semibold text-[var(--text)]">Owner status</h2>
