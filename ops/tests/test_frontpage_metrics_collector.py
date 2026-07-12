@@ -106,6 +106,154 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "up")
         self.assertEqual(captured["user_agent"], "reidar-tech-status/1.0")
 
+    def test_status_check_can_require_a_bounded_health_marker(self):
+        class Response:
+            status = 200
+
+            def __init__(self, body):
+                self.body = body
+
+            def read(self, size):
+                return self.body[:size]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        service = {
+            "id": "frontpage-public",
+            "label": "Frontpage",
+            "visibility": "public",
+            "url": "https://example.com/api/health",
+            "expected_status": 200,
+            "timeout_ms": 1000,
+            "check": {
+                "type": "json-field",
+                "path": ["status"],
+                "expected": "healthy",
+            },
+        }
+
+        healthy = collector.service_result(
+            service,
+            opener=lambda *_args, **_kwargs: Response(b'{"status":"healthy"}'),
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+        wrong_marker = collector.service_result(
+            service,
+            opener=lambda *_args, **_kwargs: Response(b'{"status":"degraded"}'),
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+
+        self.assertEqual(healthy["status"], "up")
+        self.assertEqual(wrong_marker["status"], "down")
+
+    def test_check_failure_redacts_response_body_and_target_details(self):
+        class Response:
+            status = 200
+
+            def read(self, _size):
+                return b'{"status":"secret body from https://internal.example/diagnostics"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        result = collector.service_result(
+            {
+                "id": "frontpage-public",
+                "label": "Frontpage",
+                "visibility": "public",
+                "url": "https://internal.example/api/health",
+                "expected_status": 200,
+                "timeout_ms": 1000,
+                "check": {
+                    "type": "json-field",
+                    "path": ["status"],
+                    "expected": "healthy",
+                },
+            },
+            opener=lambda *_args, **_kwargs: Response(),
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "down")
+        self.assertEqual(
+            set(result),
+            {"id", "label", "visibility", "status", "checked_at", "latency_ms"},
+        )
+        serialized = json.dumps(result)
+        self.assertNotIn("secret body", serialized)
+        self.assertNotIn("internal.example", serialized)
+        self.assertNotIn("diagnostics", serialized)
+
+    def test_default_status_check_remains_backward_compatible(self):
+        config = collector.load_config(
+            Path(__file__).resolve().parents[1] / "frontpage-metrics.config.json"
+        )
+        external_services = [
+            service for service in config["services"] if service["id"] != "frontpage-public" and service["id"] != "frontpage-internal"
+        ]
+
+        self.assertTrue(external_services)
+        self.assertTrue(all("check" not in service for service in external_services))
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        result = collector.service_result(
+            external_services[0],
+            opener=lambda *_args, **_kwargs: Response(),
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "up")
+
+    def test_load_config_rejects_malformed_service_check(self):
+        invalid_checks = [
+            "json-field",
+            {"type": "unsupported"},
+            {"type": "http-status", "path": ["status"]},
+            {"type": "json-field", "path": [], "expected": "healthy"},
+            {"type": "json-field", "path": ["status", "nested", "too", "deep"], "expected": "healthy"},
+            {"type": "json-field", "path": ["not.a.field"], "expected": "healthy"},
+            {"type": "json-field", "path": ["status"], "expected": 200},
+            {"type": "json-field", "path": ["status"], "expected": "x" * 81},
+        ]
+        for check in invalid_checks:
+            with self.subTest(check=check), tempfile.TemporaryDirectory() as tmp:
+                config_path = Path(tmp) / "config.json"
+                config_path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": 1,
+                            "services": [
+                                {
+                                    "id": "frontpage",
+                                    "label": "Frontpage",
+                                    "visibility": "public",
+                                    "url": "http://127.0.0.1:3002/api/health",
+                                    "check": check,
+                                }
+                            ],
+                            "containers": [],
+                        }
+                    )
+                )
+
+                with self.assertRaises(ValueError):
+                    collector.load_config(config_path)
+
     def test_service_result_does_not_follow_redirects(self):
         target_hits = []
 

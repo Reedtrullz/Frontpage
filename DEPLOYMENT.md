@@ -100,6 +100,33 @@ container does not receive Docker socket access; it only reads
 `/metrics/latest.json` and `/metrics/history.json` through a read-only bind
 mount.
 
+### Optional service response checks
+
+Services without a `check` retain the status-only contract: the collector makes
+a no-redirect `GET` with the configured bounded timeout and compares the
+response status to `expected_status`. An explicit `http-status` check preserves
+that same behavior. The owned Frontpage `/api/health` entries additionally
+require this bounded JSON assertion:
+
+```json
+"check": {
+  "type": "json-field",
+  "path": ["status"],
+  "expected": "healthy"
+}
+```
+
+Only `http-status` and `json-field` check types are accepted. A `json-field`
+path contains one to three simple field names, its expected value is a string
+of at most 80 characters, and the collector reads at most 64 KiB before
+parsing JSON. A non-matching field, malformed JSON, or unreadable response
+marks the service down. External services remain status-only unless Frontpage
+owns and explicitly configures their response contract.
+
+Metrics store only each service's configured public label/visibility, status,
+check time, bounded latency, and optional project slug. They never include a
+response body, target URL, exception text, parser details, or diagnostics.
+
 Verify on the VPS:
 
 ```bash
