@@ -148,7 +148,7 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Current limitations" }),
     ).toBeVisible();
-    await expect(page.getByText("Unavailable", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Healthy", { exact: true }).first()).toBeVisible();
 
     for (const [slug, accessibleName] of [
       ["rfmc", /VirtualCDU training mission selector/i],
@@ -181,11 +181,13 @@ test.describe("public status", () => {
     await page.goto("/status");
 
     await expect(page.getByText("Operational", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("1/1 up", { exact: true })).toBeVisible();
+    await expect(page.getByText("5/5 up", { exact: true })).toBeVisible();
     await expect(
-      page.getByText(/100% available across 8 known checks/i),
+      page.getByText(/100% available across 8 known checks/i).first(),
     ).toBeVisible();
-    await expect(page.getByText("Coverage 100%", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Coverage 100%", { exact: true }).first(),
+    ).toBeVisible();
     await expect(page.getByText("24h ago", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("now", { exact: true }).first()).toBeVisible();
 
@@ -201,6 +203,20 @@ test.describe("public status", () => {
     expect(inventoryBox).not.toBeNull();
     expect(historyBox).not.toBeNull();
     expect(inventoryBox!.y).toBeLessThan(historyBox!.y);
+
+    const inventoryPrecedesHistory = await page.locator("main").evaluate((main) => {
+      const servicesHeading = main.querySelector("#public-services-heading");
+      const historyHeading = main.querySelector("#history-heading");
+      const servicesSection = servicesHeading?.closest("section");
+      const historySection = historyHeading?.closest("section");
+      if (!servicesSection || !historySection) return false;
+      return Boolean(
+        servicesSection.compareDocumentPosition(historySection) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    expect(inventoryPrecedesHistory).toBe(true);
     await expectNoHorizontalOverflow(page);
     await expectNoSeriousAccessibilityViolations(page);
 

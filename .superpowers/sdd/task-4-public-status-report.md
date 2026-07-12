@@ -76,3 +76,29 @@ Results:
 ## Non-Claims
 
 - No CI, deploy, push, or production readback was performed.
+
+## Review Fixes - 2026-07-12
+
+The review identified two Important gaps; this section supersedes the earlier fixture-count note above.
+
+- Synthetic browser metrics now include the five configured public checks: `frontpage-public`, `nytt-public`, `rfs-public`, `rfmc-public`, and `heimdall-public`. Each is `up` in all eight history samples with deterministic latencies of 42, 55, 68, 81, and 94 ms respectively. `frontpage-internal` remains owner-only and `frontpage-container` remains unchanged.
+- The RFS project browser expectation now asserts `Healthy`; the THORArb `Not monitored` assertion remains unchanged. The public status assertion now verifies `5/5 up`.
+- The mobile regression retains the bounding-box check and now directly inspects `main.querySelector("#public-services-heading")` and `main.querySelector("#history-heading")`, resolves their closest sections, and requires `Node.DOCUMENT_POSITION_FOLLOWING` from inventory to history.
+- This review-fix commit is scoped to `tests/e2e/prepare-runtime.mjs`, `tests/e2e/public-ui.spec.ts`, and this report; the normalized status page implementation remains unchanged.
+
+## Review Fix Verification
+
+RED:
+
+- Before the fixture update, the new assertions failed as expected: RFS was `Unavailable` and public status was `1/1 up`; the DOM-order assertion passed against the existing page composition.
+
+GREEN:
+
+```bash
+npm run test:e2e -- --grep "public status|shows real media"
+```
+
+- Focused browser coverage: 4 tests passed.
+- Full browser suite: 14 tests passed, including authenticated owner coverage.
+- Full Vitest: 23 files, 127 tests passed.
+- ESLint, TypeScript, and `git diff --check`: passed.
