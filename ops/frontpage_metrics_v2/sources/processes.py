@@ -86,3 +86,18 @@ def collect_processes(
     capabilities = {"process_visibility": "available" if result else "unavailable"}
     return SourceResult(result, bool(result), capabilities, tuple(errors))
 
+
+def snapshot_process_counters(
+    workload_pids: Mapping[str, tuple[int, ...]],
+    proc_root: Path,
+    now_ms: int,
+) -> dict[tuple[str, int], tuple[int, int]]:
+    counters: dict[tuple[str, int], tuple[int, int]] = {}
+    for workload_id, pids in workload_pids.items():
+        for pid in pids:
+            try:
+                _, _, ticks = _read_stat(proc_root / str(pid) / "stat")
+                counters[(workload_id, pid)] = (ticks, now_ms)
+            except (OSError, ValueError, IndexError):
+                continue
+    return counters

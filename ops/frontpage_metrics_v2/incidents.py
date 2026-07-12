@@ -35,6 +35,13 @@ class IncidentRecord:
             "title": self.title,
             "severity": self.severity,
             "updated_at_ms": self.updated_at_ms,
+            "resource": (
+                "disk_io"
+                if self.rule_id == "disk-capacity"
+                else "ram"
+                if self.rule_id == "workload-oom-kill"
+                else None
+            ),
             **dict(self.summary),
         }
         return {
@@ -61,6 +68,19 @@ class IncidentEngine:
         self._service_failures: dict[str, int] = {}
         self._service_successes: dict[str, int] = {}
         self._history: list[Mapping[str, object]] = []
+
+    def checkpoint(self):
+        return (
+            dict(self._service_failures),
+            dict(self._service_successes),
+            [dict(item) for item in self._history],
+        )
+
+    def restore(self, checkpoint) -> None:
+        failures, successes, history = checkpoint
+        self._service_failures = dict(failures)
+        self._service_successes = dict(successes)
+        self._history = [dict(item) for item in history]
 
     def _evidence(
         self,

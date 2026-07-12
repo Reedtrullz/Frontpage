@@ -123,6 +123,14 @@ class MetricsStoreTests(unittest.TestCase):
         self.assertTrue(status.skip_next_cycle)
         self.assertEqual(status.duration_seconds, 6.1)
 
+    def test_commit_cycle_rolls_back_raw_rows_when_evaluation_fails(self):
+        def fail(_cycle):
+            raise RuntimeError("evaluation failed")
+
+        with self.assertRaisesRegex(RuntimeError, "evaluation failed"):
+            self.store.commit_cycle(cycle(), fail, NOW)
+        self.assertEqual(self.store.count("host_points", "15s"), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -118,8 +118,7 @@ class MetricsStore:
         with self._connection:
             self._connection.executemany(sql, rows)
 
-    def write_cycle(self, cycle: Mapping[str, object]) -> CycleWriteStatus:
-        started = self._clock()
+    def _insert_cycle_rows(self, cycle: Mapping[str, object]) -> None:
         ts_ms = cycle.get("ts_ms")
         if isinstance(ts_ms, bool) or not isinstance(ts_ms, int) or ts_ms < 0:
             raise ValueError("Cycle ts_ms must be a non-negative integer")
@@ -130,37 +129,42 @@ class MetricsStore:
             raise ValueError("Cycle inventories must be arrays")
 
         connection = self._connection
+        connection.execute(
+            "INSERT OR REPLACE INTO host_points(tier,ts_ms,payload_json,coverage_percent) VALUES('15s',?,?,?)",
+            (ts_ms, _json_object(cycle.get("host"), "host payload"), _coverage(cycle.get("host_coverage_percent"))),
+        )
+        for workload in workloads:
+            if not isinstance(workload, dict) or not isinstance(workload.get("workload_id"), str):
+                raise ValueError("Invalid workload payload")
+            connection.execute(
+                "INSERT OR REPLACE INTO workload_points(tier,ts_ms,workload_id,payload_json,coverage_percent) VALUES('15s',?,?,?,?)",
+                (ts_ms, workload["workload_id"], _json_object(workload, "workload payload"), _coverage(workload.get("coverage_percent"))),
+            )
+        for service in services:
+            if not isinstance(service, dict) or not isinstance(service.get("service_id"), str):
+                raise ValueError("Invalid service payload")
+            connection.execute(
+                "INSERT OR REPLACE INTO service_points(tier,ts_ms,service_id,payload_json) VALUES('15s',?,?,?)",
+                (ts_ms, service["service_id"], _json_object(service, "service payload")),
+            )
+        for capability in capabilities:
+            if not isinstance(capability, dict) or set(capability) != {"key", "state", "detail"}:
+                raise ValueError("Invalid capability payload")
+            if capability["state"] not in {"available", "partial", "unavailable"}:
+                raise ValueError("Invalid capability state")
+            if not all(isinstance(capability[key], str) for key in ("key", "detail")):
+                raise ValueError("Invalid capability text")
+            connection.execute(
+                "INSERT OR REPLACE INTO capabilities(key,state,detail,observed_at_ms) VALUES(?,?,?,?)",
+                (capability["key"], capability["state"], capability["detail"], ts_ms),
+            )
+
+    def write_cycle(self, cycle: Mapping[str, object]) -> CycleWriteStatus:
+        started = self._clock()
+        connection = self._connection
         connection.execute("BEGIN IMMEDIATE")
         try:
-            connection.execute(
-                "INSERT OR REPLACE INTO host_points(tier,ts_ms,payload_json,coverage_percent) VALUES('15s',?,?,?)",
-                (ts_ms, _json_object(cycle.get("host"), "host payload"), _coverage(cycle.get("host_coverage_percent"))),
-            )
-            for workload in workloads:
-                if not isinstance(workload, dict) or not isinstance(workload.get("workload_id"), str):
-                    raise ValueError("Invalid workload payload")
-                connection.execute(
-                    "INSERT OR REPLACE INTO workload_points(tier,ts_ms,workload_id,payload_json,coverage_percent) VALUES('15s',?,?,?,?)",
-                    (ts_ms, workload["workload_id"], _json_object(workload, "workload payload"), _coverage(workload.get("coverage_percent"))),
-                )
-            for service in services:
-                if not isinstance(service, dict) or not isinstance(service.get("service_id"), str):
-                    raise ValueError("Invalid service payload")
-                connection.execute(
-                    "INSERT OR REPLACE INTO service_points(tier,ts_ms,service_id,payload_json) VALUES('15s',?,?,?)",
-                    (ts_ms, service["service_id"], _json_object(service, "service payload")),
-                )
-            for capability in capabilities:
-                if not isinstance(capability, dict) or set(capability) != {"key", "state", "detail"}:
-                    raise ValueError("Invalid capability payload")
-                if capability["state"] not in {"available", "partial", "unavailable"}:
-                    raise ValueError("Invalid capability state")
-                if not all(isinstance(capability[key], str) for key in ("key", "detail")):
-                    raise ValueError("Invalid capability text")
-                connection.execute(
-                    "INSERT OR REPLACE INTO capabilities(key,state,detail,observed_at_ms) VALUES(?,?,?,?)",
-                    (capability["key"], capability["state"], capability["detail"], ts_ms),
-                )
+            self._insert_cycle_rows(cycle)
             connection.commit()
         except Exception:
             connection.rollback()
@@ -216,6 +220,32 @@ class MetricsStore:
                 values,
             )
 
+    def commit_cycle(self, cycle, evaluate, now_ms: int):
+        started = self._clock()
+        connection = self._connection
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            self._insert_cycle_rows(cycle)
+            transitions = evaluate(cycle)
+            incidents = (*transitions.opened, *transitions.updated, *transitions.recovered)
+            connection.executemany(
+                """INSERT OR REPLACE INTO incidents(
+                id,state,opened_at_ms,recovered_at_ms,visibility,summary_json,evidence_json
+                ) VALUES(?,?,?,?,?,?,?)""",
+                [self._incident_values(incident.to_store()) for incident in incidents],
+            )
+            self._prune_rows(now_ms)
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        duration = self._clock() - started
+        return (
+            CycleWriteStatus(duration, duration > 5.0),
+            transitions,
+            self.read_projection_snapshot(),
+        )
+
     def get_incident(self, incident_id: str) -> dict[str, object] | None:
         row = self._connection.execute(
             "SELECT * FROM incidents WHERE id=?",
@@ -235,16 +265,19 @@ class MetricsStore:
 
     def prune(self, now_ms: int) -> None:
         with self._connection:
-            for table in TABLES:
-                for tier, retention_ms in RETENTION_MS.items():
-                    self._connection.execute(
-                        f"DELETE FROM {table} WHERE tier=? AND ts_ms<=?",
-                        (tier, now_ms - retention_ms),
-                    )
-            self._connection.execute(
-                "DELETE FROM incidents WHERE recovered_at_ms IS NOT NULL AND recovered_at_ms<=?",
-                (now_ms - INCIDENT_RETENTION_MS,),
-            )
+            self._prune_rows(now_ms)
+
+    def _prune_rows(self, now_ms: int) -> None:
+        for table in TABLES:
+            for tier, retention_ms in RETENTION_MS.items():
+                self._connection.execute(
+                    f"DELETE FROM {table} WHERE tier=? AND ts_ms<=?",
+                    (tier, now_ms - retention_ms),
+                )
+        self._connection.execute(
+            "DELETE FROM incidents WHERE recovered_at_ms IS NOT NULL AND recovered_at_ms<=?",
+            (now_ms - INCIDENT_RETENTION_MS,),
+        )
 
     def compact(self, now_ms: int) -> CycleWriteStatus:
         started = self._clock()
