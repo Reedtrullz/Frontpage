@@ -6,31 +6,23 @@ import shutil
 import subprocess
 import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ops.frontpage_metrics_v2 import config as collector_config
+from ops.frontpage_metrics_v2.sources import services as service_source
+
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
-STATUS_USER_AGENT = "reidar-tech-status/1.0"
 MAX_ITEMS = 64
-MAX_CHECK_BODY_BYTES = 64 * 1024
-MAX_CHECK_PATH_FIELDS = 3
-MAX_CHECK_EXPECTED_LENGTH = 80
 
 
-class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, request, file, code, message, headers, new_url):
-        return None
-
-
-STATUS_OPENER = urllib.request.build_opener(NoRedirectHandler())
+NoRedirectHandler = service_source.NoRedirectHandler
+STATUS_OPENER = service_source.STATUS_OPENER
 
 
 def open_status_request(request, timeout):
-    return STATUS_OPENER.open(request, timeout=timeout)
+    return service_source.open_status_request(request, timeout)
 
 
 def utc_now():
@@ -52,47 +44,11 @@ def _validate_id(value):
 
 
 def _reject_secret_url(url):
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Service URL must be http or https")
-    if parsed.username or parsed.password:
-        raise ValueError("Service URL must not contain credentials")
-    if parsed.params or parsed.query or parsed.fragment:
-        raise ValueError("Service URL must not contain params, query, or fragment")
-
-
-def _is_simple_field_name(value):
-    if not isinstance(value, str) or not value or len(value) > 63:
-        return False
-    if not (value[0].isalpha() or value[0] == "_"):
-        return False
-    return all(char.isalnum() or char in {"_", "-"} for char in value)
+    collector_config.validate_service_url(url)
 
 
 def _validate_check(check):
-    if not isinstance(check, dict):
-        raise ValueError("Service check must be an object")
-
-    check_type = check.get("type")
-    if check_type == "http-status":
-        if set(check) != {"type"}:
-            raise ValueError("Invalid http-status service check")
-        return
-
-    if check_type != "json-field" or set(check) != {"type", "path", "expected"}:
-        raise ValueError("Invalid service check")
-
-    path = check["path"]
-    if (
-        not isinstance(path, list)
-        or not 1 <= len(path) <= MAX_CHECK_PATH_FIELDS
-        or not all(_is_simple_field_name(field) for field in path)
-    ):
-        raise ValueError("Invalid json-field service check path")
-
-    expected = check["expected"]
-    if not isinstance(expected, str) or len(expected) > MAX_CHECK_EXPECTED_LENGTH:
-        raise ValueError("Invalid json-field service check expected value")
+    collector_config.validate_service_check(check)
 
 
 def load_config(path):
@@ -196,61 +152,11 @@ def collect_host_metrics():
 
 
 def response_matches_check(response, check):
-    if not check or check["type"] == "http-status":
-        return True
-    try:
-        value = json.loads(response.read(MAX_CHECK_BODY_BYTES))
-        for field in check["path"]:
-            if not isinstance(value, dict):
-                return False
-            value = value.get(field)
-        return value == check["expected"]
-    except Exception:
-        return False
+    return service_source.response_matches_check(response, check)
 
 
 def service_result(service, opener=open_status_request, now=utc_now):
-    started = time.monotonic()
-    timeout_seconds = clamp_timeout_ms(service.get("timeout_ms", 5000)) / 1000
-    status = "unknown"
-    latency_ms = None
-    expected_status = int(service.get("expected_status", 200))
-    check = service.get("check")
-    try:
-        request = urllib.request.Request(
-            service["url"],
-            headers={"User-Agent": STATUS_USER_AGENT},
-            method="GET",
-        )
-        with opener(request, timeout=timeout_seconds) as response:
-            latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-            status = (
-                "up"
-                if response.status == expected_status and response_matches_check(response, check)
-                else "down"
-            )
-    except urllib.error.HTTPError as error:
-        latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-        status = (
-            "up"
-            if error.code == expected_status and response_matches_check(error, check)
-            else "down"
-        )
-    except Exception:
-        status = "unknown"
-        latency_ms = None
-
-    result = {
-        "id": service["id"],
-        "label": service["label"],
-        "visibility": service["visibility"],
-        "status": status,
-        "checked_at": now(),
-        "latency_ms": latency_ms,
-    }
-    if service.get("project_slug"):
-        result["project_slug"] = service["project_slug"]
-    return result
+    return service_source.legacy_service_result(service, opener=opener, now=now)
 
 
 def container_status_from_inspect(data):

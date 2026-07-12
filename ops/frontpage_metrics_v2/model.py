@@ -59,8 +59,11 @@ class HostSample:
     memory_used_bytes: int
     load_average: tuple[float, float, float]
     uptime_seconds: float
+    filesystem_usage: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
     disk_counters: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
+    disk_rates: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
     network_counters: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
+    network_rates: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
     tcp_retransmits: int | None = None
     pressure: Mapping[str, Mapping[str, float]] = field(default_factory=dict)
 
@@ -75,6 +78,8 @@ class WorkloadSample:
     memory_current_bytes: int
     io_read_bytes: int
     io_write_bytes: int
+    io_read_bytes_per_second: float | None
+    io_write_bytes_per_second: float | None
     oom_events: int
     oom_kill_events: int
     pids: tuple[int, ...] = ()

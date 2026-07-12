@@ -72,7 +72,7 @@ def _fixed(value: object, key: str) -> int:
     return expected
 
 
-def _validate_url(url: object) -> str:
+def validate_service_url(url: object) -> str:
     value = _text(url, "service URL", 2048)
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -84,7 +84,7 @@ def _validate_url(url: object) -> str:
     return value
 
 
-def _validate_check(value: object) -> dict[str, object]:
+def validate_service_check(value: object) -> dict[str, object]:
     check = _object(value, "service check")
     check_type = check.get("type")
     if check_type == "http-status":
@@ -138,7 +138,7 @@ def _parse_service(value: object) -> dict[str, object]:
         "id": _id(service["id"], "service"),
         "label": _text(service["label"], "service label"),
         "visibility": visibility,
-        "url": _validate_url(service["url"]),
+        "url": validate_service_url(service["url"]),
         "expected_status": status,
         "timeout_ms": max(1000, min(timeout, 10000)),
     }
@@ -146,7 +146,7 @@ def _parse_service(value: object) -> dict[str, object]:
     if project_slug is not None:
         normalized["project_slug"] = _id(project_slug, "project slug")
     if "check" in service:
-        normalized["check"] = _validate_check(service["check"])
+        normalized["check"] = validate_service_check(service["check"])
     return normalized
 
 
