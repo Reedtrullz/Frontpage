@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reidar.tech/schemas/2026-07-12-frontpage-observability-incidents.schema.v2.json",
+  "title": "Frontpage Observability Incidents v2",
+  "description": "Schema for public-safe or owner-only observability incident lists.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "incidents"],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "generated_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "incidents": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/incident"
+      }
+    }
+  },
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "resource": {
+      "type": "string",
+      "enum": ["cpu", "ram", "disk_io", "network"]
+    },
+    "capability_state": {
+      "type": "string",
+      "enum": ["available", "partial", "unavailable"]
+    },
+    "incident_severity": {
+      "type": "string",
+      "enum": ["warning", "critical"]
+    },
+    "incident_state": {
+      "type": "string",
+      "enum": ["active", "recovered", "maintenance"]
+    },
+    "incident_visibility": {
+      "type": "string",
+      "enum": ["public", "owner"]
+    },
+    "coverage_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "incident_evidence_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded_at", "value"],
+      "properties": {
+        "recorded_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "value": {
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "incident_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger_value", "threshold_value", "peak_value", "points"],
+      "properties": {
+        "trigger_value": {
+          "type": ["number", "null"]
+        },
+        "threshold_value": {
+          "type": ["number", "null"]
+        },
+        "peak_value": {
+          "type": ["number", "null"]
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/incident_evidence_point"
+          }
+        }
+      }
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "rule_id",
+        "title",
+        "severity",
+        "state",
+        "visibility",
+        "resource",
+        "opened_at",
+        "updated_at",
+        "coverage_percent",
+        "capability_state",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "severity": {
+          "$ref": "#/$defs/incident_severity"
+        },
+        "state": {
+          "$ref": "#/$defs/incident_state"
+        },
+        "visibility": {
+          "$ref": "#/$defs/incident_visibility"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/resource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workload_id": {
+          "$ref": "#/$defs/id"
+        },
+        "opened_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "resolved_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        },
+        "capability_state": {
+          "$ref": "#/$defs/capability_state"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "evidence": {
+          "$ref": "#/$defs/incident_evidence"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["visibility"],
+            "properties": {
+              "visibility": {
+                "const": "public"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["workload_id"]
+                },
+                {
+                  "required": ["evidence"]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

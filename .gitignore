@@ -15,6 +15,11 @@
 /playwright-report/
 /test-results/
 /tests/e2e/.metrics/
+/tests/e2e/.metrics-v2-public/
+/tests/e2e/.metrics-v2-owner/
+/tests/e2e/.auth/
+/tests/e2e/.data/
+/.docker-runtime-smoke-*/
 
 # next.js
 /.next/
@@ -48,6 +53,7 @@ next-env.d.ts
 # commandcode
 .commandcode/
 .superpowers/
+.worktrees/
 
 # runtime data (generated at build time)
 public/data/

@@ -1,0 +1,54 @@
+{
+  "host": [
+    {
+      "tier": "15s",
+      "ts_ms": 1700000000000,
+      "coverage_percent": 100,
+      "payload": {
+        "cpu_percent": 50,
+        "memory_total_bytes": 1000,
+        "memory_used_bytes": 600,
+        "disk_used_percent": 70,
+        "disk_rates": {"vda": {"read_bytes_per_second": 100, "write_bytes_per_second": 50}},
+        "network_rates": {"eth0": {"receive_bytes_per_second": 20, "transmit_bytes_per_second": 30}},
+        "source_errors": []
+      }
+    }
+  ],
+  "workloads": [
+    {
+      "tier": "15s",
+      "ts_ms": 1700000000000,
+      "workload_id": "frontpage-app",
+      "coverage_percent": 100,
+      "payload": {
+        "label": "Frontpage",
+        "kind": "container",
+        "cgroup_path": "system.slice/frontpage",
+        "cpu_percent": 20,
+        "memory_current_bytes": 200,
+        "io_read_bytes_per_second": 20,
+        "io_write_bytes_per_second": 10,
+        "processes": []
+      }
+    }
+  ],
+  "services": [
+    {
+      "tier": "15s",
+      "ts_ms": 1700000000000,
+      "service_id": "frontpage-public",
+      "payload": {
+        "label": "Frontpage",
+        "visibility": "public",
+        "status": "up",
+        "checked_at_ms": 1700000000000,
+        "latency_ms": 12
+      }
+    }
+  ],
+  "capabilities": [
+    {"key": "psi", "state": "available", "detail": "PSI is available.", "observed_at_ms": 1700000000000}
+  ],
+  "incidents": []
+}

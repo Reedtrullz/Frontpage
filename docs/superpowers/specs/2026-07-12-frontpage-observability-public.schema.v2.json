@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reidar.tech/schemas/2026-07-12-frontpage-observability-public.schema.v2.json",
+  "title": "Frontpage Observability Public Latest v2",
+  "description": "Schema for the public-safe latest observability projection produced by the Frontpage observability collector.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "collected_at",
+    "freshness",
+    "overall_state",
+    "resources",
+    "services"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "generated_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "collected_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["fresh", "stale", "unavailable"]
+    },
+    "overall_state": {
+      "type": "string",
+      "enum": ["operational", "degraded", "disruption", "maintenance", "unknown"]
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/public_resource_status"
+      }
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/public_service_status"
+      }
+    }
+  },
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "resource": {
+      "type": "string",
+      "enum": ["cpu", "ram", "disk_io", "network"]
+    },
+    "resource_state": {
+      "type": "string",
+      "enum": ["healthy", "watch", "critical", "unknown"]
+    },
+    "coverage_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "public_resource_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource", "label", "state", "coverage_percent"],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/resource"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "state": {
+          "$ref": "#/$defs/resource_state"
+        },
+        "coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        }
+      }
+    },
+    "public_service_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "status",
+        "checked_at",
+        "latency_ms",
+        "availability_percent",
+        "coverage_percent"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "status": {
+          "type": "string",
+          "enum": ["up", "down", "unknown", "maintenance"]
+        },
+        "checked_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "latency_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "availability_percent": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        }
+      }
+    }
+  }
+}

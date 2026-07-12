@@ -23,6 +23,10 @@ export interface OverallPublicStatus {
   description: string;
 }
 
+export interface PublicStatusMetricsModel extends PublicMetricsModel {
+  lastKnownServiceCount: number | null;
+}
+
 export type ProjectRuntimeHealth =
   | "healthy"
   | "degraded"
@@ -47,7 +51,7 @@ export const OWNER_RESOURCE_THRESHOLDS = {
 } as const;
 
 export interface StatusPageModel {
-  public: PublicMetricsModel;
+  public: PublicStatusMetricsModel;
   overall: OverallPublicStatus;
   owner: OwnerMetricsModel | null;
   ownerAttention: OwnerAttentionItem[] | null;
@@ -77,14 +81,18 @@ export function deriveOverallPublicStatus(
       description: `${metrics.host.serviceSummary.down} public service check${metrics.host.serviceSummary.down === 1 ? " is" : "s are"} down.`,
     };
   }
-  if (
-    metrics.host.serviceSummary.unknown > 0 ||
-    metrics.host.diskPressure === "critical"
-  ) {
+  if (metrics.host.serviceSummary.unknown > 0) {
     return {
       kind: "degraded",
       label: "Degraded",
-      description: "A public check is unknown or host disk pressure is critical.",
+      description: "A public service check has unknown current state.",
+    };
+  }
+  if (metrics.host.diskPressure === "critical") {
+    return {
+      kind: "degraded",
+      label: "Degraded",
+      description: "Host disk pressure is critical.",
     };
   }
   if (metrics.host.serviceSummary.total > 0) {
@@ -101,6 +109,26 @@ export function deriveOverallPublicStatus(
   };
 }
 
+function lastKnownPublicServiceCount(
+  readResult: MetricsReadResult,
+  now: Date,
+): number | null {
+  const latestKnownSample = [...readResult.history, readResult.latest]
+    .filter((sample): sample is NonNullable<MetricsReadResult["latest"]> => {
+      if (!sample) return false;
+      return Date.parse(sample.collected_at) <= now.getTime();
+    })
+    .sort(
+      (left, right) =>
+        Date.parse(right.collected_at) - Date.parse(left.collected_at),
+    )[0];
+
+  if (!latestKnownSample) return null;
+  return latestKnownSample.services.filter(
+    (service) => service.visibility === "public",
+  ).length;
+}
+
 export function deriveProjectHealth(
   project: Pick<ProjectContent, "slug" | "healthServiceIds">,
   services: PublicServiceStatus[],
@@ -112,10 +140,19 @@ export function deriveProjectHealth(
       ? configuredIds.has(service.id)
       : service.projectSlug === project.slug,
   );
+
+  if (configuredIds.size > 0 && checks.length !== configuredIds.size) {
+    return "unavailable";
+  }
   if (checks.length === 0) return "not-monitored";
   if (freshness !== "fresh") return "unavailable";
-  if (checks.some((check) => check.status === "down")) return "disruption";
-  if (checks.some((check) => check.status === "unknown")) return "unavailable";
+  const upChecks = checks.filter((check) => check.status === "up").length;
+  const downChecks = checks.filter((check) => check.status === "down").length;
+  const unknownChecks = checks.length - upChecks - downChecks;
+
+  if (downChecks === checks.length) return "disruption";
+  if (upChecks > 0 && upChecks < checks.length) return "degraded";
+  if (unknownChecks > 0) return "unavailable";
   return "healthy";
 }
 
@@ -224,8 +261,11 @@ export function createStatusPageModel({
   isOwner: boolean;
   now?: Date;
 }): StatusPageModel {
-  const publicModel = derivePublicMetrics(readResult, now);
-  const owner = isOwner ? deriveOwnerMetrics(readResult) : null;
+  const publicModel: PublicStatusMetricsModel = {
+    ...derivePublicMetrics(readResult, now),
+    lastKnownServiceCount: lastKnownPublicServiceCount(readResult, now),
+  };
+  const owner = isOwner ? deriveOwnerMetrics(readResult, now) : null;
   return {
     public: publicModel,
     overall: deriveOverallPublicStatus(publicModel),

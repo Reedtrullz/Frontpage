@@ -57,6 +57,88 @@ button {
   cursor: pointer;
 }
 
+.observability-chart .u-wrap {
+  position: relative;
+  user-select: none;
+}
+
+.observability-chart .uplot {
+  width: min-content;
+  line-height: 1.5;
+}
+
+.observability-chart .u-over,
+.observability-chart .u-under {
+  position: absolute;
+}
+
+.observability-chart .u-under {
+  overflow: hidden;
+}
+
+.observability-chart canvas {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.observability-chart .u-axis,
+.observability-chart .u-cursor-pt {
+  position: absolute;
+}
+
+.observability-chart .u-select {
+  position: absolute;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--role-info) 12%, transparent);
+}
+
+.observability-chart .u-cursor-x,
+.observability-chart .u-cursor-y {
+  position: absolute;
+  pointer-events: none;
+  background: var(--border-strong);
+}
+
+.observability-chart .u-cursor-x {
+  width: 1px;
+}
+
+.observability-chart .u-cursor-y {
+  height: 1px;
+}
+
+.observability-chart .u-cursor-pt {
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.observability-chart .u-off {
+  display: none;
+}
+
+.observability-chart .u-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.observability-chart .u-series > * {
+  display: inline-block;
+  margin-right: 0.25rem;
+}
+
+.observability-chart .u-marker {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
 ::selection {
   background: var(--accent);
   color: var(--surface);
@@ -109,6 +191,30 @@ button {
 .mobile-menu-link:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
+}
+
+.section-jump {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.625rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: border-color 150ms ease, color 150ms ease,
+    background-color 150ms ease;
+}
+
+.section-jump:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.section-jump:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .primary-command,

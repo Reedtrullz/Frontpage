@@ -16,6 +16,8 @@ import {
   getCanonicalProjects,
 } from "@/lib/content";
 import type { ProjectContent } from "@/lib/content/schema";
+import { derivePublicMetrics, getMetricsDir, readMetricsFromDir } from "@/lib/metrics/reader";
+import { deriveProjectHealth } from "@/lib/metrics/status-page";
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -75,6 +77,8 @@ export default async function ProjectDetail({ params }: Props) {
   if (!project) notFound();
   const related = relatedProjects(project);
   const now = new Date();
+  const metrics = derivePublicMetrics(readMetricsFromDir(getMetricsDir(), now), now);
+  const health = deriveProjectHealth(project, metrics.services, metrics.freshness);
 
   return (
     <article>
@@ -91,6 +95,7 @@ export default async function ProjectDetail({ params }: Props) {
           <div className="mt-6 flex flex-wrap gap-2">
             <PostureBadge dimension="lifecycle" value={project.lifecycle} />
             <PostureBadge dimension="maturity" value={project.maturity} />
+            <PostureBadge dimension="health" value={health} />
             <PostureBadge dimension="evidence" value={project.evidence.level} />
           </div>
           {(project.liveUrl || project.repoUrl) ? (

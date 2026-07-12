@@ -8,6 +8,11 @@
       "visibility": "public",
       "url": "http://127.0.0.1:3002/api/health",
       "expected_status": 200,
+      "check": {
+        "type": "json-field",
+        "path": ["status"],
+        "expected": "healthy"
+      },
       "timeout_ms": 5000
     },
     {
@@ -17,6 +22,11 @@
       "visibility": "owner",
       "url": "http://127.0.0.1:3002/api/health",
       "expected_status": 200,
+      "check": {
+        "type": "json-field",
+        "path": ["status"],
+        "expected": "healthy"
+      },
       "timeout_ms": 3000
     },
     {

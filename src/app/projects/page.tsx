@@ -6,6 +6,12 @@ import {
   fetchAllRepoStats,
   type GitHubStats,
 } from "@/lib/github-stats";
+import {
+  derivePublicMetrics,
+  getMetricsDir,
+  readMetricsFromDir,
+} from "@/lib/metrics/reader";
+import { deriveProjectHealth } from "@/lib/metrics/status-page";
 
 export const metadata: Metadata = {
   title: "Projects",
@@ -15,8 +21,18 @@ export const metadata: Metadata = {
 export default async function ProjectsPage() {
   const projects = getCanonicalProjects();
   const repoPairs = extractRepoPairs(projects);
-  const stats = await fetchAllRepoStats(repoPairs);
+  const [stats, readResult] = await Promise.all([
+    fetchAllRepoStats(repoPairs),
+    Promise.resolve(readMetricsFromDir(getMetricsDir())),
+  ]);
+  const metrics = derivePublicMetrics(readResult);
   const statsBySlug: Record<string, GitHubStats> = {};
+  const healthBySlug = Object.fromEntries(
+    projects.map((project) => [
+      project.slug,
+      deriveProjectHealth(project, metrics.services, metrics.freshness),
+    ]),
+  );
 
   for (const pair of repoPairs) {
     const value = stats.get(`${pair.owner}/${pair.repo}`);
@@ -26,6 +42,7 @@ export default async function ProjectsPage() {
   return (
     <ProjectList
       projects={projects}
+      healthBySlug={healthBySlug}
       statsBySlug={statsBySlug}
       nowIso={new Date().toISOString()}
     />

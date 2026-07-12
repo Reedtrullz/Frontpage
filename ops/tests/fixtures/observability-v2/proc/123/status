@@ -1,0 +1,5 @@
+Name:	node worker
+State:	R (running)
+Uid:	1001	1001	1001	1001
+VmRSS:	2048 kB
+SECRET_TOKEN:	must-not-leak

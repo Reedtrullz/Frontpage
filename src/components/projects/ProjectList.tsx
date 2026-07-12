@@ -10,6 +10,7 @@ import type {
   ProjectMaturity,
 } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
+import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import {
   filterProjects,
   sortProjects,
@@ -49,6 +50,18 @@ const sortOptions: Array<{ value: ProjectSort; label: string }> = [
   { value: "name", label: "Name" },
 ];
 
+const healthOptions: Array<{
+  value: ProjectRuntimeHealth | "all";
+  label: string;
+}> = [
+  { value: "all", label: "All health" },
+  { value: "healthy", label: "Healthy" },
+  { value: "degraded", label: "Degraded" },
+  { value: "disruption", label: "Disruption" },
+  { value: "unavailable", label: "Unavailable" },
+  { value: "not-monitored", label: "Not monitored" },
+];
+
 function optionValue<T extends string>(
   value: string | null,
   options: ReadonlyArray<{ value: T; label: string }>,
@@ -61,11 +74,12 @@ function optionValue<T extends string>(
 
 interface ProjectListProps {
   projects: ProjectContent[];
+  healthBySlug: Record<string, ProjectRuntimeHealth>;
   statsBySlug: Record<string, GitHubStats>;
   nowIso: string;
 }
 
-export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps) {
+export function ProjectList({ projects, healthBySlug, statsBySlug, nowIso }: ProjectListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -86,15 +100,48 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
     "all",
   );
   const sort = optionValue(searchParams.get("sort"), sortOptions, "featured");
+  const health = optionValue(searchParams.get("health"), healthOptions, "all");
   const now = useMemo(() => new Date(nowIso), [nowIso]);
 
   const filtered = useMemo(
-    () =>
-      sortProjects(
-        filterProjects(projects, { query, lifecycle, maturity, category }),
-        sort,
-      ),
-    [projects, query, lifecycle, maturity, category, sort],
+    () => {
+      const contentFiltered = filterProjects(projects, {
+        query,
+        lifecycle,
+        maturity,
+        category,
+      });
+      const healthFiltered =
+        health === "all"
+          ? contentFiltered
+          : contentFiltered.filter(
+              (project) =>
+                (healthBySlug[project.slug] ?? "not-monitored") === health,
+            );
+      return sortProjects(healthFiltered, sort);
+    },
+    [
+      projects,
+      query,
+      lifecycle,
+      maturity,
+      category,
+      health,
+      healthBySlug,
+      sort,
+    ],
+  );
+
+  const summary = projects.reduce(
+    (counts, project) => {
+      const projectHealth = healthBySlug[project.slug] ?? "not-monitored";
+      counts.monitored += projectHealth === "not-monitored" ? 0 : 1;
+      counts.healthy += projectHealth === "healthy" ? 1 : 0;
+      counts.unavailable += projectHealth === "unavailable" ? 1 : 0;
+      counts.notMonitored += projectHealth === "not-monitored" ? 1 : 0;
+      return counts;
+    },
+    { monitored: 0, healthy: 0, unavailable: 0, notMonitored: 0 },
   );
 
   function updateParam(name: string, value: string, defaultValue = "all") {
@@ -116,6 +163,7 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
     lifecycle !== "all" ||
     maturity !== "all" ||
     category !== "all" ||
+    health !== "all" ||
     sort !== "featured";
 
   return (
@@ -128,8 +176,16 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
         </p>
       </header>
 
+      <dl aria-label="Project catalogue summary" className="mt-8 grid grid-cols-2 border-y border-[var(--border)] sm:grid-cols-5">
+        <SummaryField label="Published" value={projects.length} />
+        <SummaryField label="Monitored" value={summary.monitored} />
+        <SummaryField label="Healthy" value={summary.healthy} />
+        <SummaryField label="Unavailable" value={summary.unavailable} />
+        <SummaryField label="Not monitored" value={summary.notMonitored} />
+      </dl>
+
       <section aria-label="Project filters" className="mt-10 border-y border-[var(--border)] py-5">
-        <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_repeat(4,minmax(150px,auto))_44px]">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_repeat(5,minmax(125px,auto))_44px]">
           <label className="relative">
             <span className="sr-only">Search projects</span>
             <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-[var(--text-subtle)]" aria-hidden="true" />
@@ -144,6 +200,7 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
           <FilterSelect label="Lifecycle" value={lifecycle} options={lifecycleOptions} onChange={(value) => updateParam("lifecycle", value)} />
           <FilterSelect label="Maturity" value={maturity} options={maturityOptions} onChange={(value) => updateParam("maturity", value)} />
           <FilterSelect label="Category" value={category} options={categoryOptions} onChange={(value) => updateParam("category", value)} />
+          <FilterSelect label="Health" value={health} options={healthOptions} onChange={(value) => updateParam("health", value)} />
           <FilterSelect label="Sort" value={sort} options={sortOptions} onChange={(value) => updateParam("sort", value, "featured")} />
           <button
             type="button"
@@ -166,7 +223,14 @@ export function ProjectList({ projects, statsBySlug, nowIso }: ProjectListProps)
       {filtered.length > 0 ? (
         <div className="mt-6 grid gap-5 lg:grid-cols-2">
           {filtered.map((project, index) => (
-            <ProjectCard key={project.slug} project={project} stats={statsBySlug[project.slug]} now={now} priority={index < 2} />
+            <ProjectCard
+              key={project.slug}
+              project={project}
+              health={healthBySlug[project.slug] ?? "not-monitored"}
+              stats={statsBySlug[project.slug]}
+              now={now}
+              priority={index < 2}
+            />
           ))}
         </div>
       ) : (
@@ -195,6 +259,7 @@ function FilterSelect<T extends string>({
     <label>
       <span className="sr-only">{label}</span>
       <select
+        aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
         className="min-h-11 w-full rounded-md border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--text)] focus:border-[var(--focus)] focus:outline-none"
@@ -204,5 +269,14 @@ function FilterSelect<T extends string>({
         ))}
       </select>
     </label>
+  );
+}
+
+function SummaryField({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="border-r border-[var(--border)] px-4 py-4 last:border-r-0 sm:px-5">
+      <dt className="text-xs text-[var(--text-subtle)]">{label}</dt>
+      <dd className="mt-1 font-mono text-2xl text-[var(--text)]">{value}</dd>
+    </div>
   );
 }

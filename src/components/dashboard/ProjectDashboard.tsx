@@ -78,7 +78,12 @@ export function ProjectDashboard({
         </div>
         <div className="mt-7 grid gap-5 lg:grid-cols-2">
           {flagships.map((project, index) => (
-            <FlagshipProjectCard key={project.slug} project={project} priority={index < 2} />
+            <FlagshipProjectCard
+              key={project.slug}
+              project={project}
+              health={deriveProjectHealth(project, metrics.services, metrics.freshness)}
+              priority={index < 2}
+            />
           ))}
         </div>
       </section>

@@ -1,0 +1,212 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-12T18:59:45Z",
+  "collected_at": "2026-07-12T18:59:45Z",
+  "freshness": "fresh",
+  "host": {
+    "totals": [
+      {
+        "resource": "cpu",
+        "label": "CPU total",
+        "unit": "percent",
+        "current": 37.2,
+        "average": 31.4,
+        "peak": 83.6,
+        "state": "healthy",
+        "freshness": "fresh",
+        "updated_at": "2026-07-12T18:59:45Z",
+        "attribution_coverage_percent": 94.2,
+        "reconciliation_error_percent": 2.3,
+        "workload_view": "available"
+      },
+      {
+        "resource": "ram",
+        "label": "RAM total",
+        "unit": "bytes",
+        "current": 51539607552,
+        "average": 48855269376,
+        "peak": 53687091200,
+        "state": "healthy",
+        "freshness": "fresh",
+        "updated_at": "2026-07-12T18:59:45Z",
+        "attribution_coverage_percent": 92.6,
+        "reconciliation_error_percent": 3.1,
+        "workload_view": "available"
+      },
+      {
+        "resource": "disk_io",
+        "label": "Disk I/O",
+        "unit": "bytes_per_second",
+        "current": 420000,
+        "average": 315000,
+        "peak": 880000,
+        "state": "watch",
+        "freshness": "fresh",
+        "updated_at": "2026-07-12T18:59:45Z",
+        "attribution_coverage_percent": 88.4,
+        "reconciliation_error_percent": 4.6,
+        "workload_view": "available"
+      },
+      {
+        "resource": "network",
+        "label": "Network total",
+        "unit": "bytes_per_second",
+        "current": 124000,
+        "average": 98000,
+        "peak": 420000,
+        "state": "healthy",
+        "freshness": "fresh",
+        "updated_at": "2026-07-12T18:59:45Z",
+        "attribution_coverage_percent": 0,
+        "reconciliation_error_percent": 0,
+        "workload_view": "unavailable"
+      }
+    ],
+    "capabilities": [
+      {
+        "id": "psi",
+        "label": "PSI",
+        "state": "available",
+        "detail": "Host and workload PSI are available."
+      },
+      {
+        "id": "process-visibility",
+        "label": "Process visibility",
+        "state": "available",
+        "detail": "Allowlisted workload processes are readable."
+      },
+      {
+        "id": "network-workload-attribution",
+        "label": "Network workload attribution",
+        "state": "unavailable",
+        "detail": "Host totals are available, but workload attribution waits for the later eBPF phase."
+      }
+    ]
+  },
+  "workloads": [
+    {
+      "id": "frontpage-app",
+      "label": "frontpage-app",
+      "kind": "container",
+      "systemd_unit": "frontpage.service",
+      "cgroup_path": "system.slice/frontpage.service",
+      "container_id": "frontpage-ctr",
+      "resources": [
+        {
+          "resource": "cpu",
+          "unit": "percent",
+          "current": 22.5,
+          "average": 19.2,
+          "peak": 44.8,
+          "change_1h": 3.1,
+          "coverage_percent": 100
+        },
+        {
+          "resource": "ram",
+          "unit": "bytes",
+          "current": 2453667840,
+          "average": 2348810240,
+          "peak": 2684354560,
+          "change_1h": 188743680,
+          "coverage_percent": 100
+        },
+        {
+          "resource": "disk_io",
+          "unit": "bytes_per_second",
+          "current": 180000,
+          "average": 150000,
+          "peak": 360000,
+          "change_1h": -12000,
+          "coverage_percent": 94.1
+        }
+      ],
+      "processes": [
+        {
+          "workload_id": "frontpage-app",
+          "pid": 4121,
+          "comm": "node",
+          "uid": 1001,
+          "cpu_percent": 22.5,
+          "rss_bytes": 245366784,
+          "state": "running"
+        }
+      ]
+    },
+    {
+      "id": "system-untracked",
+      "label": "system/untracked",
+      "kind": "residual",
+      "cgroup_path": "system.slice",
+      "resources": [
+        {
+          "resource": "cpu",
+          "unit": "percent",
+          "current": 14.7,
+          "average": 12.2,
+          "peak": 38.8,
+          "change_1h": -1.5,
+          "coverage_percent": 100
+        },
+        {
+          "resource": "ram",
+          "unit": "bytes",
+          "current": 49198239744,
+          "average": 46506459136,
+          "peak": 51002736640,
+          "change_1h": 104857600,
+          "coverage_percent": 100
+        },
+        {
+          "resource": "disk_io",
+          "unit": "bytes_per_second",
+          "current": 240000,
+          "average": 165000,
+          "peak": 520000,
+          "change_1h": 9000,
+          "coverage_percent": 82.7
+        }
+      ],
+      "processes": []
+    }
+  ],
+  "diagnostics": [
+    {
+      "id": "network-workload-view-unavailable",
+      "severity": "warning",
+      "message": "Network By workload stays disabled until workload attribution is available."
+    }
+  ],
+  "incidents": [
+    {
+      "id": "workload-oom-frontpage-20260712",
+      "rule_id": "workload-oom-kill",
+      "title": "Frontpage workload recovered after OOM kill",
+      "severity": "warning",
+      "state": "recovered",
+      "visibility": "owner",
+      "resource": "ram",
+      "workload_id": "frontpage-app",
+      "opened_at": "2026-07-12T17:32:00Z",
+      "updated_at": "2026-07-12T17:36:00Z",
+      "resolved_at": "2026-07-12T17:36:00Z",
+      "coverage_percent": 100,
+      "capability_state": "available",
+      "summary": "One OOM kill was recorded and the workload recovered.",
+      "evidence": {
+        "trigger_value": 1,
+        "threshold_value": 1,
+        "peak_value": 1,
+        "points": [
+          {
+            "recorded_at": "2026-07-12T17:31:45Z",
+            "value": 1
+          },
+          {
+            "recorded_at": "2026-07-12T17:36:00Z",
+            "value": 0
+          }
+        ]
+      }
+    }
+  ]
+}

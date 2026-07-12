@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-12T18:59:45Z",
+  "incidents": [
+    {
+      "id": "public-status-disruption-20260712",
+      "rule_id": "public-service-failure",
+      "title": "Public status checks recovered after a brief disruption",
+      "severity": "warning",
+      "state": "recovered",
+      "visibility": "public",
+      "resource": "network",
+      "opened_at": "2026-07-12T18:05:00Z",
+      "updated_at": "2026-07-12T18:09:00Z",
+      "resolved_at": "2026-07-12T18:09:00Z",
+      "coverage_percent": 100,
+      "capability_state": "available",
+      "summary": "Public visitors saw a brief disruption affecting public availability."
+    }
+  ]
+}

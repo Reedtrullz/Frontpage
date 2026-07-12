@@ -4,17 +4,31 @@ import json
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+for candidate in (Path(__file__).resolve().parent.parent, Path("/usr/local/lib/frontpage")):
+    if candidate.is_dir() and str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+
+from ops.frontpage_metrics_v2 import config as collector_config
+from ops.frontpage_metrics_v2.sources import services as service_source
+
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
-STATUS_USER_AGENT = "reidar-tech-status/1.0"
+MAX_COMPARISON_HISTORY = 4320
 MAX_ITEMS = 64
+
+
+NoRedirectHandler = service_source.NoRedirectHandler
+STATUS_OPENER = service_source.STATUS_OPENER
+
+
+def open_status_request(request, timeout):
+    return service_source.open_status_request(request, timeout)
 
 
 def utc_now():
@@ -36,13 +50,11 @@ def _validate_id(value):
 
 
 def _reject_secret_url(url):
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Service URL must be http or https")
-    if parsed.username or parsed.password:
-        raise ValueError("Service URL must not contain credentials")
-    if parsed.params or parsed.query or parsed.fragment:
-        raise ValueError("Service URL must not contain params, query, or fragment")
+    collector_config.validate_service_url(url)
+
+
+def _validate_check(check):
+    collector_config.validate_service_check(check)
 
 
 def load_config(path):
@@ -64,6 +76,8 @@ def load_config(path):
         service["timeout_ms"] = clamp_timeout_ms(service.get("timeout_ms", 5000))
         if service.get("visibility") not in {"public", "owner"}:
             raise ValueError("Service visibility must be public or owner")
+        if "check" in service:
+            _validate_check(service["check"])
 
     seen_containers = set()
     for container in containers:
@@ -143,38 +157,12 @@ def collect_host_metrics():
     }
 
 
-def service_result(service, opener=urllib.request.urlopen, now=utc_now):
-    started = time.monotonic()
-    timeout_seconds = clamp_timeout_ms(service.get("timeout_ms", 5000)) / 1000
-    status = "unknown"
-    latency_ms = None
-    try:
-        request = urllib.request.Request(
-            service["url"],
-            headers={"User-Agent": STATUS_USER_AGENT},
-            method="GET",
-        )
-        with opener(request, timeout=timeout_seconds) as response:
-            latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-            status = "up" if response.status == int(service.get("expected_status", 200)) else "down"
-    except urllib.error.HTTPError as error:
-        latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
-        status = "up" if error.code == int(service.get("expected_status", 200)) else "down"
-    except Exception:
-        status = "unknown"
-        latency_ms = None
+def response_matches_check(response, check):
+    return service_source.response_matches_check(response, check)
 
-    result = {
-        "id": service["id"],
-        "label": service["label"],
-        "visibility": service["visibility"],
-        "status": status,
-        "checked_at": now(),
-        "latency_ms": latency_ms,
-    }
-    if service.get("project_slug"):
-        result["project_slug"] = service["project_slug"]
-    return result
+
+def service_result(service, opener=open_status_request, now=utc_now):
+    return service_source.legacy_service_result(service, opener=opener, now=now)
 
 
 def container_status_from_inspect(data):
@@ -225,12 +213,38 @@ def prune_history(samples):
     return list(samples)[-MAX_HISTORY:]
 
 
+def prune_comparison_history(samples):
+    return list(samples)[-MAX_COMPARISON_HISTORY:]
+
+
 def atomic_write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    payload = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o640)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def load_history(path):
@@ -268,6 +282,13 @@ def main():
     atomic_write_json(
         metrics_dir / "history.json",
         {"schema_version": SCHEMA_VERSION, "samples": samples},
+    )
+    comparison_samples = prune_comparison_history(
+        load_history(metrics_dir / "comparison-history.json") + [snapshot]
+    )
+    atomic_write_json(
+        metrics_dir / "comparison-history.json",
+        {"schema_version": SCHEMA_VERSION, "samples": comparison_samples},
     )
 
 

@@ -9,6 +9,7 @@ import {
 
 const readResult: MetricsReadResult = {
   freshness: "fresh",
+  historyAvailability: "available",
   diagnostics: [],
   latest: {
     schema_version: 1,
@@ -72,6 +73,7 @@ describe("createStatusPageModel", () => {
       cpu: "low",
       ram: "low",
       disk: "ok",
+      gapBefore: false,
     });
     expect(JSON.stringify(model.public)).not.toContain("load_1m");
     expect(JSON.stringify(model.public)).not.toContain("cpu_percent");
@@ -99,6 +101,88 @@ describe("createStatusPageModel", () => {
 });
 
 describe("deriveOverallPublicStatus", () => {
+  it("reports delayed status without counting stale checks as up", () => {
+    const model = createStatusPageModel({
+      readResult: { ...readResult, freshness: "stale" },
+      isOwner: false,
+      now: new Date("2026-07-09T02:02:00Z"),
+    });
+
+    expect(model.overall).toMatchObject({
+      kind: "delayed",
+      label: "Status delayed",
+    });
+    expect(model.public.host.serviceSummary).toMatchObject({
+      total: 1,
+      up: 0,
+      unknown: 1,
+    });
+  });
+
+  it("reports unavailable current telemetry separately from no configured checks", () => {
+    const model = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        freshness: "unavailable",
+        latest: null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:02:00Z"),
+    });
+
+    expect(model.overall.kind).toBe("unavailable");
+    expect(model.public.lastKnownServiceCount).toBe(1);
+    expect(model.public.host.serviceSummary.total).toBe(0);
+  });
+
+  it("keeps CPU and RAM pressure informational and disk watch operational", () => {
+    const publicModel = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              host: {
+                ...readResult.latest.host,
+                cpu_percent: 99,
+                ram_used_bytes: 99,
+                disk_used_bytes: 80,
+              },
+            }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).public;
+
+    expect(publicModel.host.diskPressure).toBe("watch");
+    expect(deriveOverallPublicStatus(publicModel).kind).toBe("operational");
+  });
+
+  it("does not claim operational when critical disk pressure is degraded", () => {
+    const publicModel = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              host: {
+                ...readResult.latest.host,
+                disk_used_bytes: 90,
+              },
+            }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).public;
+
+    expect(deriveOverallPublicStatus(publicModel)).toMatchObject({
+      kind: "degraded",
+      description: "Host disk pressure is critical.",
+    });
+  });
+
   it("prioritizes a down service over a healthy host", () => {
     const model = createStatusPageModel({
       readResult: {
@@ -151,7 +235,7 @@ describe("deriveOverallPublicStatus", () => {
 });
 
 describe("deriveProjectHealth", () => {
-  it("uses all configured checks and lets a down check win", () => {
+  it("returns degraded when a configured check is down while another is up", () => {
     expect(
       deriveProjectHealth(
         { slug: "sample", healthServiceIds: ["one", "two"] },
@@ -173,7 +257,75 @@ describe("deriveProjectHealth", () => {
         ],
         "fresh",
       ),
+    ).toBe("degraded");
+  });
+
+  it("returns unavailable when one configured check is missing from the current set", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "missing"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("unavailable");
+  });
+
+  it("returns disruption when every configured check is down", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "two"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "down",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+          {
+            id: "two",
+            label: "Two",
+            status: "down",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
     ).toBe("disruption");
+  });
+
+  it("returns degraded when an unknown check remains alongside an up check", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "two"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+          {
+            id: "two",
+            label: "Two",
+            status: "unknown",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("degraded");
   });
 
   it("returns not monitored when no check is bound", () => {
@@ -185,9 +337,63 @@ describe("deriveProjectHealth", () => {
       ),
     ).toBe("not-monitored");
   });
+
+  it("returns unavailable when a configured binding has no matching check", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["missing"] },
+        [],
+        "fresh",
+      ),
+    ).toBe("unavailable");
+  });
+
+  it("returns unavailable for configured checks when telemetry is stale", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "stale",
+      ),
+    ).toBe("unavailable");
+  });
 });
 
 describe("deriveOwnerAttention", () => {
+  it("does not alert on a future latest sample", () => {
+    const now = new Date("2026-07-09T02:00:00Z");
+    const future = readResult.latest
+      ? {
+          ...readResult.latest,
+          collected_at: "2026-07-09T02:01:00Z",
+          host: { ...readResult.latest.host, disk_used_bytes: 99 },
+        }
+      : null;
+    const owner = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        freshness: "fresh",
+        latest: future,
+        history: [],
+      },
+      isOwner: true,
+      now,
+    }).owner;
+
+    expect(owner?.latest).toBeNull();
+    expect(deriveOwnerAttention(owner)).toEqual([
+      expect.objectContaining({ id: "metrics-unavailable" }),
+    ]);
+  });
+
   it("identifies resource and service issues", () => {
     const owner = createStatusPageModel({
       readResult: {

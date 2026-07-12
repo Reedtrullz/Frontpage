@@ -1,0 +1,108 @@
+{
+  "schema_version": 2,
+  "sample_interval_seconds": 15,
+  "retention": {
+    "raw_seconds": 3600,
+    "minute_seconds": 604800,
+    "quarter_hour_seconds": 2592000,
+    "incident_seconds": 7776000
+  },
+  "paths": {
+    "public_dir": "/var/lib/frontpage-metrics/v2/public",
+    "owner_dir": "/var/lib/frontpage-metrics/v2/owner",
+    "database_path": "/var/lib/frontpage-metrics/private/metrics-v2.sqlite3",
+    "runtime_map_path": "/run/frontpage-metrics/runtime-map.json",
+    "root_filesystems": ["/"],
+    "block_devices": ["vda"],
+    "network_interfaces": ["eth0"]
+  },
+  "network_attribution": {
+    "mode": "host-only",
+    "capability": "unavailable"
+  },
+  "thresholds": {
+    "disk_warning_percent": 80,
+    "disk_critical_percent": 90,
+    "service_failures": 2,
+    "service_recoveries": 2,
+    "reconciliation_error_percent": 10
+  },
+  "workloads": [
+    {
+      "id": "frontpage-app",
+      "label": "Frontpage app",
+      "project_slug": "frontpage",
+      "match": {
+        "type": "cgroup-path",
+        "value": "runtime/frontpage-app"
+      }
+    },
+    {
+      "id": "frontpage-observer",
+      "label": "Frontpage observer",
+      "project_slug": "frontpage",
+      "match": {
+        "type": "cgroup-pattern",
+        "value": "^system\\.slice/frontpage-metrics-collector-v2(?:-shadow)?\\.service$"
+      }
+    }
+  ],
+  "services": [
+    {
+      "id": "frontpage-public",
+      "label": "Frontpage",
+      "project_slug": "frontpage",
+      "visibility": "public",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "check": {"type": "json-field", "path": ["status"], "expected": "healthy"},
+      "timeout_ms": 5000
+    },
+    {
+      "id": "frontpage-internal",
+      "label": "Frontpage internal",
+      "project_slug": "frontpage",
+      "visibility": "owner",
+      "url": "http://127.0.0.1:3002/api/health",
+      "expected_status": 200,
+      "check": {"type": "json-field", "path": ["status"], "expected": "healthy"},
+      "timeout_ms": 3000
+    },
+    {
+      "id": "nytt-public",
+      "label": "Nytt",
+      "project_slug": "nytt",
+      "visibility": "public",
+      "url": "https://nytt.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfs-public",
+      "label": "RFS",
+      "project_slug": "rfs",
+      "visibility": "public",
+      "url": "https://fly.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "rfmc-public",
+      "label": "VirtualCDU",
+      "project_slug": "rfmc",
+      "visibility": "public",
+      "url": "https://fmc.reidar.tech/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "heimdall-public",
+      "label": "Heimdall",
+      "project_slug": "heimdall",
+      "visibility": "public",
+      "url": "https://bond.thorchain.no/",
+      "expected_status": 200,
+      "timeout_ms": 5000
+    }
+  ]
+}

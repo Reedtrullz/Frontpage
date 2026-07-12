@@ -123,6 +123,12 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "THORArb" }),
     ).toBeVisible();
+
+    await page.goto("/projects");
+    await expect(page.getByText("Media not published").first()).toBeVisible();
+    await page.getByLabel("Health").selectOption("not-monitored");
+    await expect(page).toHaveURL(/health=not-monitored/);
+    await expect(page.getByText("9 of 14 projects")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
@@ -142,6 +148,7 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Current limitations" }),
     ).toBeVisible();
+    await expect(page.getByText("Healthy", { exact: true }).first()).toBeVisible();
 
     for (const [slug, accessibleName] of [
       ["rfmc", /VirtualCDU training mission selector/i],
@@ -162,10 +169,71 @@ test.describe("public project experience", () => {
       page.getByRole("heading", { level: 1, name: "Nytt" }),
     ).toBeVisible();
     await expect(page.getByText(/coverage and certainty depend/i)).toBeVisible();
+
+    await page.goto("/projects/thorarb");
+    await expect(page.getByText("Not monitored", { exact: true }).first()).toBeVisible();
   });
 });
 
 test.describe("public status", () => {
+  test("prioritizes fresh public checks before history on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/status");
+
+    await expect(page.getByText("Operational", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("5/5 up", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(/100% available across 8 known checks/i).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Coverage 100%", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(page.getByText("24h ago", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("now", { exact: true }).first()).toBeVisible();
+
+    const inventory = page.getByRole("heading", { name: "Service inventory" });
+    const history = page.getByRole("heading", {
+      name: "Coarse pressure history",
+    });
+    const [inventoryBox, historyBox] = await Promise.all([
+      inventory.boundingBox(),
+      history.boundingBox(),
+    ]);
+
+    expect(inventoryBox).not.toBeNull();
+    expect(historyBox).not.toBeNull();
+    expect(inventoryBox!.y).toBeLessThan(historyBox!.y);
+
+    const inventoryPrecedesHistory = await page.locator("main").evaluate((main) => {
+      const servicesHeading = main.querySelector("#public-services-heading");
+      const historyHeading = main.querySelector("#history-heading");
+      const servicesSection = servicesHeading?.closest("section");
+      const historySection = historyHeading?.closest("section");
+      if (!servicesSection || !historySection) return false;
+      return Boolean(
+        servicesSection.compareDocumentPosition(historySection) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    expect(inventoryPrecedesHistory).toBe(true);
+    await expectNoHorizontalOverflow(page);
+    await expectNoSeriousAccessibilityViolations(page);
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("/status");
+    const [desktopInventoryBox, desktopHistoryBox] = await Promise.all([
+      inventory.boundingBox(),
+      history.boundingBox(),
+    ]);
+
+    expect(desktopInventoryBox).not.toBeNull();
+    expect(desktopHistoryBox).not.toBeNull();
+    expect(desktopInventoryBox!.x).toBeGreaterThan(desktopHistoryBox!.x);
+    await expectNoHorizontalOverflow(page);
+    await expectNoSeriousAccessibilityViolations(page);
+  });
+
   test("renders coarse history and leaks no owner fields", async ({ page }) => {
     await page.goto("/status");
     await expect(
@@ -176,9 +244,11 @@ test.describe("public status", () => {
       page.getByRole("heading", { name: "Coarse pressure history" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("img", { name: /CPU pressure over the available 24-hour window/i }),
+      page.getByRole("img", { name: /CPU pressure history:/i }),
     ).toBeVisible();
     await expect(page.getByText("Frontpage", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent events" })).toBeVisible();
+    await expect(page.getByText("Public checks recovered after a brief disruption")).toBeVisible();
 
     const statusHtml = await page.content();
     await page.goto("/");
@@ -192,6 +262,11 @@ test.describe("public status", () => {
       "frontpage-container",
       "Collector diagnostics",
       "Owner status",
+      "frontpage-app",
+      "system/untracked",
+      "Current processes",
+      "Collector diagnostic",
+      "trigger_value",
     ]) {
       expect(publicHtml).not.toContain(privateMarker);
     }

@@ -13,7 +13,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
 
 env:
   NODE_VERSION: '22'
@@ -32,16 +31,24 @@ jobs:
           npm ci --include=optional
           npm install --no-save --no-package-lock \
             lightningcss-linux-x64-gnu@1.32.0 \
-            @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+            @tailwindcss/oxide-linux-x64-gnu@4.3.2 \
             @rolldown/binding-linux-x64-gnu@1.1.5 \
             @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
             @img/sharp-linux-x64@0.34.5 \
             @img/sharp-libvips-linux-x64@1.2.4
+      - run: npm audit --include=dev --audit-level=high
       - run: npm test
       - run: npm run lint
       - run: npx tsc --noEmit
-      - run: python3 -m unittest ops.tests.test_frontpage_metrics_collector
-      - run: python3 -m py_compile ops/frontpage-metrics-collector.py
+      - run: python3 -m unittest discover -s ops/tests
+      - run: python3 -m compileall -q ops/frontpage_metrics_v2 ops/frontpage-metrics-collector.py ops/frontpage-metrics-collector-v2.py ops/frontpage-metrics-runtime-map.py ops/frontpage-metrics-shadow-compare.py
+      - name: Check Ansible deployment syntax
+        run: |
+          python3 -m pip install ansible-core
+          ansible-galaxy collection install community.docker
+          trap 'rm -f .vault_pass' EXIT
+          printf 'frontpage-ci-vault-password\n' > .vault_pass
+          ansible-playbook --syntax-check -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
       - run: npm run build
         env:
           CI: true
@@ -62,7 +69,7 @@ jobs:
           npm ci --include=optional
           npm install --no-save --no-package-lock \
             lightningcss-linux-x64-gnu@1.32.0 \
-            @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+            @tailwindcss/oxide-linux-x64-gnu@4.3.2 \
             @rolldown/binding-linux-x64-gnu@1.1.5 \
             @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
             @img/sharp-linux-x64@0.34.5 \
@@ -73,6 +80,9 @@ jobs:
           CI: true
           AUTH_SECRET: frontpage-ci-browser-secret
           VERSION: ci-${{ github.sha }}
+          FRONTPAGE_E2E_OWNER: '1'
+          FRONTPAGE_E2E_OWNER_TOKEN: frontpage-e2e-owner-token
+          OWNER_GITHUB_ID: e2e-owner
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v6
         if: failure()
@@ -83,12 +93,16 @@ jobs:
           retention-days: 7
 
   docker-check:
-    name: Docker build check
+    name: Docker build & runtime check
     needs: [test, browser]
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -99,18 +113,29 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
-          tags: frontpage:pr-${{ github.event.pull_request.number }}
+          load: true
+          tags: frontpage:ci-${{ github.sha }}
           cache-from: type=gha
           build-args: |
             VERSION=pr-${{ github.sha }}
 
+      - name: Run Docker runtime smoke
+        run: node tests/docker-runtime-smoke.mjs --image frontpage:ci-${{ github.sha }} --version pr-${{ github.sha }}
+
   publish:
     name: Build & publish image
-    needs: [test, browser]
+    needs: [test, browser, docker-check]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -143,6 +168,9 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             VERSION=sha-${{ github.sha }}
+
+      - name: Run published image smoke
+        run: node tests/docker-runtime-smoke.mjs --image ghcr.io/${{ github.repository }}:sha-${{ github.sha }} --version sha-${{ github.sha }}
 
       - name: Summary
         run: |

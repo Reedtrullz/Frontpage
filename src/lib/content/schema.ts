@@ -153,6 +153,24 @@ export const personalSchema = z
   })
   .strict();
 
+export const maintenanceWindowSchema = z
+  .object({
+    id: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),
+    title: z.string().trim().min(4).max(120),
+    description: z.string().trim().min(8).max(320),
+    affectedServiceIds: z
+      .array(z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80))
+      .min(1)
+      .max(16)
+      .superRefine(uniqueStrings),
+    startsAt: utcDateTimeSchema,
+    endsAt: utcDateTimeSchema,
+    status: z.enum(["planned", "active", "completed"]),
+  })
+  .strict();
+
+export const maintenanceWindowsSchema = z.array(maintenanceWindowSchema).max(64);
+
 export type ProjectLifecycle = z.infer<typeof lifecycleSchema>;
 export type ProjectMaturity = z.infer<typeof maturitySchema>;
 export type ProjectEvidenceLevel = z.infer<typeof evidenceLevelSchema>;
@@ -162,6 +180,7 @@ export type ProjectEvidence = z.infer<typeof projectEvidenceSchema>;
 export type ProjectContent = z.infer<typeof projectSchema>;
 export type PersonalContent = z.infer<typeof personalSchema>;
 export type SocialLink = z.infer<typeof socialLinkSchema>;
+export type MaintenanceWindow = z.infer<typeof maintenanceWindowSchema>;
 
 export function parseProjects(input: unknown): ProjectContent[] {
   const projects = projectsSchema.parse(input);
@@ -184,4 +203,38 @@ export function parseProjects(input: unknown): ProjectContent[] {
 
 export function parsePersonal(input: unknown): PersonalContent {
   return personalSchema.parse(input);
+}
+
+export function parseMaintenanceWindows(
+  input: unknown,
+  knownPublicServiceIds?: ReadonlySet<string>,
+): MaintenanceWindow[] {
+  const windows = maintenanceWindowsSchema.parse(input);
+  const ids = new Set<string>();
+  for (const window of windows) {
+    if (ids.has(window.id)) throw new Error(`Duplicate maintenance id: ${window.id}`);
+    ids.add(window.id);
+    if (Date.parse(window.endsAt) <= Date.parse(window.startsAt)) {
+      throw new Error(`Maintenance end must be after start: ${window.id}`);
+    }
+    for (const serviceId of window.affectedServiceIds) {
+      if (knownPublicServiceIds && !knownPublicServiceIds.has(serviceId)) {
+        throw new Error(`Unknown public service id: ${serviceId}`);
+      }
+    }
+  }
+  for (let leftIndex = 0; leftIndex < windows.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < windows.length; rightIndex += 1) {
+      const left = windows[leftIndex]!;
+      const right = windows[rightIndex]!;
+      const sharesService = left.affectedServiceIds.some((id) => right.affectedServiceIds.includes(id));
+      const overlaps =
+        Date.parse(left.startsAt) < Date.parse(right.endsAt) &&
+        Date.parse(right.startsAt) < Date.parse(left.endsAt);
+      if (sharesService && overlaps) {
+        throw new Error(`Maintenance windows overlap for an affected service: ${left.id}, ${right.id}`);
+      }
+    }
+  }
+  return windows;
 }

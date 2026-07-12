@@ -28,7 +28,11 @@ export function isOwnerUser(
   }
 
   const ownerEmail = env.OWNER_EMAIL;
-  if (ownerEmail && user.email && user.email === ownerEmail) {
+  if (
+    ownerEmail &&
+    user.email &&
+    user.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase()
+  ) {
     return true;
   }
 

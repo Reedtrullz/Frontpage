@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reidar.tech/schemas/2026-07-12-frontpage-observability-series.schema.v2.json",
+  "title": "Frontpage Observability Series v2",
+  "description": "Schema for validated host or workload observability series responses.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "range",
+    "resolution_seconds",
+    "view",
+    "resource",
+    "timestamps",
+    "series",
+    "coverage_percent",
+    "truncated"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "generated_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "range": {
+      "type": "string",
+      "enum": ["1h", "24h", "7d", "30d"]
+    },
+    "resolution_seconds": {
+      "type": "integer",
+      "enum": [15, 60, 900]
+    },
+    "view": {
+      "type": "string",
+      "enum": ["host", "workloads"]
+    },
+    "resource": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/resource"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timestamps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10080,
+      "items": {
+        "$ref": "#/$defs/utc_timestamp"
+      }
+    },
+    "series": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 17,
+      "items": {
+        "$ref": "#/$defs/series_entry"
+      }
+    },
+    "coverage_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "resource": {
+      "type": "string",
+      "enum": ["cpu", "ram", "disk_io", "network"]
+    },
+    "series_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "unit", "values"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "values": {
+          "type": "array",
+          "maxItems": 10080,
+          "items": {
+            "type": ["number", "null"]
+          }
+        }
+      }
+    }
+  }
+}

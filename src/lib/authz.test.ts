@@ -20,6 +20,15 @@ describe("isOwnerUser", () => {
     ).toBe(true);
   });
 
+  it("normalizes owner email casing and whitespace", () => {
+    expect(
+      isOwnerUser(
+        { id: null, email: " Owner@Example.COM " },
+        { OWNER_GITHUB_ID: "12345", OWNER_EMAIL: "owner@example.com" },
+      ),
+    ).toBe(true);
+  });
+
   it("rejects missing users and non-owners", () => {
     expect(isOwnerUser(null, { OWNER_GITHUB_ID: "12345" })).toBe(false);
     expect(
