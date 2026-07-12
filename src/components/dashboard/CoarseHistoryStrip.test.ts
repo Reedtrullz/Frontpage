@@ -27,6 +27,8 @@ describe("CoarseHistoryStrip", () => {
           windowEndAt: "2026-07-09T02:00:00Z",
           sampleCount: 3,
           gapCount: 0,
+          leadingGap: false,
+          trailingGap: false,
         },
       }),
     );
@@ -53,6 +55,8 @@ describe("CoarseHistoryStrip", () => {
           windowEndAt: "2026-07-09T02:00:00Z",
           sampleCount: 2,
           gapCount: 1,
+          leadingGap: false,
+          trailingGap: false,
         },
       }),
     );
@@ -73,6 +77,8 @@ describe("CoarseHistoryStrip", () => {
           windowEndAt: "2026-07-09T02:00:00Z",
           sampleCount: 0,
           gapCount: 0,
+          leadingGap: false,
+          trailingGap: false,
         },
       }),
     );
@@ -87,6 +93,8 @@ describe("CoarseHistoryStrip", () => {
           windowEndAt: "2026-07-09T02:00:00Z",
           sampleCount: 0,
           gapCount: 0,
+          leadingGap: false,
+          trailingGap: false,
         },
       }),
     );
@@ -94,5 +102,33 @@ describe("CoarseHistoryStrip", () => {
     expect(unavailable).toContain("History unavailable");
     expect(unavailable).not.toContain('role="img"');
     expect(empty).toContain("No recent samples");
+  });
+
+  it("positions irregular samples by the coverage interval and shows boundary gaps", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CoarseHistoryStrip, {
+        label: "CPU pressure",
+        values: ["low", "high"],
+        legend,
+        history: [
+          { collectedAt: "2026-07-08T14:00:00Z", value: "low", gapBefore: false },
+          { collectedAt: "2026-07-08T20:00:00Z", value: "high", gapBefore: false },
+        ],
+        coverage: {
+          availability: "available",
+          windowStartAt: "2026-07-08T02:00:00Z",
+          windowEndAt: "2026-07-09T02:00:00Z",
+          sampleCount: 2,
+          gapCount: 2,
+          leadingGap: true,
+          trailingGap: true,
+        },
+      }),
+    );
+
+    expect(markup).toContain("Coverage missing before first sample");
+    expect(markup).toContain("Coverage missing after last sample");
+    expect(markup).toMatch(/left:50%/);
+    expect(markup).toMatch(/left:62\.5%/);
   });
 });

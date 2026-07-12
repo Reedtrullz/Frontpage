@@ -84,6 +84,7 @@ export interface OwnerMetricsModel {
   freshness: MetricsFreshness;
   latest: MetricsSnapshot | null;
   history: MetricsSnapshot[];
+  historyGapBefore: boolean[];
   historyCoverage: HistoryCoverage;
   diagnostics: string[];
 }
@@ -183,6 +184,12 @@ function normalizedHistory(
     if (index === 0) return false;
     return entry.timestampMs - entries[index - 1].timestampMs > HISTORY_GAP_THRESHOLD_MS;
   });
+  const leadingGap =
+    entries.length > 0 &&
+    entries[0]!.timestampMs - windowStartMs > HISTORY_GAP_THRESHOLD_MS;
+  const trailingGap =
+    entries.length > 0 &&
+    windowEndMs - entries.at(-1)!.timestampMs > HISTORY_GAP_THRESHOLD_MS;
   const availability =
     sourceAvailability === "unavailable"
       ? "unavailable"
@@ -196,7 +203,12 @@ function normalizedHistory(
     windowStartAt: new Date(windowStartMs).toISOString(),
     windowEndAt: now.toISOString(),
     sampleCount: history.length,
-    gapCount: gapBefore.filter(Boolean).length,
+    gapCount:
+      gapBefore.filter(Boolean).length +
+      (leadingGap ? 1 : 0) +
+      (trailingGap ? 1 : 0),
+    leadingGap,
+    trailingGap,
   };
 
   Object.defineProperty(history, HISTORY_METADATA, {
@@ -482,6 +494,7 @@ export function deriveOwnerMetrics(
     freshness: result.freshness,
     latest: result.latest,
     history,
+    historyGapBefore: metadata.gapBefore,
     historyCoverage: metadata.coverage,
     diagnostics: result.diagnostics,
   };

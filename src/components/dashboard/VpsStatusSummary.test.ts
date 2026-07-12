@@ -25,6 +25,8 @@ function metrics(
       windowEndAt: "2026-07-09T02:00:30Z",
       sampleCount: 0,
       gapCount: 0,
+      leadingGap: false,
+      trailingGap: false,
     },
     serviceTrends: {},
     lastKnownServiceCount: 2,

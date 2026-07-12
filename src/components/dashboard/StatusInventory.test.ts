@@ -1,10 +1,10 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { PublicMetricsModel } from "@/lib/metrics/reader";
+import type { PublicStatusMetricsModel } from "@/lib/metrics/status-page";
 import { StatusInventory } from "./StatusInventory";
 
-function metrics(overrides: Partial<PublicMetricsModel> = {}): PublicMetricsModel {
+function metrics(overrides: Partial<PublicStatusMetricsModel> = {}): PublicStatusMetricsModel {
   return {
     freshness: "fresh",
     host: {
@@ -32,6 +32,8 @@ function metrics(overrides: Partial<PublicMetricsModel> = {}): PublicMetricsMode
       windowEndAt: "2026-07-09T02:00:00Z",
       sampleCount: 4,
       gapCount: 0,
+      leadingGap: false,
+      trailingGap: false,
     },
     serviceTrends: {
       "frontpage-public": {
@@ -43,6 +45,7 @@ function metrics(overrides: Partial<PublicMetricsModel> = {}): PublicMetricsMode
         lastTransitionAt: "2026-07-08T14:00:00Z",
       },
     },
+    lastKnownServiceCount: 1,
     ...overrides,
   };
 }
@@ -92,5 +95,31 @@ describe("StatusInventory", () => {
     expect(markup).not.toContain("cpu_percent");
     expect(markup).not.toContain("ram_used_bytes");
     expect(markup).not.toContain("frontpage-public");
+  });
+
+  it("shows unavailable current telemetry without erasing last-known configuration", () => {
+    const markup = renderToStaticMarkup(
+      createElement(StatusInventory, {
+        metrics: metrics({
+          freshness: "unavailable",
+          services: [],
+          lastKnownServiceCount: 3,
+          historyCoverage: {
+            availability: "available",
+            windowStartAt: "2026-07-08T02:00:00Z",
+            windowEndAt: "2026-07-09T02:00:00Z",
+            sampleCount: 4,
+            gapCount: 0,
+            leadingGap: false,
+            trailingGap: false,
+          },
+        }),
+      }),
+    );
+
+    expect(markup).toContain("Current sample unavailable");
+    expect(markup).toContain("Last known: 3 configured checks");
+    expect(markup).not.toContain("0 configured");
+    expect(markup).not.toContain("No public checks configured");
   });
 });

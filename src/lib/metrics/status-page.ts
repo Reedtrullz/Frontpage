@@ -141,7 +141,9 @@ export function deriveProjectHealth(
       : service.projectSlug === project.slug,
   );
 
-  if (configuredIds.size > 0 && checks.length === 0) return "unavailable";
+  if (configuredIds.size > 0 && checks.length !== configuredIds.size) {
+    return "unavailable";
+  }
   if (checks.length === 0) return "not-monitored";
   if (freshness !== "fresh") return "unavailable";
   const upChecks = checks.filter((check) => check.status === "up").length;

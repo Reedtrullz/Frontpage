@@ -19,6 +19,8 @@ export interface HistoryCoverage {
   windowEndAt: string;
   sampleCount: number;
   gapCount: number;
+  leadingGap: boolean;
+  trailingGap: boolean;
 }
 
 export interface PublicServiceTrend {

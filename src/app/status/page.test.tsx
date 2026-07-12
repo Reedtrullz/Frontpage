@@ -42,6 +42,8 @@ const { publicModel } = vi.hoisted(() => ({
       windowEndAt: "2026-07-09T02:00:00Z",
       sampleCount: 3,
       gapCount: 1,
+      leadingGap: false,
+      trailingGap: false,
     },
     serviceTrends: {},
     lastKnownServiceCount: 0,
@@ -77,8 +79,9 @@ describe("StatusPage history wiring", () => {
     expect(markup).toContain("12h ago");
     expect(markup).toContain(">now<");
     for (const [label, value] of [["CPU pressure", "Medium"], ["RAM pressure", "Medium"], ["Disk pressure", "Watch"]]) {
-      expect(markup).toContain(`${label}: ${value} from July 8, 2026 at 14:00 UTC. Coverage missing before this sample`);
+      expect(markup).toContain(`${label}: ${value} from July 8, 2026 at 14:00 UTC`);
     }
+    expect(markup.match(/Coverage missing before this sample/g)).toHaveLength(12);
     expect(markup.match(/1 gap in coverage/g)).toHaveLength(3);
   });
 });

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import type {
-  PublicMetricsModel,
   PublicServiceStatus,
 } from "@/lib/metrics/reader";
+import type { PublicStatusMetricsModel } from "@/lib/metrics/status-page";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 
@@ -13,7 +13,11 @@ function healthValue(status: PublicServiceStatus["status"]) {
   return "unavailable" as const;
 }
 
-export function StatusInventory({ metrics }: { metrics: PublicMetricsModel }) {
+export function StatusInventory({ metrics }: { metrics: PublicStatusMetricsModel }) {
+  const currentUnavailable = metrics.freshness === "unavailable";
+  const configuredCount = currentUnavailable
+    ? metrics.lastKnownServiceCount
+    : metrics.services.length;
   return (
     <section aria-labelledby="public-services-heading">
       <div className="flex items-end justify-between gap-4">
@@ -21,10 +25,17 @@ export function StatusInventory({ metrics }: { metrics: PublicMetricsModel }) {
           <p className="font-mono text-sm text-[var(--accent)]">PUBLIC CHECKS</p>
           <h2 id="public-services-heading" className="mt-2 text-2xl font-semibold text-[var(--text)]">Service inventory</h2>
         </div>
-        <span className="text-sm text-[var(--text-muted)]">{metrics.services.length} configured</span>
+        <span className="text-sm text-[var(--text-muted)]">
+          {currentUnavailable ? "Unavailable" : `${configuredCount} configured`}
+        </span>
       </div>
       <div className="mt-6 border-y border-[var(--border)]">
-        {metrics.services.length === 0 ? (
+        {currentUnavailable ? (
+          <p className="py-6 text-sm text-[var(--text-muted)]">
+            Current sample unavailable.
+            {configuredCount !== null ? ` Last known: ${configuredCount} configured check${configuredCount === 1 ? "" : "s"}.` : " No current service state is available."}
+          </p>
+        ) : metrics.services.length === 0 ? (
           <p className="py-6 text-sm text-[var(--text-muted)]">No public checks configured.</p>
         ) : (
           metrics.services.map((service) => (
@@ -57,7 +68,7 @@ export function StatusInventory({ metrics }: { metrics: PublicMetricsModel }) {
 function ServiceEvidence({
   trend,
 }: {
-  trend: PublicMetricsModel["serviceTrends"][string] | undefined;
+  trend: PublicStatusMetricsModel["serviceTrends"][string] | undefined;
 }) {
   if (!trend) return null;
   const reliability = trend.availabilityPercent !== null

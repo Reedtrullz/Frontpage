@@ -260,6 +260,24 @@ describe("deriveProjectHealth", () => {
     ).toBe("degraded");
   });
 
+  it("returns unavailable when one configured check is missing from the current set", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "missing"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("unavailable");
+  });
+
   it("returns disruption when every configured check is down", () => {
     expect(
       deriveProjectHealth(

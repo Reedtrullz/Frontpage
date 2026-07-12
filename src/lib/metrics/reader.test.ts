@@ -240,7 +240,7 @@ describe("readMetricsFromDir", () => {
       "2026-07-09T02:00:00Z",
     ]);
     expect(publicModel.history[1]?.gapBefore).toBe(true);
-    expect(publicModel.historyCoverage.gapCount).toBe(1);
+    expect(publicModel.historyCoverage.gapCount).toBe(2);
   });
 
   it("does not call a missing latest sample a configured-check absence", () => {
@@ -391,7 +391,7 @@ describe("derivePublicMetrics", () => {
     expect(model.historyCoverage).toMatchObject({
       availability: "available",
       sampleCount: 4,
-      gapCount: 1,
+      gapCount: 2,
     });
     expect(model.serviceTrends["frontpage-public"]).toEqual({
       knownChecks: 2,
@@ -400,6 +400,26 @@ describe("derivePublicMetrics", () => {
       coveragePercent: 75,
       p95LatencyMs: 80,
       lastTransitionAt: "2026-07-09T02:05:00Z",
+    });
+  });
+
+  it("reports leading and trailing coverage gaps for sparse windows", () => {
+    const dir = makeTempDir();
+    const now = new Date("2026-07-10T02:00:00Z");
+    const sparse = snapshotAt("2026-07-09T14:00:00Z");
+    fs.writeFileSync(
+      path.join(dir, "history.json"),
+      JSON.stringify({ schema_version: 1, samples: [sparse] }),
+    );
+
+    const result = readMetricsFromDir(dir, now);
+
+    expect(result.historyAvailability).toBe("available");
+    expect(result.history).toHaveLength(1);
+    expect(derivePublicMetrics(result, now).historyCoverage).toMatchObject({
+      leadingGap: true,
+      trailingGap: true,
+      gapCount: 2,
     });
   });
 
