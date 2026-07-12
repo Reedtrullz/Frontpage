@@ -89,16 +89,16 @@ Frontpage v1 ships a host collector installed by Ansible:
 
 - `/usr/local/bin/frontpage-metrics-collector`
 - `/etc/frontpage-metrics/config.json`
-- `/var/lib/frontpage-metrics/latest.json`
-- `/var/lib/frontpage-metrics/history.json`
+- `/var/lib/frontpage-metrics/v1/latest.json`
+- `/var/lib/frontpage-metrics/v1/history.json`
 - `frontpage-metrics-collector.service`
 - `frontpage-metrics-collector.timer`
 
 The collector service runs as `frontpage-metrics` with supplementary `docker`
 group access so it can inspect the static allowlist. The Frontpage app
 container does not receive Docker socket access; it only reads
-`/metrics/latest.json` and `/metrics/history.json` through a read-only bind
-mount.
+`/metrics/latest.json` and `/metrics/history.json` through the dedicated v1
+directory mounted read-only.
 
 ### Optional service response checks
 
@@ -131,13 +131,66 @@ Verify on the VPS:
 
 ```bash
 ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer"
-ssh deploy@198.23.137.16 "sudo systemctl start frontpage-metrics-collector.service && sudo test -s /var/lib/frontpage-metrics/latest.json"
+ssh deploy@198.23.137.16 "sudo systemctl start frontpage-metrics-collector.service && sudo test -s /var/lib/frontpage-metrics/v1/latest.json"
 ssh deploy@198.23.137.16 "docker exec frontpage test -r /metrics/latest.json"
 ssh deploy@198.23.137.16 "docker exec frontpage sh -lc '! touch /metrics/write-test'"
 ```
 
 Non-claim: `/api/health` remains app-health only; host status is surfaced by
 the dashboard and `/status`.
+
+## Observability collector v2 shadow mode
+
+Ansible installs Collector v2 beside v1 before any promotion:
+
+- Service account: `frontpage-observer`, with no supplementary groups and no Docker access.
+- Shadow projections: `/var/lib/frontpage-metrics/v2-shadow/{public,owner}`.
+- Private working database: `/var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3`.
+- Runtime map: `/run/frontpage-metrics/runtime-map.json`, generated only from the repository allowlist and exact container facts supplied by Ansible.
+- Service: `frontpage-metrics-collector-v2-shadow.service`.
+
+The `public` and `owner` projection directories have ordinary permission bits
+`0750` plus the Linux setgid bit (`2750`). Setgid is required so atomic temp
+files created by `frontpage-observer` inherit the read-only
+`frontpage-metrics` group without adding the observer account to that group.
+Projection files are `0640`. The private directory is
+`frontpage-observer:frontpage-observer` and `0700`.
+
+During shadow operation the app receives only the dedicated v1 directory:
+
+```text
+/var/lib/frontpage-metrics/v1 -> /metrics:ro
+```
+
+Neither `v2-shadow`, `private`, nor the SQLite database is mounted into the
+container. Promotion is a separate deployment after the 48-hour comparison
+gate. It switches the collector to `/var/lib/frontpage-metrics/v2`, mounts
+only `v2/public` at `/metrics-public:ro` and `v2/owner` at
+`/metrics-owner:ro`, and sets `PUBLIC_METRICS_DIR` and `OWNER_METRICS_DIR`.
+
+Verify shadow mode on the VPS:
+
+```bash
+ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-collector-v2-shadow.service"
+ssh deploy@198.23.137.16 "id -nG frontpage-observer"
+ssh deploy@198.23.137.16 "stat -c '%a %U %G %n' /var/lib/frontpage-metrics/v2-shadow/public /var/lib/frontpage-metrics/v2-shadow/public/latest.v2.json /var/lib/frontpage-metrics/private"
+ssh deploy@198.23.137.16 "docker inspect --format '{{range .Mounts}}{{println .Source \"->\" .Destination}}{{end}}' frontpage"
+ssh deploy@198.23.137.16 "docker exec frontpage node -e \"const fs=require('fs'); if(fs.existsSync('/metrics/private')||fs.existsSync('/metrics/v2-shadow'))process.exit(1)\""
+```
+
+Expected evidence:
+
+- Both v1 timer and v2 shadow service are `active`.
+- `id -nG frontpage-observer` does not include `docker` or `frontpage-metrics`.
+- Projection directories report `2750`; projection files report `640` and group `frontpage-metrics`; private reports `700`.
+- Container mounts list only the v1 directory at `/metrics`. Directory mounting
+  is required so atomic collector replacements become visible without pinning
+  stale file inodes.
+- The runtime map is rewritten after both a successful container swap and rollback.
+
+Shadow operation is not promotion. A running v2 service does not prove the
+48-hour divergence gate, owner UI activation, public redaction, or production
+v2 mounts.
 
 ## Rollback
 

@@ -40,8 +40,15 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npx tsc --noEmit
-      - run: python3 -m unittest ops.tests.test_frontpage_metrics_collector
-      - run: python3 -m py_compile ops/frontpage-metrics-collector.py
+      - run: python3 -m unittest discover -s ops/tests
+      - run: python3 -m compileall -q ops/frontpage_metrics_v2 ops/frontpage-metrics-collector.py ops/frontpage-metrics-collector-v2.py ops/frontpage-metrics-runtime-map.py
+      - name: Check Ansible deployment syntax
+        run: |
+          python3 -m pip install ansible-core
+          ansible-galaxy collection install community.docker
+          trap 'rm -f .vault_pass' EXIT
+          printf 'frontpage-ci-vault-password\n' > .vault_pass
+          ansible-playbook --syntax-check -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
       - run: npm run build
         env:
           CI: true

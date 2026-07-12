@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -65,7 +66,8 @@ class ProjectionPublisher:
         self.owner_dir = Path(owner_dir)
         for directory in (self.public_dir, self.owner_dir):
             directory.mkdir(parents=True, exist_ok=True)
-            os.chmod(directory, 0o750)
+            inherited_setgid = directory.stat().st_mode & stat.S_ISGID
+            os.chmod(directory, 0o750 | inherited_setgid)
 
     @staticmethod
     def _encode(payload: Mapping[str, object], cap: int, label: str) -> bytes:
@@ -121,7 +123,8 @@ class ProjectionPublisher:
         target.parent.mkdir(parents=True, exist_ok=True)
         current = target.parent
         while current == root or root in current.parents:
-            os.chmod(current, 0o750)
+            inherited_setgid = current.stat().st_mode & stat.S_ISGID
+            os.chmod(current, 0o750 | inherited_setgid)
             if current == root:
                 break
             current = current.parent

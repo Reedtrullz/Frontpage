@@ -4,10 +4,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+for candidate in (Path(__file__).resolve().parent.parent, Path("/usr/local/lib/frontpage")):
+    if candidate.is_dir() and str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from ops.frontpage_metrics_v2 import config as collector_config
 from ops.frontpage_metrics_v2.sources import services as service_source

@@ -32,10 +32,11 @@ class ProjectionPublisherTests(unittest.TestCase):
         self.publisher = ProjectionPublisher(root / "public", root / "owner")
 
     def test_atomic_public_write_has_strict_permissions(self):
+        os.chmod(self.publisher.public_dir, 0o2750)
         result = self.publisher.publish_public("latest.v2.json", public_projection())
         self.assertEqual(json.loads(result.path.read_text()), public_projection())
         self.assertEqual(stat.S_IMODE(result.path.stat().st_mode), 0o640)
-        self.assertEqual(stat.S_IMODE(result.path.parent.stat().st_mode), 0o750)
+        self.assertEqual(stat.S_IMODE(result.path.parent.stat().st_mode), 0o2750)
         self.assertEqual(list(result.path.parent.glob(".*.tmp")), [])
 
     def test_public_projection_rejects_private_keys_recursively(self):

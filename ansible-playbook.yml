@@ -8,8 +8,14 @@
     requested_commit_sha: "{{ lookup('env', 'GITHUB_SHA') | default('', true) }}"
     docker_image: "{{ docker_image_repository }}:sha-{{ deploy_commit_sha }}"
     metrics_dir: "/var/lib/frontpage-metrics"
+    metrics_v1_dir: "{{ metrics_dir }}/v1"
     metrics_config_dir: "/etc/frontpage-metrics"
     metrics_user: "frontpage-metrics"
+    observer_user: "frontpage-observer"
+    observer_lib_dir: "/usr/local/lib/frontpage"
+    observer_run_dir: "/run/frontpage-metrics"
+    observer_shadow_dir: "{{ metrics_dir }}/v2-shadow"
+    observer_private_dir: "{{ metrics_dir }}/private"
     owner_github_login: "Reedtrullz"
 
   pre_tasks:
@@ -94,6 +100,16 @@
         groups: docker
         append: true
 
+    - name: Create unprivileged observability collector user
+      become: true
+      ansible.builtin.user:
+        name: "{{ observer_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        create_home: false
+        groups: ""
+        append: false
+
     - name: Resolve metrics group id
       become: true
       ansible.builtin.getent:
@@ -115,7 +131,39 @@
         mode: "{{ item.mode }}"
       loop:
         - { path: "{{ metrics_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0750" }
+        - { path: "{{ metrics_v1_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0750" }
         - { path: "{{ metrics_config_dir }}", owner: "root", group: "root", mode: "0755" }
+        - { path: "{{ observer_private_dir }}", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0700" }
+        - { path: "{{ observer_shadow_dir }}", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0750" }
+        - { path: "{{ observer_shadow_dir }}/public", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
+        - { path: "{{ observer_shadow_dir }}/owner", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
+        - { path: "{{ metrics_dir }}/v2", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0750" }
+        - { path: "{{ metrics_dir }}/v2/public", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
+        - { path: "{{ metrics_dir }}/v2/owner", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
+        - { path: "{{ observer_run_dir }}", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0750" }
+        - { path: "{{ observer_lib_dir }}/ops", owner: "root", group: "root", mode: "0755" }
+
+    - name: Inspect legacy root-level metrics files
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metrics_dir }}/{{ item }}"
+      loop:
+        - latest.json
+        - history.json
+      register: legacy_metrics_files
+
+    - name: Seed dedicated v1 directory from legacy metrics files
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item.stat.path }}"
+        dest: "{{ metrics_v1_dir }}/{{ item.item }}"
+        remote_src: true
+        force: false
+        owner: "{{ metrics_user }}"
+        group: "{{ metrics_user }}"
+        mode: "0640"
+      loop: "{{ legacy_metrics_files.results }}"
+      when: item.stat.exists | default(false)
 
     - name: Install metrics collector script
       become: true
@@ -135,6 +183,48 @@
         group: root
         mode: "0644"
 
+    - name: Install observability collector Python package
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage_metrics_v2
+        dest: "{{ observer_lib_dir }}/ops/"
+        owner: root
+        group: root
+        mode: preserve
+
+    - name: Install observability collector executables
+      become: true
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - { src: "ops/frontpage-metrics-collector-v2.py", dest: "/usr/local/bin/frontpage-metrics-collector-v2" }
+        - { src: "ops/frontpage-metrics-runtime-map.py", dest: "/usr/local/bin/frontpage-metrics-runtime-map" }
+
+    - name: Install observability collector config
+      become: true
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics-v2.config.json
+        dest: "{{ metrics_config_dir }}/config-v2.json"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install runtime workload allowlist
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ metrics_config_dir }}/runtime-allowlist.json"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [
+            {"workload_id": "frontpage-app", "container_name": "{{ container_name }}"}
+          ]
+
     - name: Install metrics collector systemd units
       become: true
       ansible.builtin.copy:
@@ -146,6 +236,8 @@
       loop:
         - frontpage-metrics-collector.service
         - frontpage-metrics-collector.timer
+        - frontpage-metrics-collector-v2.service
+        - frontpage-metrics-collector-v2-shadow.service
       notify: Reload systemd
 
     - name: Enable metrics collector timer
@@ -165,7 +257,7 @@
     - name: Verify metrics latest file exists
       become: true
       ansible.builtin.stat:
-        path: "{{ metrics_dir }}/latest.json"
+        path: "{{ metrics_v1_dir }}/latest.json"
       register: metrics_latest
 
     - name: Fail if metrics latest file is missing
@@ -176,13 +268,13 @@
     - name: Verify metrics directory permissions
       become: true
       ansible.builtin.stat:
-        path: "{{ metrics_dir }}"
+        path: "{{ metrics_v1_dir }}"
       register: metrics_directory
 
     - name: Verify metrics history file exists
       become: true
       ansible.builtin.stat:
-        path: "{{ metrics_dir }}/history.json"
+        path: "{{ metrics_v1_dir }}/history.json"
       register: metrics_history
 
     - name: Verify metrics file permissions
@@ -194,6 +286,113 @@
           - metrics_history.stat.exists
           - metrics_history.stat.mode == "0640"
         fail_msg: "Metrics directory or JSON file permissions are too broad."
+
+    - name: Write current allowlisted container facts for shadow collection
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ observer_run_dir }}/container-facts.json"
+        owner: root
+        group: root
+        mode: "0600"
+        content: >-
+          {{
+            {
+              'containers': (
+                [
+                  {
+                    'name': container_name,
+                    'pid': current_container.container.State.Pid,
+                    'image_sha': current_container.container.Image
+                  }
+                ] if (current_container.exists | default(false)) else []
+              )
+            } | to_nice_json
+          }}
+
+    - name: Generate current allowlisted runtime map
+      become: true
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/frontpage-metrics-runtime-map
+          - --allowlist
+          - "{{ metrics_config_dir }}/runtime-allowlist.json"
+          - --facts
+          - "{{ observer_run_dir }}/container-facts.json"
+          - --output
+          - "{{ observer_run_dir }}/runtime-map.json"
+          - --generated-at
+          - "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+      changed_when: true
+
+    - name: Set runtime map ownership
+      become: true
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}/runtime-map.json"
+        owner: "{{ observer_user }}"
+        group: "{{ observer_user }}"
+        mode: "0640"
+
+    - name: Run observability collector shadow preflight
+      become: true
+      become_user: "{{ observer_user }}"
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/frontpage-metrics-collector-v2
+          - --config
+          - "{{ metrics_config_dir }}/config-v2.json"
+          - --metrics-dir
+          - "{{ observer_shadow_dir }}"
+          - --database
+          - "{{ observer_private_dir }}/metrics-v2-shadow.sqlite3"
+          - --runtime-map
+          - "{{ observer_run_dir }}/runtime-map.json"
+          - --once
+      changed_when: true
+
+    - name: Enable observability collector shadow service
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2-shadow.service
+        enabled: true
+        state: restarted
+        daemon_reload: true
+
+    - name: Verify collector services and observer group isolation
+      become: true
+      ansible.builtin.command:
+        argv: ["id", "-nG", "{{ observer_user }}"]
+      register: observer_groups
+      changed_when: false
+
+    - name: Read collector service states
+      become: true
+      ansible.builtin.command:
+        argv: ["systemctl", "is-active", "{{ item }}"]
+      loop:
+        - frontpage-metrics-collector.timer
+        - frontpage-metrics-collector-v2-shadow.service
+      register: collector_service_states
+      changed_when: false
+
+    - name: Verify shadow projection permissions
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ observer_shadow_dir }}/public/latest.v2.json"
+        - "{{ observer_shadow_dir }}/owner/latest.v2.json"
+        - "{{ observer_shadow_dir }}/owner/host/1h.v2.json"
+      register: shadow_projection_files
+
+    - name: Assert shadow isolation and output contract
+      ansible.builtin.assert:
+        that:
+          - "'docker' not in observer_groups.stdout.split()"
+          - collector_service_states.results | map(attribute='stdout') | list == ['active', 'active']
+          - shadow_projection_files.results | map(attribute='stat.exists') | min
+          - shadow_projection_files.results | map(attribute='stat.mode') | unique | list == ['0640']
+          - shadow_projection_files.results | map(attribute='stat.gr_name') | unique | list == [metrics_user]
+        fail_msg: "Collector v2 shadow mode is not isolated, active, or publishing strict files."
 
     - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
@@ -241,7 +440,61 @@
           - "{{ metrics_group_id }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
-          - "{{ metrics_dir }}:/metrics:ro"
+          - "{{ metrics_v1_dir }}:/metrics:ro"
+
+    - name: Inspect newly active container for runtime binding
+      community.docker.docker_container_info:
+        name: "{{ container_name }}"
+      register: active_container_for_runtime_map
+
+    - name: Write newly active allowlisted container facts
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ observer_run_dir }}/container-facts.json"
+        owner: root
+        group: root
+        mode: "0600"
+        content: >-
+          {{
+            {
+              'containers': [
+                {
+                  'name': container_name,
+                  'pid': active_container_for_runtime_map.container.State.Pid,
+                  'image_sha': active_container_for_runtime_map.container.Image
+                }
+              ]
+            } | to_nice_json
+          }}
+
+    - name: Regenerate runtime map for newly active container
+      become: true
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/frontpage-metrics-runtime-map
+          - --allowlist
+          - "{{ metrics_config_dir }}/runtime-allowlist.json"
+          - --facts
+          - "{{ observer_run_dir }}/container-facts.json"
+          - --output
+          - "{{ observer_run_dir }}/runtime-map.json"
+          - --generated-at
+          - "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+      changed_when: true
+
+    - name: Restore runtime map ownership after active swap
+      become: true
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}/runtime-map.json"
+        owner: "{{ observer_user }}"
+        group: "{{ observer_user }}"
+        mode: "0640"
+
+    - name: Restart shadow collector with active runtime binding
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2-shadow.service
+        state: restarted
 
     - name: Wait for application to become healthy
       uri:
@@ -298,11 +551,70 @@
           - "{{ metrics_group_id }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
-          - "{{ metrics_dir }}:/metrics:ro"
+          - "{{ metrics_v1_dir }}:/metrics:ro"
       when:
         - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image != "none"
       register: rollback
+
+    - name: Rebind shadow collector to rollback container
+      when:
+        - rollback is defined
+        - rollback.changed | default(false)
+      block:
+        - name: Inspect rollback container for runtime binding
+          community.docker.docker_container_info:
+            name: "{{ container_name }}"
+          register: rollback_container_for_runtime_map
+
+        - name: Write rollback allowlisted container facts
+          become: true
+          ansible.builtin.copy:
+            dest: "{{ observer_run_dir }}/container-facts.json"
+            owner: root
+            group: root
+            mode: "0600"
+            content: >-
+              {{
+                {
+                  'containers': [
+                    {
+                      'name': container_name,
+                      'pid': rollback_container_for_runtime_map.container.State.Pid,
+                      'image_sha': rollback_container_for_runtime_map.container.Image
+                    }
+                  ]
+                } | to_nice_json
+              }}
+
+        - name: Regenerate runtime map for rollback container
+          become: true
+          ansible.builtin.command:
+            argv:
+              - /usr/local/bin/frontpage-metrics-runtime-map
+              - --allowlist
+              - "{{ metrics_config_dir }}/runtime-allowlist.json"
+              - --facts
+              - "{{ observer_run_dir }}/container-facts.json"
+              - --output
+              - "{{ observer_run_dir }}/runtime-map.json"
+              - --generated-at
+              - "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+          changed_when: true
+
+        - name: Restore rollback runtime map ownership
+          become: true
+          ansible.builtin.file:
+            path: "{{ observer_run_dir }}/runtime-map.json"
+            owner: "{{ observer_user }}"
+            group: "{{ observer_user }}"
+            mode: "0640"
+
+        - name: Restart shadow collector after rollback binding
+          become: true
+          ansible.builtin.systemd:
+            name: frontpage-metrics-collector-v2-shadow.service
+            state: restarted
 
     - name: Wait for rollback application to become healthy
       ansible.builtin.uri:
@@ -355,7 +667,7 @@
     - name: Verify app container can read metrics read-only
       community.docker.docker_container_exec:
         container: "{{ container_name }}"
-        command: "node -e \"const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); try { fs.writeFileSync('/metrics/.write-test', 'x'); process.exit(2); } catch { process.exit(0); }\""
+        command: "node -e \"const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); fs.accessSync('/metrics/history.json', fs.constants.R_OK); if (fs.existsSync('/metrics/private') || fs.existsSync('/metrics/v2-shadow')) process.exit(3); try { fs.writeFileSync('/metrics/latest.json', 'x'); process.exit(2); } catch { process.exit(0); }\""
       register: metrics_mount_check
       changed_when: false
 

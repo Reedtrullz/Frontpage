@@ -1,0 +1,38 @@
+[Unit]
+Description=Frontpage observability collector v2
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=frontpage-observer
+Group=frontpage-observer
+UMask=0027
+ExecStart=/usr/local/bin/frontpage-metrics-collector-v2 --config /etc/frontpage-metrics/config-v2.json --metrics-dir /var/lib/frontpage-metrics/v2 --database /var/lib/frontpage-metrics/private/metrics-v2.sqlite3 --runtime-map /run/frontpage-metrics/runtime-map.json
+Restart=on-failure
+RestartSec=5s
+RuntimeDirectory=frontpage-metrics
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/proc /sys/fs/cgroup /etc/frontpage-metrics /usr/local/lib/frontpage
+ReadWritePaths=/var/lib/frontpage-metrics /run/frontpage-metrics
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
