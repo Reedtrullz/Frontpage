@@ -168,7 +168,7 @@ class MetricsStore:
         duration = self._clock() - started
         return CycleWriteStatus(duration, duration > 5.0)
 
-    def upsert_incident(self, incident: Mapping[str, object]) -> None:
+    def _incident_values(self, incident: Mapping[str, object]) -> tuple[object, ...]:
         required = {"id", "state", "opened_at_ms", "visibility", "summary", "evidence"}
         if not required.issubset(incident):
             raise ValueError("Invalid incident")
@@ -186,21 +186,52 @@ class MetricsStore:
         if not isinstance(decoded_evidence, dict):
             raise ValueError("Incident evidence must contain a JSON object")
         summary_json = _json_object(incident["summary"], "incident summary")
+        return (
+            incident["id"],
+            incident["state"],
+            incident["opened_at_ms"],
+            incident.get("recovered_at_ms"),
+            incident["visibility"],
+            summary_json,
+            evidence_json,
+        )
+
+    def upsert_incident(self, incident: Mapping[str, object]) -> None:
         with self._connection:
             self._connection.execute(
                 """INSERT OR REPLACE INTO incidents(
                 id,state,opened_at_ms,recovered_at_ms,visibility,summary_json,evidence_json
                 ) VALUES(?,?,?,?,?,?,?)""",
-                (
-                    incident["id"],
-                    incident["state"],
-                    incident["opened_at_ms"],
-                    incident.get("recovered_at_ms"),
-                    incident["visibility"],
-                    summary_json,
-                    evidence_json,
-                ),
+                self._incident_values(incident),
             )
+
+    def persist_incidents(self, transitions) -> None:
+        incidents = (*transitions.opened, *transitions.updated, *transitions.recovered)
+        values = [self._incident_values(incident.to_store()) for incident in incidents]
+        with self._connection:
+            self._connection.executemany(
+                """INSERT OR REPLACE INTO incidents(
+                id,state,opened_at_ms,recovered_at_ms,visibility,summary_json,evidence_json
+                ) VALUES(?,?,?,?,?,?,?)""",
+                values,
+            )
+
+    def get_incident(self, incident_id: str) -> dict[str, object] | None:
+        row = self._connection.execute(
+            "SELECT * FROM incidents WHERE id=?",
+            (incident_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "state": row[1],
+            "opened_at_ms": row[2],
+            "recovered_at_ms": row[3],
+            "visibility": row[4],
+            "summary": json.loads(row[5]),
+            "evidence": json.loads(row[6]),
+        }
 
     def prune(self, now_ms: int) -> None:
         with self._connection:
