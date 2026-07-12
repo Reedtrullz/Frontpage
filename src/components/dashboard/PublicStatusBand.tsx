@@ -55,6 +55,23 @@ function statusView(metrics: PublicMetricsModel): StatusView {
 export function PublicStatusBand({ metrics }: { metrics: PublicMetricsModel }) {
   const view = statusView(metrics);
   const Icon = view.icon;
+  const services = metrics.host.serviceSummary;
+  const serviceSummary =
+    metrics.freshness === "fresh"
+      ? services.total > 0
+        ? `${services.up}/${services.total} up`
+        : "not configured"
+      : metrics.freshness === "stale"
+        ? services.total > 0
+          ? `Last known sample: ${services.total} public checks`
+          : "Last known sample: no public checks"
+        : "Current public checks unavailable";
+  const diskSummary =
+    metrics.freshness === "fresh"
+      ? metrics.host.diskPressure
+      : metrics.freshness === "stale"
+        ? `Last known: ${metrics.host.diskPressure}`
+        : "unavailable";
   return (
     <section className={`border-y ${view.className}`} aria-labelledby="public-status-title">
       <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -64,14 +81,13 @@ export function PublicStatusBand({ metrics }: { metrics: PublicMetricsModel }) {
             <h2 id="public-status-title" className="text-sm font-semibold">{view.label}</h2>
             <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{view.description}</p>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-subtle)]">
-              <span>
-                Public checks {metrics.host.serviceSummary.total > 0
-                  ? `${metrics.host.serviceSummary.up}/${metrics.host.serviceSummary.total} up`
-                  : "not configured"}
-              </span>
-              <span className="capitalize">Disk {metrics.host.diskPressure}</span>
+              <span>Public checks {serviceSummary}</span>
+              <span className="capitalize">Disk {diskSummary}</span>
               {metrics.host.lastUpdatedAt ? (
-                <span>Updated <RelativeTime value={metrics.host.lastUpdatedAt} /></span>
+                <span>
+                  {metrics.freshness === "fresh" ? "Updated" : "Last known sample"} {" "}
+                  <RelativeTime value={metrics.host.lastUpdatedAt} />
+                </span>
               ) : null}
             </div>
           </div>

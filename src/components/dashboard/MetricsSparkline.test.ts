@@ -55,6 +55,33 @@ describe("MetricsSparkline", () => {
     expect(markup).not.toContain("24-hour trend");
   });
 
+  it("shows a truthful singleton owner sample instead of hiding it", () => {
+    const markup = renderToStaticMarkup(
+      createElement(MetricsSparkline, {
+        label: "CPU",
+        samples: [
+          { collectedAt: "2026-07-09T02:00:00Z", value: 42, gapBefore: false },
+        ],
+        warningAt: 80,
+        criticalAt: 95,
+        coverage: {
+          availability: "available",
+          windowStartAt: "2026-07-08T02:00:00Z",
+          windowEndAt: "2026-07-09T02:00:00Z",
+          sampleCount: 1,
+          gapCount: 2,
+          leadingGap: true,
+          trailingGap: true,
+        },
+      }),
+    );
+
+    expect(markup).toContain('aria-label="CPU single recent sample. Latest 42 percent, range 42 to 42 percent. Warning at 80 percent and critical at 95 percent."');
+    expect(markup).toContain("<circle");
+    expect(markup).toContain("Single sample; no trend yet.");
+    expect(markup).not.toContain("No recent samples");
+  });
+
   it("breaks the owner trend polyline at missing time", () => {
     const markup = renderToStaticMarkup(
       createElement(MetricsSparkline, {

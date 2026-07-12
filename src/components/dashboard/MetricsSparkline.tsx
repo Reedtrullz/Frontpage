@@ -19,6 +19,7 @@ function rounded(value: number): number {
 function historyMessage(coverage?: HistoryCoverage): string {
   if (coverage?.availability === "unavailable") return "History unavailable";
   if (coverage?.availability === "empty" || !coverage) return "No recent samples";
+  if (coverage?.sampleCount === 1) return "Single sample; no trend yet.";
   return "Not enough recent samples for a trend.";
 }
 
@@ -39,7 +40,7 @@ export function MetricsSparkline({
   criticalAt,
   coverage,
 }: MetricsSparklineProps) {
-  if (coverage?.availability !== "available" || samples.length < 2) {
+  if (coverage?.availability !== "available" || samples.length === 0) {
     return (
       <figure className="min-h-32 rounded border border-[var(--border)] bg-[var(--surface-raised)] p-4">
         <figcaption className="text-sm font-semibold text-[var(--text)]">{label}</figcaption>
@@ -74,6 +75,7 @@ export function MetricsSparkline({
   const warningY = height - (warningAt / 100) * height;
   const criticalY = height - (criticalAt / 100) * height;
   const windowLabels = coverageLabels(coverage);
+  const singleSample = samples.length === 1;
 
   return (
     <figure className="rounded border border-[var(--border)] bg-[var(--surface-raised)] p-4">
@@ -81,7 +83,7 @@ export function MetricsSparkline({
         <span className="text-sm font-semibold text-[var(--text)]">{label}</span>
         <span className="font-mono text-lg text-[var(--text)]">{latest}%</span>
       </figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} className="mt-4 h-20 w-full" role="img" aria-label={`${label} recent history. Latest ${latest} percent, range ${minimum} to ${maximum} percent. Warning at ${warningAt} percent and critical at ${criticalAt} percent.`}>
+      <svg viewBox={`0 0 ${width} ${height}`} className="mt-4 h-20 w-full" role="img" aria-label={`${label} ${singleSample ? "single recent sample" : "recent history"}. Latest ${latest} percent, range ${minimum} to ${maximum} percent. Warning at ${warningAt} percent and critical at ${criticalAt} percent.`}>
         <line x1="0" x2={width} y1={warningY} y2={warningY} stroke="var(--role-warning)" strokeWidth="1" strokeDasharray="4 4" />
         <line x1="0" x2={width} y1={criticalY} y2={criticalY} stroke="var(--role-failure)" strokeWidth="1" strokeDasharray="4 4" />
         {segments.map((points, index) => (
@@ -93,7 +95,9 @@ export function MetricsSparkline({
         ))}
       </svg>
       <p className="mt-3 text-xs text-[var(--text-subtle)]">
-        Range {minimum}%–{maximum}% / warning {warningAt}% / critical {criticalAt}%
+        {singleSample
+          ? "Single sample; no trend yet."
+          : `Range ${minimum}%–${maximum}% / warning ${warningAt}% / critical ${criticalAt}%`}
         {windowLabels?.map((label) => ` / ${label}`).join("")}
       </p>
     </figure>

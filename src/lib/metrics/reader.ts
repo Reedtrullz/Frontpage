@@ -170,7 +170,6 @@ function normalizedHistory(
     });
   }
 
-  const inWindowHistoryCount = byTimestamp.size;
   if (latest) {
     const timestampMs = Date.parse(latest.collected_at);
     if (
@@ -204,7 +203,7 @@ function normalizedHistory(
   const availability =
     sourceAvailability === "unavailable"
       ? "unavailable"
-      : inWindowHistoryCount > 0
+      : history.length > 0
         ? "available"
         : hasFutureSample
           ? "unavailable"

@@ -107,6 +107,28 @@ describe("readMetricsFromDir", () => {
     expect(result.history).toHaveLength(1);
   });
 
+  it("keeps a reconciled current sample available when history is empty", () => {
+    const dir = makeTempDir();
+    fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(snapshot));
+    fs.writeFileSync(
+      path.join(dir, "history.json"),
+      JSON.stringify({ schema_version: 1, samples: [] }),
+    );
+
+    const result = readMetricsFromDir(
+      dir,
+      new Date("2026-07-09T02:00:30Z"),
+    );
+    const ownerModel = deriveOwnerMetrics(result);
+
+    expect(result.historyAvailability).toBe("available");
+    expect(result.history).toHaveLength(1);
+    expect(ownerModel.historyCoverage).toMatchObject({
+      availability: "available",
+      sampleCount: 1,
+    });
+  });
+
   it("keeps latest usable when history is malformed", () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(snapshot));
