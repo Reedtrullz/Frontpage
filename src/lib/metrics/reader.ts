@@ -36,9 +36,13 @@ export interface MetricsReadResult {
   freshness: MetricsFreshness;
   latest: MetricsSnapshot | null;
   history: MetricsSnapshot[];
-  historyAvailability?: HistoryAvailability;
+  historyAvailability: HistoryAvailability;
   diagnostics: string[];
 }
+
+type MetricsReadInput = Omit<MetricsReadResult, "historyAvailability"> & {
+  historyAvailability?: HistoryAvailability;
+};
 
 export interface PublicServiceStatus {
   id: string;
@@ -80,7 +84,7 @@ export interface OwnerMetricsModel {
   freshness: MetricsFreshness;
   latest: MetricsSnapshot | null;
   history: MetricsSnapshot[];
-  historyCoverage?: HistoryCoverage;
+  historyCoverage: HistoryCoverage;
   diagnostics: string[];
 }
 
@@ -202,18 +206,32 @@ function normalizedHistory(
   return history;
 }
 
-function metadataFor(
-  result: MetricsReadResult,
+function normalizedHistoryFor(
+  result: MetricsReadInput,
   now: Date = new Date(),
-): NormalizedHistoryMetadata {
+): { history: NormalizedHistory; metadata: NormalizedHistoryMetadata } {
   const metadata = (result.history as NormalizedHistory)[HISTORY_METADATA];
-  if (metadata) return metadata;
-  return normalizedHistory(
+  if (metadata) {
+    return { history: result.history as NormalizedHistory, metadata };
+  }
+  const sourceAvailability =
+    result.historyAvailability ??
+    (result.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.startsWith("history.json") ||
+        diagnostic.startsWith("METRICS_DIR"),
+    )
+      ? "unavailable"
+      : result.history.length > 0
+        ? "available"
+        : "empty");
+  const history = normalizedHistory(
     result.history,
-    null,
-    result.historyAvailability ?? (result.history.length > 0 ? "available" : "empty"),
+    result.latest,
+    sourceAvailability,
     now,
-  )[HISTORY_METADATA]!;
+  );
+  return { history, metadata: history[HISTORY_METADATA]! };
 }
 
 export function readMetricsFromDir(
@@ -411,11 +429,14 @@ function publicServiceTrends(
 }
 
 export function derivePublicMetrics(
-  result: MetricsReadResult,
+  result: MetricsReadInput,
   now: Date = new Date(),
 ): PublicMetricsModel {
   const services = publicServices(result.latest, result.freshness);
-  const historyMetadata = metadataFor(result, now);
+  const { history, metadata: historyMetadata } = normalizedHistoryFor(
+    result,
+    now,
+  );
   const serviceSummary = services.reduce(
     (summary, service) => {
       summary.total += 1;
@@ -436,35 +457,32 @@ export function derivePublicMetrics(
     },
     services,
     projectHealthBySlug: getProjectHealthBySlug(services),
-    history: result.history.map(
-      (sample, index) =>
-        ({
-          collectedAt: sample.collected_at,
-          cpu: usageBucket(sample.host.cpu_percent),
-          ram: usageBucket(
-            percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes),
-          ),
-          disk: diskPressureFromPercent(
-            percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
-          ),
-          ...(result.historyAvailability !== undefined
-            ? { gapBefore: historyMetadata.gapBefore[index] ?? false }
-            : {}),
-        }) as PublicMetricsModel["history"][number],
-    ),
+    history: history.map((sample, index) => ({
+      collectedAt: sample.collected_at,
+      cpu: usageBucket(sample.host.cpu_percent),
+      ram: usageBucket(
+        percent(sample.host.ram_used_bytes, sample.host.ram_total_bytes),
+      ),
+      disk: diskPressureFromPercent(
+        percent(sample.host.disk_used_bytes, sample.host.disk_total_bytes),
+      ),
+      gapBefore: historyMetadata.gapBefore[index] ?? false,
+    })),
     historyCoverage: historyMetadata.coverage,
-    serviceTrends: publicServiceTrends(result.history),
+    serviceTrends: publicServiceTrends(history),
   };
 }
 
 export function deriveOwnerMetrics(
-  result: MetricsReadResult,
+  result: MetricsReadInput,
+  now: Date = new Date(),
 ): OwnerMetricsModel {
+  const { history, metadata } = normalizedHistoryFor(result, now);
   return {
     freshness: result.freshness,
     latest: result.latest,
-    history: result.history,
-    historyCoverage: metadataFor(result).coverage,
+    history,
+    historyCoverage: metadata.coverage,
     diagnostics: result.diagnostics,
   };
 }

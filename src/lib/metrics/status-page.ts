@@ -232,7 +232,7 @@ export function createStatusPageModel({
   now?: Date;
 }): StatusPageModel {
   const publicModel = derivePublicMetrics(readResult, now);
-  const owner = isOwner ? deriveOwnerMetrics(readResult) : null;
+  const owner = isOwner ? deriveOwnerMetrics(readResult, now) : null;
   return {
     public: publicModel,
     overall: deriveOverallPublicStatus(publicModel),

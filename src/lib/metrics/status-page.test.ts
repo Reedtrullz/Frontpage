@@ -9,6 +9,7 @@ import {
 
 const readResult: MetricsReadResult = {
   freshness: "fresh",
+  historyAvailability: "available",
   diagnostics: [],
   latest: {
     schema_version: 1,
@@ -72,6 +73,7 @@ describe("createStatusPageModel", () => {
       cpu: "low",
       ram: "low",
       disk: "ok",
+      gapBefore: false,
     });
     expect(JSON.stringify(model.public)).not.toContain("load_1m");
     expect(JSON.stringify(model.public)).not.toContain("cpu_percent");

@@ -402,6 +402,73 @@ describe("derivePublicMetrics", () => {
       lastTransitionAt: "2026-07-09T02:05:00Z",
     });
   });
+
+  it("normalizes legacy history once for every derived telemetry surface", () => {
+    const now = new Date("2026-07-10T02:00:00Z");
+    const duplicateKept = snapshotAt("2026-07-10T01:58:00Z", {
+      host: { ...snapshot.host, cpu_percent: 72 },
+      services: [
+        {
+          ...snapshot.services[0],
+          status: "down",
+          checked_at: "2026-07-10T01:58:00Z",
+          latency_ms: 80,
+        },
+      ],
+    });
+    const latest = snapshotAt("2026-07-10T02:00:00Z", {
+      services: [
+        {
+          ...snapshot.services[0],
+          checked_at: "2026-07-10T02:00:00Z",
+        },
+      ],
+    });
+    const legacyResult = {
+      freshness: "fresh" as const,
+      latest,
+      history: [
+        snapshotAt("2026-07-10T03:00:00Z"),
+        snapshotAt("2026-07-10T01:58:00Z"),
+        snapshotAt("2026-07-09T01:00:00Z"),
+        duplicateKept,
+      ],
+      diagnostics: [],
+    };
+
+    const publicModel = derivePublicMetrics(legacyResult, now);
+    const ownerModel = deriveOwnerMetrics(legacyResult, now);
+    const expectedTimestamps = [
+      "2026-07-10T01:58:00Z",
+      "2026-07-10T02:00:00Z",
+    ];
+
+    expect(publicModel.history.map((sample) => sample.collectedAt)).toEqual(
+      expectedTimestamps,
+    );
+    expect(ownerModel.history.map((sample) => sample.collected_at)).toEqual(
+      expectedTimestamps,
+    );
+    expect(publicModel.history[0]?.cpu).toBe("medium");
+    expect(ownerModel.history[0]?.host.cpu_percent).toBe(72);
+    expect(publicModel.history.map((sample) => sample.gapBefore)).toEqual([
+      false,
+      true,
+    ]);
+    expect(publicModel.history.every((sample) => "gapBefore" in sample)).toBe(
+      true,
+    );
+    expect(publicModel.historyCoverage).toEqual(ownerModel.historyCoverage);
+    expect(publicModel.historyCoverage.sampleCount).toBe(2);
+    expect(publicModel.serviceTrends["frontpage-public"]).toMatchObject({
+      knownChecks: 2,
+      totalSamples: 2,
+      availabilityPercent: 50,
+      coveragePercent: 100,
+      p95LatencyMs: 80,
+      lastTransitionAt: "2026-07-10T02:00:00Z",
+    });
+  });
 });
 
 describe("deriveOwnerMetrics", () => {
