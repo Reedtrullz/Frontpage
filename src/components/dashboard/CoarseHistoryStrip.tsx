@@ -1,9 +1,24 @@
+import type { HistoryCoverage } from "@/lib/metrics/types";
+
 type HistoryTone = "positive" | "information" | "warning" | "failure" | "unknown";
 
 interface LegendItem<T extends string> {
   value: T;
   label: string;
   tone: HistoryTone;
+}
+
+interface HistorySample<T extends string> {
+  collectedAt: string;
+  value: T;
+  gapBefore: boolean;
+}
+
+interface HistorySegment<T extends string> {
+  value: T;
+  startAt?: string;
+  endAt?: string;
+  gapBefore: boolean;
 }
 
 const toneClasses: Record<HistoryTone, string> = {
@@ -14,42 +29,86 @@ const toneClasses: Record<HistoryTone, string> = {
   unknown: "bg-[var(--border-strong)]",
 };
 
-function compressValues<T extends string>(
-  values: T[],
+function exactTime(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short",
+  }).format(new Date(value));
+}
+
+function relativeWindowLabel(value: string, windowEndAt: string): string {
+  const elapsedHours = Math.round(
+    (Date.parse(windowEndAt) - Date.parse(value)) / (60 * 60 * 1000),
+  );
+  return elapsedHours <= 0 ? "now" : `${elapsedHours}h ago`;
+}
+
+function compressSamples<T extends string>(
+  samples: HistorySample<T>[],
   severity: T[],
   maximum = 96,
-): T[] {
-  if (values.length <= maximum) return values;
-  const size = Math.ceil(values.length / maximum);
+): HistorySegment<T>[] {
+  if (samples.length === 0) return [];
+  const size = Math.max(1, Math.ceil(samples.length / maximum));
   const severityIndex = new Map(severity.map((value, index) => [value, index]));
-  const compressed: T[] = [];
-  for (let index = 0; index < values.length; index += size) {
-    const group = values.slice(index, index + size);
-    compressed.push(
-      group.toSorted(
-        (left, right) =>
-          (severityIndex.get(right) ?? 0) - (severityIndex.get(left) ?? 0),
-      )[0],
-    );
+  const compressed: HistorySegment<T>[] = [];
+
+  for (let index = 0; index < samples.length; index += size) {
+    const group = samples.slice(index, index + size);
+    const representative = group.toSorted(
+      (left, right) =>
+        (severityIndex.get(right.value) ?? 0) -
+        (severityIndex.get(left.value) ?? 0),
+    )[0];
+    compressed.push({
+      value: representative.value,
+      startAt: group[0]?.collectedAt,
+      endAt: group.at(-1)?.collectedAt,
+      gapBefore: group.some((sample) => sample.gapBefore),
+    });
   }
+
   return compressed;
+}
+
+function coverageMessage(coverage?: HistoryCoverage): string | null {
+  if (!coverage) return null;
+  if (coverage.availability === "unavailable") return "History unavailable";
+  if (coverage.availability === "empty") return "No recent samples";
+  if (coverage.gapCount > 0) {
+    return `${coverage.gapCount} gap${coverage.gapCount === 1 ? "" : "s"} in coverage`;
+  }
+  return null;
 }
 
 export function CoarseHistoryStrip<T extends string>({
   label,
   values,
   legend,
+  history,
+  coverage,
 }: {
   label: string;
   values: T[];
   legend: Array<LegendItem<T>>;
+  history?: Array<HistorySample<T>>;
+  coverage?: HistoryCoverage;
 }) {
   const labels = new Map(legend.map((item) => [item.value, item.label]));
   const tones = new Map(legend.map((item) => [item.value, item.tone]));
-  const compressed = compressValues(values, legend.map((item) => item.value));
+  const samples = history ?? values.map((value) => ({ value, collectedAt: "", gapBefore: false }));
+  const compressed = compressSamples(samples, legend.map((item) => item.value));
   const summary = legend
     .map((item) => `${item.label} ${values.filter((value) => value === item.value).length}`)
     .join(", ");
+  const message = coverageMessage(coverage);
+  const showHistory = coverage?.availability !== "unavailable" && compressed.length > 0;
 
   return (
     <figure className="border-t border-[var(--border)] py-5 first:border-t-0">
@@ -64,24 +123,34 @@ export function CoarseHistoryStrip<T extends string>({
           ))}
         </div>
       </div>
-      {compressed.length > 0 ? (
-        <div
-          className="mt-4 grid h-10 gap-px overflow-hidden bg-[var(--surface)]"
-          style={{ gridTemplateColumns: `repeat(${compressed.length}, minmax(2px, 1fr))` }}
-          role="img"
-          aria-label={`${label} over the available 24-hour window: ${summary}`}
-        >
-          {compressed.map((value, index) => (
-            <span
-              key={`${value}-${index}`}
-              className={toneClasses[tones.get(value) ?? "unknown"]}
-              title={labels.get(value)}
-              aria-hidden="true"
-            />
-          ))}
-        </div>
+      {message && (coverage?.availability !== "available" || coverage.gapCount > 0) ? (
+        <p className="mt-4 text-sm text-[var(--text-muted)]">{message}</p>
+      ) : null}
+      {showHistory ? (
+        <>
+          <div className="mt-4 grid h-10 gap-px overflow-hidden bg-[var(--surface)]" style={{ gridTemplateColumns: `repeat(${compressed.length}, minmax(2px, 1fr))` }} role="img" aria-label={`${label} history: ${summary}`}>
+            {compressed.map((segment, index) => {
+              const start = segment.startAt ? exactTime(segment.startAt) : null;
+              const end = segment.endAt ? exactTime(segment.endAt) : null;
+              const valueLabel = labels.get(segment.value) ?? "Unknown";
+              const context = start && end
+                ? `${label}: ${valueLabel} from ${start}${start === end ? "" : ` to ${end}`}${segment.gapBefore ? ". Coverage missing before this sample" : ""}`
+                : `${label}: ${valueLabel}`;
+              return (
+                <span key={`${segment.value}-${index}`} className={toneClasses[tones.get(segment.value) ?? "unknown"]} title={context} role="img" aria-label={context} />
+              );
+            })}
+          </div>
+          {coverage ? (
+            <div className="mt-2 flex justify-between text-xs text-[var(--text-subtle)]" aria-label={`${label} time direction`}>
+              <span>{relativeWindowLabel(coverage.windowStartAt, coverage.windowEndAt)}</span>
+              {compressed.length > 2 ? <span>{relativeWindowLabel(compressed[Math.floor(compressed.length / 2)]?.endAt ?? coverage.windowEndAt, coverage.windowEndAt)}</span> : null}
+              <span>now</span>
+            </div>
+          ) : null}
+        </>
       ) : (
-        <p className="mt-4 text-sm text-[var(--text-muted)]">No 24-hour history available.</p>
+        <p className="mt-4 text-sm text-[var(--text-muted)]">{message ?? "No recent samples"}</p>
       )}
     </figure>
   );

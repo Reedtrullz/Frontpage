@@ -40,8 +40,9 @@ export function StatusInventory({ metrics }: { metrics: PublicMetricsModel }) {
                 </div>
                 <p className="mt-1 text-xs text-[var(--text-subtle)]">
                   Checked <RelativeTime value={service.checkedAt} />
-                  {service.latencyMs !== null ? ` / ${service.latencyMs} ms` : ""}
+                  {service.latencyMs !== null ? metrics.freshness === "fresh" ? ` / ${service.latencyMs} ms` : ` / Last known ${service.latencyMs} ms` : ""}
                 </p>
+                <ServiceEvidence trend={metrics.serviceTrends[service.id]} />
               </div>
               <span className="text-xs text-[var(--text-subtle)]">Public</span>
               <PostureBadge dimension="health" value={healthValue(service.status)} />
@@ -50,5 +51,28 @@ export function StatusInventory({ metrics }: { metrics: PublicMetricsModel }) {
         )}
       </div>
     </section>
+  );
+}
+
+function ServiceEvidence({
+  trend,
+}: {
+  trend: PublicMetricsModel["serviceTrends"][string] | undefined;
+}) {
+  if (!trend) return null;
+  const reliability = trend.availabilityPercent !== null
+    ? `${trend.availabilityPercent}% available across ${trend.knownChecks} known check${trend.knownChecks === 1 ? "" : "s"}`
+    : null;
+  const coverage = trend.coveragePercent !== null
+    ? `Coverage ${trend.coveragePercent}%`
+    : null;
+
+  if (!reliability && !coverage && !trend.lastTransitionAt) return null;
+  return (
+    <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+      {reliability ? <span>{reliability}</span> : null}
+      {coverage ? <span>{coverage}</span> : null}
+      {trend.lastTransitionAt ? <span>Last transition <RelativeTime value={trend.lastTransitionAt} /></span> : null}
+    </p>
   );
 }
