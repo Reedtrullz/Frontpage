@@ -101,6 +101,88 @@ describe("createStatusPageModel", () => {
 });
 
 describe("deriveOverallPublicStatus", () => {
+  it("reports delayed status without counting stale checks as up", () => {
+    const model = createStatusPageModel({
+      readResult: { ...readResult, freshness: "stale" },
+      isOwner: false,
+      now: new Date("2026-07-09T02:02:00Z"),
+    });
+
+    expect(model.overall).toMatchObject({
+      kind: "delayed",
+      label: "Status delayed",
+    });
+    expect(model.public.host.serviceSummary).toMatchObject({
+      total: 1,
+      up: 0,
+      unknown: 1,
+    });
+  });
+
+  it("reports unavailable current telemetry separately from no configured checks", () => {
+    const model = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        freshness: "unavailable",
+        latest: null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:02:00Z"),
+    });
+
+    expect(model.overall.kind).toBe("unavailable");
+    expect(model.public.lastKnownServiceCount).toBe(1);
+    expect(model.public.host.serviceSummary.total).toBe(0);
+  });
+
+  it("keeps CPU and RAM pressure informational and disk watch operational", () => {
+    const publicModel = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              host: {
+                ...readResult.latest.host,
+                cpu_percent: 99,
+                ram_used_bytes: 99,
+                disk_used_bytes: 80,
+              },
+            }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).public;
+
+    expect(publicModel.host.diskPressure).toBe("watch");
+    expect(deriveOverallPublicStatus(publicModel).kind).toBe("operational");
+  });
+
+  it("does not claim operational when critical disk pressure is degraded", () => {
+    const publicModel = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        latest: readResult.latest
+          ? {
+              ...readResult.latest,
+              host: {
+                ...readResult.latest.host,
+                disk_used_bytes: 90,
+              },
+            }
+          : null,
+      },
+      isOwner: false,
+      now: new Date("2026-07-09T02:00:30Z"),
+    }).public;
+
+    expect(deriveOverallPublicStatus(publicModel)).toMatchObject({
+      kind: "degraded",
+      description: "Host disk pressure is critical.",
+    });
+  });
+
   it("prioritizes a down service over a healthy host", () => {
     const model = createStatusPageModel({
       readResult: {

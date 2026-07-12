@@ -5,10 +5,10 @@ import {
   Clock3,
   type LucideIcon,
 } from "lucide-react";
-import type { PublicMetricsModel } from "@/lib/metrics/reader";
 import type {
   OverallPublicStatus,
   OverallPublicStatusKind,
+  PublicStatusMetricsModel,
 } from "@/lib/metrics/status-page";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 
@@ -46,12 +46,25 @@ export function VpsStatusSummary({
   metrics,
   overall,
 }: {
-  metrics: PublicMetricsModel;
+  metrics: PublicStatusMetricsModel;
   overall: OverallPublicStatus;
 }) {
   const view = stateView[overall.kind];
   const Icon = view.icon;
   const services = metrics.host.serviceSummary;
+  const hasCurrentSample = metrics.freshness === "fresh";
+  const serviceValue = hasCurrentSample
+    ? services.total > 0
+      ? `${services.up}/${services.total} up`
+      : "No checks"
+    : metrics.freshness === "stale"
+      ? "Current status pending"
+      : "No current sample";
+  const lastKnownServiceCount = metrics.lastKnownServiceCount;
+  const diskValue = diskPressureValue(
+    metrics.host.diskPressure,
+    hasCurrentSample,
+  );
   return (
     <section className={`border-y bg-[var(--surface-raised)] ${view.className}`} aria-labelledby="overall-status-heading">
       <div className="mx-auto grid max-w-7xl gap-0 px-4 sm:px-6 lg:grid-cols-[1.4fr_repeat(3,0.7fr)]">
@@ -62,18 +75,49 @@ export function VpsStatusSummary({
             <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">{overall.description}</p>
           </div>
         </div>
-        <SummaryField label="Public services" value={services.total > 0 ? `${services.up}/${services.total} up` : "No checks"} />
-        <SummaryField label="Host telemetry" value={metrics.freshness} />
-        <SummaryField label="Disk pressure" value={metrics.host.diskPressure}>
+        <SummaryField label="Public services" value={serviceValue}>
+          {!hasCurrentSample && lastKnownServiceCount !== null ? (
+            <span className="mt-1 block text-xs text-[var(--text-subtle)]">
+              Last known: {lastKnownServiceCount} configured check{lastKnownServiceCount === 1 ? "" : "s"}
+            </span>
+          ) : null}
+        </SummaryField>
+        <SummaryField
+          label="Host telemetry"
+          value={
+            hasCurrentSample
+              ? "Current"
+              : metrics.freshness === "stale"
+                ? "Delayed"
+                : "No current sample"
+          }
+        />
+        <SummaryField label="Disk pressure" value={diskValue}>
           {metrics.host.lastUpdatedAt ? (
             <span className="mt-1 block text-xs text-[var(--text-subtle)]">
-              Updated <RelativeTime value={metrics.host.lastUpdatedAt} />
+              {hasCurrentSample ? "Updated" : "Sampled"}{" "}
+              <RelativeTime value={metrics.host.lastUpdatedAt} />
             </span>
           ) : null}
         </SummaryField>
       </div>
     </section>
   );
+}
+
+function diskPressureValue(
+  pressure: PublicStatusMetricsModel["host"]["diskPressure"],
+  current: boolean,
+): string {
+  const label =
+    pressure === "ok"
+      ? "OK"
+      : pressure === "watch"
+        ? "Watch"
+        : pressure === "critical"
+          ? "Critical"
+          : "Unavailable";
+  return current || pressure === "unknown" ? label : `Last known: ${label.toLowerCase()}`;
 }
 
 function SummaryField({
