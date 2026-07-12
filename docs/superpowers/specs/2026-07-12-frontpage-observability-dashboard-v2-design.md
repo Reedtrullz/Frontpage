@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-12
 
-**Status:** Approved in conversation; awaiting written-spec review
+**Status:** Approved design; implementation plan complete
 
 ## Summary
 
@@ -117,7 +117,7 @@ The web container receives:
 
 Collector v2 is a long-running Python systemd service with a monotonic 15-second scheduler. A long-running process is required for reliable counter deltas, bounded process sampling, sleep/wake detection, and the later eBPF lifecycle.
 
-The unit runs as a dedicated `frontpage-metrics` user and group with systemd hardening. It receives only the filesystem paths and network access required for collection. The web container joins the read-only metrics group, as it does today.
+The unit runs as a dedicated `frontpage-observer` user with systemd hardening. This is intentionally separate from the existing v1 `frontpage-metrics` account, which belongs to the Docker group during shadow and rollback support. Projection files are owned by `frontpage-observer` and grouped under the read-only `frontpage-metrics` group so the web container can read them without granting the v2 collector or web app Docker access.
 
 Collector v2 is the sole SQLite writer. SQLite uses WAL mode, foreign keys, a busy timeout, bounded transactions, and an explicit schema version. If a write or compaction transaction takes more than 5 seconds, the collector skips the next scheduled cycle instead of building a backlog.
 
