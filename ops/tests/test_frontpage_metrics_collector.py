@@ -352,6 +352,13 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(pruned), 1440)
         self.assertEqual(pruned[0]["collected_at"], samples[-1440]["collected_at"])
 
+    def test_comparison_history_keeps_72_hours_without_widening_app_history(self):
+        samples = [{"sample": index} for index in range(5000)]
+        comparison = collector.prune_comparison_history(samples)
+        self.assertEqual(len(comparison), 4320)
+        self.assertEqual(comparison[0], samples[-4320])
+        self.assertEqual(len(collector.prune_history(samples)), 1440)
+
     def test_atomic_write_json_writes_complete_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / "latest.json"

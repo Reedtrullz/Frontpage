@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from ops.frontpage_metrics_v2.store import MetricsStore
@@ -130,6 +131,25 @@ class MetricsStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "evaluation failed"):
             self.store.commit_cycle(cycle(), fail, NOW)
         self.assertEqual(self.store.count("host_points", "15s"), 0)
+
+    def test_commit_cycle_populates_minute_and_quarter_hour_rollups(self):
+        transitions = SimpleNamespace(opened=(), updated=(), recovered=())
+        base = NOW // 60_000 * 60_000
+        for index, cpu in enumerate((10.0, 20.0, 30.0, 40.0)):
+            sample = cycle(base + index * 15_000)
+            sample["host"]["cpu_percent"] = cpu
+            self.store.commit_cycle(sample, lambda _cycle: transitions, sample["ts_ms"])
+
+        self.assertEqual(self.store.count("host_points", "1m"), 1)
+        self.assertEqual(self.store.count("host_points", "15m"), 1)
+        minute_payload = json.loads(
+            self.store.scalar("SELECT payload_json FROM host_points WHERE tier='1m'")
+        )
+        self.assertEqual(minute_payload["cpu_percent"], 25.0)
+        self.assertEqual(
+            self.store.scalar("SELECT coverage_percent FROM host_points WHERE tier='1m'"),
+            100.0,
+        )
 
 
 if __name__ == "__main__":

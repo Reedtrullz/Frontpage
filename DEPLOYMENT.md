@@ -192,6 +192,55 @@ Shadow operation is not promotion. A running v2 service does not prove the
 48-hour divergence gate, owner UI activation, public redaction, or production
 v2 mounts.
 
+### Shadow comparison and promotion
+
+The v1 collector keeps its app-facing `history.json` capped at 1,440 samples
+and writes a separate host-only `comparison-history.json` capped at 4,320
+minute samples. The app never reads the comparison file. Generate the gate
+artifact with:
+
+```bash
+sudo /usr/local/bin/frontpage-metrics-shadow-compare \
+  --v1-history /var/lib/frontpage-metrics/v1/comparison-history.json \
+  --v2-database /var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3 \
+  --projection-root /var/lib/frontpage-metrics/v2-shadow \
+  --output /var/lib/frontpage-metrics/shadow-gate.json
+```
+
+Approval requires at least 48 continuous hours, no paired-sample gap above
+120 seconds, zero missed paired minutes, p99 relative divergence below 2% for CPU, RAM, and disk capacity,
+and zero mismatches across paired public service states. The artifact also
+records paired and missed minutes, database size, and projection size. A
+non-approved comparison exits with status 2.
+
+Promotion is a separate exact-SHA invocation and requires both the generated
+artifact and an explicit operator acknowledgment:
+
+```bash
+GITHUB_SHA=<full-40-character-sha> \
+FRONTPAGE_OBSERVABILITY_V2_PROMOTE=1 \
+OBSERVABILITY_V2_SHADOW_GATE=approved \
+ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass
+```
+
+Promotion stops and disables the shadow service, seeds and starts
+`frontpage-metrics-collector-v2.service`, mounts only `v2/public` and
+`v2/owner` read-only, and enables `FRONTPAGE_OBSERVABILITY_V2=1`. The SQLite
+database and `private/` directory are never mounted. Ansible fails promotion
+when the on-host comparison artifact does not independently satisfy every
+gate, even if the acknowledgment environment variable is present.
+
+The active and shadow units intentionally use the same private
+`metrics-v2-shadow.sqlite3` database and are mutually exclusive. Reusing that
+file preserves the history that passed the gate; only the projection output
+directory changes from `v2-shadow` to `v2`.
+
+Feature rollback remains v1-first. A failed promoted application stops the
+active v2 service, restores the prior image with only `/metrics:ro`, and
+restarts the shadow collector. Losing newly accumulated promoted v2 history
+during break-glass rollback is acceptable and must be reported explicitly.
+
 ## Rollback
 
 Automatic: the playbook captures the previous image identity before swapping,

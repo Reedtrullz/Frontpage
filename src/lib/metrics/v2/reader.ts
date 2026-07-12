@@ -27,7 +27,7 @@ const RANGE_MS = {
   "7d": 7 * 24 * 60 * 60_000,
   "30d": 30 * 24 * 60 * 60_000,
 } as const;
-const MANIFEST_PATH_PATTERN = /^(?:latest|incidents)\.v2\.json$|^(?:host|workloads)\/1h\.v2\.json$|^(?:host|workloads)\/(?:minute|quarter-hour)\/\d{4}-\d{2}-\d{2}\.v2\.json$/;
+const MANIFEST_PATH_PATTERN = /^(?:latest|incidents)\.v2\.json$|^host\/1h\.v2\.json$|^host\/(?:minute|quarter-hour)\/\d{4}-\d{2}-\d{2}\.v2\.json$|^workloads\/(?:cpu|ram|disk_io|network)\/1h\.v2\.json$|^workloads\/(?:cpu|ram|disk_io|network)\/(?:minute|quarter-hour)\/\d{4}-\d{2}-\d{2}\.v2\.json$/;
 
 export type ProjectionAvailability = "available" | "unavailable" | "invalid";
 export type ProjectionReadErrorCode = "unavailable" | "invalid" | "too_large";
@@ -244,6 +244,33 @@ export function readOwnerIncidentsV2(
   }
 }
 
+export function readPublicIncidentsV2(
+  root: string | undefined = getPublicMetricsRootV2(),
+  now: Date = new Date(),
+): ProjectionReadResult<IncidentListV2> {
+  if (!root) return unavailable("The public metrics projection root is not configured.");
+  try {
+    const data = parseIncidentListV2(
+      readCappedJson(root, "incidents.v2.json", LATEST_CAP_BYTES),
+    );
+    assertNotFuture(data.generated_at, now, "Incident projection generation time");
+    assertIncidentsNotFuture(data, now);
+    if (data.incidents.some((incident) => incident.visibility !== "public")) {
+      return invalid("Public incident projection contains owner data.");
+    }
+    return { availability: "available", data, diagnostics: [] };
+  } catch (error) {
+    if (error instanceof ProjectionReadError && error.code === "unavailable") {
+      return unavailable(error.message);
+    }
+    return invalid(
+      error instanceof ProjectionReadError
+        ? error.message
+        : "Public incident projection failed schema validation.",
+    );
+  }
+}
+
 function parseManifest(root: string): OwnerManifestV2 {
   const payload = readCappedJson(root, "manifest.v2.json", LATEST_CAP_BYTES);
   if (
@@ -254,7 +281,7 @@ function parseManifest(root: string): OwnerManifestV2 {
     payload.schema_version !== 2 ||
     !("files" in payload) ||
     !Array.isArray(payload.files) ||
-    payload.files.length > 128 ||
+    payload.files.length > 256 ||
     payload.files.some(
       (file) =>
         typeof file !== "string" ||
@@ -271,10 +298,14 @@ function parseManifest(root: string): OwnerManifestV2 {
 }
 
 function filesForQuery(manifest: OwnerManifestV2, query: OwnerMetricsQuery): string[] {
+  const base =
+    query.view === "workloads"
+      ? `workloads/${query.resource}`
+      : "host";
   const expected =
     query.range === "1h"
-      ? `${query.view}/1h.v2.json`
-      : `${query.view}/${query.range === "30d" ? "quarter-hour" : "minute"}/`;
+      ? `${base}/1h.v2.json`
+      : `${base}/${query.range === "30d" ? "quarter-hour" : "minute"}/`;
   const files = manifest.files
     .filter((file) =>
       query.range === "1h" ? file === expected : file.startsWith(expected),

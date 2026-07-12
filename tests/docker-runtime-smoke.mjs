@@ -33,6 +33,7 @@ async function getText(url, timeoutMs = 10_000) {
 }
 
 function writeMetrics(metricsDir) {
+  fs.mkdirSync(metricsDir, { recursive: true, mode: 0o750 });
   const collectedAt = new Date().toISOString();
   const snapshot = {
     schema_version: 1,
@@ -89,6 +90,64 @@ function writeMetrics(metricsDir) {
   fs.chmodSync(metricsDir, 0o750);
 }
 
+function writeV2Metrics(publicDir, ownerDir) {
+  const timestamp = new Date().toISOString();
+  const publicLatest = {
+    schema_version: 2,
+    generated_at: timestamp,
+    collected_at: timestamp,
+    freshness: "fresh",
+    overall_state: "operational",
+    resources: [
+      { resource: "cpu", label: "CPU", state: "healthy", coverage_percent: 100 },
+      { resource: "ram", label: "RAM", state: "healthy", coverage_percent: 100 },
+      { resource: "disk_io", label: "Disk I/O", state: "healthy", coverage_percent: 100 },
+      { resource: "network", label: "Network", state: "healthy", coverage_percent: 100 },
+    ],
+    services: [{ id: "frontpage-public", label: "Frontpage", status: "up", checked_at: timestamp, latency_ms: 20, availability_percent: 100, coverage_percent: 100 }],
+  };
+  const incidents = { schema_version: 2, generated_at: timestamp, incidents: [] };
+  const ownerLatest = {
+    schema_version: 2,
+    generated_at: timestamp,
+    collected_at: timestamp,
+    freshness: "fresh",
+    host: {
+      totals: [
+        { resource: "cpu", label: "CPU total", unit: "percent", current: 42, average: 40, peak: 50, state: "healthy", freshness: "fresh", updated_at: timestamp, attribution_coverage_percent: 100, reconciliation_error_percent: 0, workload_view: "available" },
+      ],
+      capabilities: [],
+    },
+    workloads: [],
+    diagnostics: [],
+    incidents: [],
+  };
+  const series = {
+    schema_version: 2,
+    generated_at: timestamp,
+    range: "1h",
+    resolution_seconds: 15,
+    view: "host",
+    resource: null,
+    timestamps: [timestamp],
+    series: [{ id: "cpu-total", label: "CPU total", unit: "percent", values: [42] }],
+    coverage_percent: 100,
+    truncated: false,
+  };
+  for (const directory of [publicDir, ownerDir]) fs.mkdirSync(directory, { recursive: true, mode: 0o750 });
+  for (const [target, payload] of [
+    [path.join(publicDir, "latest.v2.json"), publicLatest],
+    [path.join(publicDir, "incidents.v2.json"), incidents],
+    [path.join(ownerDir, "latest.v2.json"), ownerLatest],
+    [path.join(ownerDir, "incidents.v2.json"), incidents],
+    [path.join(ownerDir, "host", "1h.v2.json"), series],
+    [path.join(ownerDir, "manifest.v2.json"), { schema_version: 2, files: ["latest.v2.json", "incidents.v2.json", "host/1h.v2.json"] }],
+  ]) {
+    fs.mkdirSync(path.dirname(target), { recursive: true, mode: 0o750 });
+    fs.writeFileSync(target, `${JSON.stringify(payload)}\n`, { mode: 0o640 });
+  }
+}
+
 function assertMode(filePath, expectedMode) {
   const actualMode = fs.statSync(filePath).mode & 0o777;
   if (actualMode !== expectedMode) {
@@ -119,11 +178,16 @@ async function main() {
   const metricsDir = fs.mkdtempSync(
     path.join(process.cwd(), ".docker-runtime-smoke-"),
   );
+  const publicV2Dir = path.join(metricsDir, "public");
+  const ownerV2Dir = path.join(metricsDir, "owner");
+  const v1Dir = path.join(metricsDir, "v1");
   const container = `frontpage-smoke-${process.pid}-${Date.now()}`;
-  writeMetrics(metricsDir);
-  assertMode(metricsDir, 0o750);
-  assertMode(path.join(metricsDir, "latest.json"), 0o640);
-  assertMode(path.join(metricsDir, "history.json"), 0o640);
+  writeMetrics(v1Dir);
+  writeV2Metrics(publicV2Dir, ownerV2Dir);
+  assertMode(v1Dir, 0o750);
+  assertMode(path.join(v1Dir, "latest.json"), 0o640);
+  assertMode(path.join(publicV2Dir, "latest.v2.json"), 0o640);
+  assertMode(path.join(ownerV2Dir, "latest.v2.json"), 0o640);
   const metricsGroupId = String(fs.statSync(metricsDir).gid);
 
   try {
@@ -148,8 +212,18 @@ async function main() {
       `VERSION=${version}`,
       "--env",
       "METRICS_DIR=/metrics",
+      "--env",
+      "PUBLIC_METRICS_DIR=/metrics-public",
+      "--env",
+      "OWNER_METRICS_DIR=/metrics-owner",
+      "--env",
+      "FRONTPAGE_OBSERVABILITY_V2=1",
       "--volume",
-      `${metricsDir}:/metrics:ro`,
+      `${v1Dir}:/metrics:ro`,
+      "--volume",
+      `${publicV2Dir}:/metrics-public:ro`,
+      "--volume",
+      `${ownerV2Dir}:/metrics-owner:ro`,
       "--group-add",
       metricsGroupId,
       image,
@@ -195,6 +269,11 @@ async function main() {
       }
     }
 
+    const ownerApi = await getText(`${baseUrl}/api/owner/metrics?range=1h&view=host`);
+    if (ownerApi.response.status !== 401) {
+      throw new Error(`Anonymous owner metrics API returned ${ownerApi.response.status}, expected 401`);
+    }
+
     const healthStatus = await poll("Docker healthcheck", () => {
       const value = docker(["inspect", "--format", "{{.State.Health.Status}}", container]);
       return value === "healthy" ? value : false;
@@ -206,7 +285,7 @@ async function main() {
       container,
       "node",
       "-e",
-      "const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); try { fs.writeFileSync('/metrics/write-test', 'x'); process.exit(2); } catch { process.exit(0); }",
+      "const fs=require('fs'); for(const file of ['/metrics/latest.json','/metrics-public/latest.v2.json','/metrics-owner/latest.v2.json'])fs.accessSync(file,fs.constants.R_OK); if(fs.existsSync('/metrics-private')||fs.existsSync('/metrics-owner/metrics-v2.sqlite3'))process.exit(3); for(const dir of ['/metrics','/metrics-public','/metrics-owner']){try{fs.writeFileSync(dir+'/write-test','x');process.exit(2)}catch{}}",
     ]);
 
     console.log(`Docker runtime smoke passed for ${image} (${version})`);

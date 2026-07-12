@@ -268,9 +268,22 @@ metrics/
       minute/YYYY-MM-DD.v2.json
       quarter-hour/YYYY-MM-DD.v2.json
     workloads/
-      1h.v2.json
-      minute/YYYY-MM-DD.v2.json
-      quarter-hour/YYYY-MM-DD.v2.json
+      cpu/
+        1h.v2.json
+        minute/YYYY-MM-DD.v2.json
+        quarter-hour/YYYY-MM-DD.v2.json
+      ram/
+        1h.v2.json
+        minute/YYYY-MM-DD.v2.json
+        quarter-hour/YYYY-MM-DD.v2.json
+      disk_io/
+        1h.v2.json
+        minute/YYYY-MM-DD.v2.json
+        quarter-hour/YYYY-MM-DD.v2.json
+      network/  # absent until the separate eBPF gate passes
+        1h.v2.json
+        minute/YYYY-MM-DD.v2.json
+        quarter-hour/YYYY-MM-DD.v2.json
 ```
 
 Daily chunks prevent rewriting the complete 7-day and 30-day windows every cycle. The current raw/hour file updates every 15 seconds, the current minute chunk updates once per minute, and the current quarter-hour chunk updates when a bucket closes. Closed daily chunks are immutable.
@@ -290,6 +303,8 @@ Allowed query values are closed enums:
 - Resource for workload history: `cpu`, `ram`, `disk_io`, `network`. The `network` workload view returns a capability-unavailable response until eBPF attribution is active.
 
 Paths are selected from a server-side manifest; query text is never interpolated into a filesystem path.
+Workload history is physically partitioned by the closed resource enum so one
+resource request cannot select or reinterpret another resource's series.
 
 Responses use:
 

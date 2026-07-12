@@ -19,6 +19,7 @@ from ops.frontpage_metrics_v2.sources import services as service_source
 
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
+MAX_COMPARISON_HISTORY = 4320
 MAX_ITEMS = 64
 
 
@@ -212,6 +213,10 @@ def prune_history(samples):
     return list(samples)[-MAX_HISTORY:]
 
 
+def prune_comparison_history(samples):
+    return list(samples)[-MAX_COMPARISON_HISTORY:]
+
+
 def atomic_write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,6 +282,13 @@ def main():
     atomic_write_json(
         metrics_dir / "history.json",
         {"schema_version": SCHEMA_VERSION, "samples": samples},
+    )
+    comparison_samples = prune_comparison_history(
+        load_history(metrics_dir / "comparison-history.json") + [snapshot]
+    )
+    atomic_write_json(
+        metrics_dir / "comparison-history.json",
+        {"schema_version": SCHEMA_VERSION, "samples": comparison_samples},
     )
 
 

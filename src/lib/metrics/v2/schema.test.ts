@@ -31,7 +31,8 @@ function buildApprovedOwnerFixture(): Record<string, unknown> {
     ...workload,
     resources: workload.resources.filter((resource) => resource.resource !== "network"),
     processes: workload.processes.map((process) => {
-      const { id: _processId, ...rest } = process;
+      const rest = { ...process };
+      delete rest.id;
       return {
         workload_id: workload.id,
         ...rest,

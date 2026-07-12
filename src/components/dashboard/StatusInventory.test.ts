@@ -85,6 +85,8 @@ describe("StatusInventory", () => {
     expect(markup).toContain("Coverage 50%");
     expect(markup).not.toContain("available across");
     expect(markup).not.toContain("Last transition");
+    expect(markup).toContain("Unavailable");
+    expect(markup).not.toContain(">Healthy<");
   });
 
   it("does not expose private host fields or identifiers in public markup", () => {

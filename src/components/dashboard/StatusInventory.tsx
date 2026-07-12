@@ -6,6 +6,7 @@ import type {
 import type { PublicStatusMetricsModel } from "@/lib/metrics/status-page";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
+import type { PublicStatusV2Model } from "@/lib/metrics/v2/public-status";
 
 function healthValue(status: PublicServiceStatus["status"]) {
   if (status === "up") return "healthy" as const;
@@ -13,11 +14,24 @@ function healthValue(status: PublicServiceStatus["status"]) {
   return "unavailable" as const;
 }
 
-export function StatusInventory({ metrics }: { metrics: PublicStatusMetricsModel }) {
-  const currentUnavailable = metrics.freshness === "unavailable";
+export function StatusInventory({
+  metrics,
+  publicV2,
+}: {
+  metrics: PublicStatusMetricsModel;
+  publicV2?: PublicStatusV2Model | null;
+}) {
+  const freshness = publicV2?.freshness ?? metrics.freshness;
+  const currentUnavailable = freshness === "unavailable";
+  const services = publicV2
+    ? publicV2.services.map((service) => ({
+        ...service,
+        projectSlug: metrics.services.find((candidate) => candidate.id === service.id)?.projectSlug,
+      }))
+    : metrics.services;
   const configuredCount = currentUnavailable
     ? metrics.lastKnownServiceCount
-    : metrics.services.length;
+    : services.length;
   return (
     <section aria-labelledby="public-services-heading">
       <div className="flex items-end justify-between gap-4">
@@ -35,10 +49,10 @@ export function StatusInventory({ metrics }: { metrics: PublicStatusMetricsModel
             Current sample unavailable.
             {configuredCount !== null ? ` Last known: ${configuredCount} configured check${configuredCount === 1 ? "" : "s"}.` : " No current service state is available."}
           </p>
-        ) : metrics.services.length === 0 ? (
+        ) : services.length === 0 ? (
           <p className="py-6 text-sm text-[var(--text-muted)]">No public checks configured.</p>
         ) : (
-          metrics.services.map((service) => (
+          services.map((service) => (
             <div key={service.id} className="grid gap-4 border-t border-[var(--border)] py-5 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -50,13 +64,20 @@ export function StatusInventory({ metrics }: { metrics: PublicStatusMetricsModel
                   ) : null}
                 </div>
                 <p className="mt-1 text-xs text-[var(--text-subtle)]">
-                  Checked <RelativeTime value={service.checkedAt} />
-                  {service.latencyMs !== null ? metrics.freshness === "fresh" ? ` / ${service.latencyMs} ms` : ` / Last known ${service.latencyMs} ms` : ""}
+                  Checked <RelativeTime value={"checkedAt" in service ? service.checkedAt : service.checked_at} />
+                  {("latencyMs" in service ? service.latencyMs : service.latency_ms) !== null ? freshness === "fresh" ? ` / ${"latencyMs" in service ? service.latencyMs : service.latency_ms} ms` : ` / Last known ${"latencyMs" in service ? service.latencyMs : service.latency_ms} ms` : ""}
                 </p>
                 <ServiceEvidence trend={metrics.serviceTrends[service.id]} />
               </div>
               <span className="text-xs text-[var(--text-subtle)]">Public</span>
-              <PostureBadge dimension="health" value={healthValue(service.status)} />
+              {service.status === "maintenance" ? (
+                <span className="inline-flex min-h-8 items-center border border-[var(--role-info-border)] bg-[var(--role-info-soft)] px-2.5 text-xs font-semibold text-[var(--role-info)]">Maintenance</span>
+              ) : (
+                <PostureBadge
+                  dimension="health"
+                  value={healthValue(freshness === "fresh" ? service.status : "unknown")}
+                />
+              )}
             </div>
           ))
         )}

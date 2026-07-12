@@ -45,6 +45,27 @@ def _coverage(value: object) -> float:
     return float(value)
 
 
+def _rollup_payload(values: Sequence[Mapping[str, object]]) -> dict[str, object]:
+    keys = sorted({key for value in values for key in value})
+    result: dict[str, object] = {}
+    for key in keys:
+        present = [value[key] for value in values if key in value and value[key] is not None]
+        if not present:
+            continue
+        if all(isinstance(value, dict) for value in present):
+            result[key] = _rollup_payload(
+                [value for value in present if isinstance(value, dict)]
+            )
+        elif (
+            not key.endswith("_ms")
+            and all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in present)
+        ):
+            result[key] = sum(float(value) for value in present) / len(present)
+        else:
+            result[key] = present[-1]
+    return result
+
+
 class MetricsStore:
     def __init__(
         self,
@@ -159,6 +180,62 @@ class MetricsStore:
                 (capability["key"], capability["state"], capability["detail"], ts_ms),
             )
 
+    def _upsert_rollup_tier(self, tier: str, bucket_ms: int, expected_samples: int, now_ms: int) -> None:
+        source_start = bucket_ms
+        host_rows = self._connection.execute(
+            "SELECT payload_json,coverage_percent FROM host_points WHERE tier='15s' AND ts_ms>=? AND ts_ms<=? ORDER BY ts_ms",
+            (source_start, now_ms),
+        ).fetchall()
+        if host_rows:
+            host_payload = _rollup_payload([json.loads(row[0]) for row in host_rows])
+            host_coverage = min(
+                100.0,
+                sum(float(row[1]) for row in host_rows) / expected_samples,
+            )
+            self._connection.execute(
+                "INSERT OR REPLACE INTO host_points(tier,ts_ms,payload_json,coverage_percent) VALUES(?,?,?,?)",
+                (tier, bucket_ms, _json_object(host_payload, "host rollup"), host_coverage),
+            )
+
+        workload_rows = self._connection.execute(
+            "SELECT workload_id,payload_json,coverage_percent FROM workload_points WHERE tier='15s' AND ts_ms>=? AND ts_ms<=? ORDER BY ts_ms,workload_id",
+            (source_start, now_ms),
+        ).fetchall()
+        workload_groups: dict[str, list[sqlite3.Row]] = {}
+        for row in workload_rows:
+            workload_groups.setdefault(str(row[0]), []).append(row)
+        for workload_id, rows in workload_groups.items():
+            payload = _rollup_payload([json.loads(row[1]) for row in rows])
+            coverage = min(100.0, sum(float(row[2]) for row in rows) / expected_samples)
+            self._connection.execute(
+                "INSERT OR REPLACE INTO workload_points(tier,ts_ms,workload_id,payload_json,coverage_percent) VALUES(?,?,?,?,?)",
+                (tier, bucket_ms, workload_id, _json_object(payload, "workload rollup"), coverage),
+            )
+
+        service_rows = self._connection.execute(
+            "SELECT service_id,payload_json FROM service_points WHERE tier='15s' AND ts_ms>=? AND ts_ms<=? ORDER BY ts_ms,service_id",
+            (source_start, now_ms),
+        ).fetchall()
+        latest_services: dict[str, Mapping[str, object]] = {}
+        for row in service_rows:
+            latest_services[str(row[0])] = json.loads(row[1])
+        for service_id, payload in latest_services.items():
+            self._connection.execute(
+                "INSERT OR REPLACE INTO service_points(tier,ts_ms,service_id,payload_json) VALUES(?,?,?,?)",
+                (tier, bucket_ms, service_id, _json_object(payload, "service rollup")),
+            )
+
+    def _upsert_rollups(self, now_ms: int) -> None:
+        minute_ms = 60_000
+        quarter_hour_ms = 15 * minute_ms
+        self._upsert_rollup_tier("1m", now_ms // minute_ms * minute_ms, 4, now_ms)
+        self._upsert_rollup_tier(
+            "15m",
+            now_ms // quarter_hour_ms * quarter_hour_ms,
+            60,
+            now_ms,
+        )
+
     def write_cycle(self, cycle: Mapping[str, object]) -> CycleWriteStatus:
         started = self._clock()
         connection = self._connection
@@ -226,6 +303,7 @@ class MetricsStore:
         connection.execute("BEGIN IMMEDIATE")
         try:
             self._insert_cycle_rows(cycle)
+            self._upsert_rollups(now_ms)
             transitions = evaluate(cycle)
             incidents = (*transitions.opened, *transitions.updated, *transitions.recovered)
             connection.executemany(

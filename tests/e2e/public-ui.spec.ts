@@ -247,6 +247,8 @@ test.describe("public status", () => {
       page.getByRole("img", { name: /CPU pressure history:/i }),
     ).toBeVisible();
     await expect(page.getByText("Frontpage", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Recent events" })).toBeVisible();
+    await expect(page.getByText("Public checks recovered after a brief disruption")).toBeVisible();
 
     const statusHtml = await page.content();
     await page.goto("/");
@@ -260,6 +262,11 @@ test.describe("public status", () => {
       "frontpage-container",
       "Collector diagnostics",
       "Owner status",
+      "frontpage-app",
+      "system/untracked",
+      "Current processes",
+      "Collector diagnostic",
+      "trigger_value",
     ]) {
       expect(publicHtml).not.toContain(privateMarker);
     }

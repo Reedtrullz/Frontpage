@@ -8,6 +8,7 @@ import {
   getPublicMetricsRootV2,
   readOwnerIncidentsV2,
   readOwnerLatestV2,
+  readPublicIncidentsV2,
   readPublicLatestV2,
   readSeriesV2,
 } from "./reader";
@@ -185,6 +186,16 @@ describe("observability v2 latest readers", () => {
       "invalid",
     );
   });
+
+  it("rejects owner incidents from the public projection root", () => {
+    const root = temporaryRoot();
+    const payload = JSON.parse(fs.readFileSync(path.join(fixtureRoot, "incidents.json"), "utf8"));
+    payload.incidents[0].visibility = "owner";
+    fs.writeFileSync(path.join(root, "incidents.v2.json"), JSON.stringify(payload));
+    expect(readPublicIncidentsV2(root, new Date("2026-07-12T19:00:00Z")).availability).toBe(
+      "invalid",
+    );
+  });
 });
 
 describe("observability v2 series reader", () => {
@@ -299,5 +310,37 @@ describe("observability v2 series reader", () => {
     expect(() => readSeriesV2(root, { range: "1h", view: "host", resource: null })).toThrow(
       /future/i,
     );
+  });
+
+  it("selects workload history only from the requested resource subtree", () => {
+    const root = temporaryRoot();
+    const file = "workloads/ram/1h.v2.json";
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    const payload = seriesPayload(
+      ["2026-07-12T18:59:45Z"],
+      [1024],
+      {
+        generated_at: "2026-07-12T18:59:45Z",
+        range: "1h",
+        resolution_seconds: 15,
+        view: "workloads",
+        resource: "ram",
+      },
+    );
+    fs.writeFileSync(path.join(root, file), JSON.stringify(payload));
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files: [file] }),
+    );
+    expect(
+      readSeriesV2(
+        root,
+        { range: "1h", view: "workloads", resource: "ram" },
+        new Date("2026-07-12T19:00:00Z"),
+      ).resource,
+    ).toBe("ram");
+    expect(() =>
+      readSeriesV2(root, { range: "1h", view: "workloads", resource: "cpu" }),
+    ).toThrow(/unavailable/i);
   });
 });

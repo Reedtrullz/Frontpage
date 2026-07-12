@@ -103,6 +103,15 @@ class ProjectionPublisherTests(unittest.TestCase):
         residual = next(row for row in owner["workloads"] if row["id"] == "system-untracked")
         self.assertEqual(next(item for item in residual["resources"] if item["resource"] == "cpu")["current"], 30)
         self.assertFalse(any(item["resource"] == "network" for row in owner["workloads"] for item in row["resources"]))
+        host_series = files["owner"]["host/1h.v2.json"]
+        self.assertEqual(
+            [series["id"] for series in host_series["series"]],
+            ["cpu-total", "ram-used", "disk-io-total", "network-total"],
+        )
+        cpu_workloads = files["owner"]["workloads/cpu/1h.v2.json"]
+        self.assertEqual(cpu_workloads["resource"], "cpu")
+        self.assertEqual(cpu_workloads["series"][-1]["id"], "system-untracked")
+        self.assertNotIn("workloads/network/1h.v2.json", files["owner"])
 
 
 if __name__ == "__main__":

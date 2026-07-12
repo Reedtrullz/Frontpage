@@ -5,6 +5,7 @@ const {
   authMock,
   ownerMock,
   publicReadMock,
+  publicIncidentsMock,
   ownerReadMock,
   seriesReadMock,
   publicRootMock,
@@ -13,6 +14,7 @@ const {
   authMock: vi.fn(),
   ownerMock: vi.fn(),
   publicReadMock: vi.fn(),
+  publicIncidentsMock: vi.fn(),
   ownerReadMock: vi.fn(),
   seriesReadMock: vi.fn(),
   publicRootMock: vi.fn(),
@@ -29,6 +31,7 @@ vi.mock("@/lib/metrics/v2/reader", () => ({
   getPublicMetricsRootV2: publicRootMock,
   getOwnerMetricsRootV2: ownerRootMock,
   readPublicLatestV2: publicReadMock,
+  readPublicIncidentsV2: publicIncidentsMock,
   readOwnerLatestV2: ownerReadMock,
   readSeriesV2: seriesReadMock,
 }));
@@ -104,6 +107,7 @@ describe("StatusPage v2 composition", () => {
     publicRootMock.mockReturnValue("/public");
     ownerRootMock.mockReturnValue("/owner");
     publicReadMock.mockReturnValue({ availability: "unavailable", data: null, diagnostics: [] });
+    publicIncidentsMock.mockReturnValue({ availability: "unavailable", data: null, diagnostics: [] });
     ownerReadMock.mockReturnValue({ availability: "available", data: ownerLatest, diagnostics: [] });
     seriesReadMock.mockReturnValue(series);
   });

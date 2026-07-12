@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { CoarseHistoryStrip } from "@/components/dashboard/CoarseHistoryStrip";
+import { PublicIncidentHistory } from "@/components/dashboard/PublicIncidentHistory";
 import { OwnerAttentionSummary } from "@/components/dashboard/OwnerAttentionSummary";
 import { OwnerMetricsPanel } from "@/components/dashboard/OwnerMetricsPanel";
 import { OwnerObservabilityPanel } from "@/components/dashboard/observability/OwnerObservabilityPanel";
@@ -8,15 +9,18 @@ import { StatusInventory } from "@/components/dashboard/StatusInventory";
 import { VpsStatusSummary } from "@/components/dashboard/VpsStatusSummary";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 import { isOwnerUser } from "@/lib/authz";
+import { getCanonicalMaintenance } from "@/lib/content";
 import { getMetricsDir, readMetricsFromDir } from "@/lib/metrics/reader";
 import { createStatusPageModel } from "@/lib/metrics/status-page";
 import {
   getOwnerMetricsRootV2,
   getPublicMetricsRootV2,
   readOwnerLatestV2,
+  readPublicIncidentsV2,
   readPublicLatestV2,
   readSeriesV2,
 } from "@/lib/metrics/v2/reader";
+import { createPublicStatusV2 } from "@/lib/metrics/v2/public-status";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +38,15 @@ export default async function StatusPage() {
     isOwner,
   });
   const publicV2 = readPublicLatestV2(getPublicMetricsRootV2());
+  const publicIncidentsV2 = readPublicIncidentsV2(getPublicMetricsRootV2());
+  const publicStatusV2 =
+    publicV2.data && publicIncidentsV2.data
+      ? createPublicStatusV2({
+          latest: publicV2.data,
+          incidents: publicIncidentsV2.data,
+          maintenance: getCanonicalMaintenance(),
+        })
+      : null;
   const ownerV2Enabled =
     isOwner && process.env.FRONTPAGE_OBSERVABILITY_V2 === "1";
   const ownerLatestV2 = ownerV2Enabled
@@ -62,7 +75,7 @@ export default async function StatusPage() {
         ? "delayed"
         : "unknown"
     : null;
-  const publicStatusLabel = publicV2State
+  const publicStatusLabel = publicStatusV2?.label ?? (publicV2State
     ? {
         operational: "Operational",
         degraded: "Degraded",
@@ -71,9 +84,59 @@ export default async function StatusPage() {
         unknown: "Status unavailable",
         delayed: "Status delayed",
       }[publicV2State]
-    : model.overall.label;
+    : model.overall.label);
   const publicUpdatedAt =
     publicV2.data?.collected_at ?? model.public.host.lastUpdatedAt;
+  const publicDisplayMetrics = publicStatusV2
+    ? {
+        ...model.public,
+        freshness: publicStatusV2.freshness,
+        host: {
+          ...model.public.host,
+          state:
+            publicStatusV2.freshness === "fresh"
+              ? model.public.host.state
+              : publicStatusV2.freshness === "stale"
+                ? ("stale" as const)
+                : ("unknown" as const),
+          lastUpdatedAt: publicStatusV2.collectedAt,
+          serviceSummary: {
+            total: publicStatusV2.services.length,
+            up: publicStatusV2.services.filter((service) => service.status === "up").length,
+            down: publicStatusV2.services.filter((service) => service.status === "down").length,
+            unknown: publicStatusV2.services.filter(
+              (service) => !["up", "down"].includes(service.status),
+            ).length,
+          },
+        },
+        lastKnownServiceCount: publicStatusV2.services.length,
+      }
+    : model.public;
+  const publicDisplayOverall = publicStatusV2
+    ? {
+        kind:
+          publicStatusV2.label === "Status delayed"
+            ? ("delayed" as const)
+            : publicStatusV2.overallState === "unknown"
+              ? ("unavailable" as const)
+              : publicStatusV2.overallState === "maintenance"
+                ? ("degraded" as const)
+                : publicStatusV2.overallState,
+        label: publicStatusV2.label,
+        description:
+          publicStatusV2.label === "Status delayed"
+            ? "The latest sample is stale and is shown as last-known state."
+            : publicStatusV2.overallState === "maintenance"
+              ? "Expected impact is covered by a published maintenance window."
+              : publicStatusV2.overallState === "disruption"
+                ? "A public service check is reporting an unexpected disruption."
+                : publicStatusV2.overallState === "degraded"
+                  ? "A public service check has unknown current state."
+                  : publicStatusV2.overallState === "operational"
+                    ? "All configured public service checks report up."
+                    : "Current telemetry is unavailable, so no healthy state is assumed.",
+      }
+    : model.overall;
   const ownerAttentionItems = ownerObservability
     ? (model.ownerAttention ?? []).filter(
         (item) =>
@@ -102,11 +165,11 @@ export default async function StatusPage() {
         </p>
       </header>
 
-      <VpsStatusSummary metrics={model.public} overall={model.overall} />
+      <VpsStatusSummary metrics={publicDisplayMetrics} overall={publicDisplayOverall} />
 
       <div className="mx-auto grid max-w-7xl gap-12 px-4 py-12 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <div className="lg:order-2">
-          <StatusInventory metrics={model.public} />
+          <StatusInventory metrics={publicDisplayMetrics} publicV2={publicStatusV2} />
         </div>
         <section aria-labelledby="history-heading" className="lg:order-1">
           <p className="font-mono text-sm text-[var(--accent)]">24-HOUR WINDOW</p>
@@ -164,6 +227,8 @@ export default async function StatusPage() {
           </div>
         </section>
       </div>
+
+      {publicStatusV2 ? <PublicIncidentHistory model={publicStatusV2} /> : null}
 
       {ownerAttentionItems ? (
         <>

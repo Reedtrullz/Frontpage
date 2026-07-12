@@ -110,14 +110,20 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn("--metrics-dir /var/lib/frontpage-metrics/v2-shadow", shadow)
         self.assertIn("metrics-v2-shadow.sqlite3", shadow)
         self.assertIn("--metrics-dir /var/lib/frontpage-metrics/v2 ", production)
-        self.assertIn("metrics-v2.sqlite3", production)
+        self.assertIn("metrics-v2-shadow.sqlite3", production)
 
-    def test_ansible_mounts_only_the_dedicated_v1_directory_during_shadow(self):
+    def test_ansible_keeps_shadow_v1_only_and_gates_promoted_v2_mounts(self):
         playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
         self.assertIn('metrics_v1_dir: "{{ metrics_dir }}/v1"', playbook)
-        self.assertEqual(playbook.count('"{{ metrics_v1_dir }}:/metrics:ro"'), 2)
+        self.assertIn("metrics_v1_dir ~ ':/metrics:ro'", playbook)
+        self.assertIn('"{{ metrics_v1_dir }}:/metrics:ro"', playbook)
+        self.assertIn("metrics_dir ~ '/v2/public:/metrics-public:ro'", playbook)
+        self.assertIn("metrics_dir ~ '/v2/owner:/metrics-owner:ro'", playbook)
+        self.assertIn("if observability_v2_promote else []", playbook)
+        self.assertIn("OBSERVABILITY_V2_SHADOW_GATE=approved", playbook)
         self.assertNotIn('"{{ metrics_dir }}:/metrics:ro"', playbook)
         self.assertNotIn("v2-shadow:/metrics", playbook)
+        self.assertNotIn("/private:/metrics", playbook)
 
 
 if __name__ == "__main__":
