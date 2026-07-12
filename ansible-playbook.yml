@@ -94,6 +94,17 @@
         groups: docker
         append: true
 
+    - name: Resolve metrics group id
+      become: true
+      ansible.builtin.getent:
+        database: group
+        key: "{{ metrics_user }}"
+        split: ":"
+
+    - name: Set metrics group id fact
+      ansible.builtin.set_fact:
+        metrics_group_id: "{{ ansible_facts.getent_group[metrics_user][1] }}"
+
     - name: Create metrics directories
       become: true
       ansible.builtin.file:
@@ -103,7 +114,7 @@
         group: "{{ item.group }}"
         mode: "{{ item.mode }}"
       loop:
-        - { path: "{{ metrics_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0755" }
+        - { path: "{{ metrics_dir }}", owner: "{{ metrics_user }}", group: "{{ metrics_user }}", mode: "0750" }
         - { path: "{{ metrics_config_dir }}", owner: "root", group: "root", mode: "0755" }
 
     - name: Install metrics collector script
@@ -162,6 +173,28 @@
         msg: "Frontpage metrics collector did not write latest.json"
       when: not metrics_latest.stat.exists
 
+    - name: Verify metrics directory permissions
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metrics_dir }}"
+      register: metrics_directory
+
+    - name: Verify metrics history file exists
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metrics_dir }}/history.json"
+      register: metrics_history
+
+    - name: Verify metrics file permissions
+      ansible.builtin.assert:
+        that:
+          - metrics_directory.stat.mode == "0750"
+          - metrics_latest.stat.exists
+          - metrics_latest.stat.mode == "0640"
+          - metrics_history.stat.exists
+          - metrics_history.stat.mode == "0640"
+        fail_msg: "Metrics directory or JSON file permissions are too broad."
+
     - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
@@ -204,6 +237,8 @@
           OWNER_GITHUB_ID: "{{ app_owner_github_id }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
           METRICS_DIR: "/metrics"
+        groups:
+          - "{{ metrics_group_id }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
           - "{{ metrics_dir }}:/metrics:ro"
@@ -259,6 +294,8 @@
           OWNER_GITHUB_ID: "{{ app_owner_github_id }}"
           GITHUB_TOKEN: "{{ vault_github_token }}"
           METRICS_DIR: "/metrics"
+        groups:
+          - "{{ metrics_group_id }}"
         volumes:
           - "{{ docker_volume_data | default('frontpage_data') }}:/data"
           - "{{ metrics_dir }}:/metrics:ro"
@@ -266,6 +303,30 @@
         - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
         - previous_image != "none"
       register: rollback
+
+    - name: Wait for rollback application to become healthy
+      ansible.builtin.uri:
+        url: "http://localhost:3002/api/health"
+        return_content: yes
+        timeout: 5
+      register: rollback_health_check
+      until:
+        - (rollback_health_check.status | default(0)) == 200
+        - (rollback_health_check.json.status | default("")) == "healthy"
+      retries: 10
+      delay: 5
+      failed_when: false
+      when:
+        - rollback is defined
+        - rollback.changed | default(false)
+
+    - name: Fail if rollback did not restore a healthy application
+      ansible.builtin.fail:
+        msg: "Deployment and rollback failed: {{ rollback_health_check }}"
+      when:
+        - rollback is defined
+        - rollback.changed | default(false)
+        - (rollback_health_check.status | default(0)) != 200 or (rollback_health_check.json.status | default("")) != "healthy"
 
     - name: Fail with rollback message
       fail:
@@ -276,6 +337,20 @@
       community.docker.docker_container_info:
         name: "{{ container_name }}"
       register: container_info
+
+    - name: Fail if deployed container is missing
+      ansible.builtin.assert:
+        that:
+          - container_info.exists | default(false)
+        fail_msg: "Frontpage container is missing after deployment."
+
+    - name: Verify deployed container identity
+      ansible.builtin.assert:
+        that:
+          - container_info.container.State.Status == "running"
+          - container_info.container.Config.Image == docker_image
+          - ("VERSION=" ~ deploy_commit_sha) in container_info.container.Config.Env
+        fail_msg: "Running container does not match the requested image or VERSION."
 
     - name: Verify app container can read metrics read-only
       community.docker.docker_container_exec:

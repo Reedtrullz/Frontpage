@@ -111,6 +111,30 @@ button {
   outline-offset: 1px;
 }
 
+.section-jump {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.625rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: border-color 150ms ease, color 150ms ease,
+    background-color 150ms ease;
+}
+
+.section-jump:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.section-jump:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .primary-command,
 .secondary-command {
   display: inline-flex;

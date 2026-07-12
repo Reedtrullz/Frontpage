@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import type { ProjectContent } from "@/lib/content/schema";
+import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import {
   ProjectMedia,
@@ -9,9 +10,11 @@ import {
 
 export function FlagshipProjectCard({
   project,
+  health,
   priority = false,
 }: {
   project: ProjectContent;
+  health: ProjectRuntimeHealth;
   priority?: boolean;
 }) {
   return (
@@ -46,6 +49,7 @@ export function FlagshipProjectCard({
         <div className="mt-5 flex flex-wrap gap-2">
           <PostureBadge dimension="lifecycle" value={project.lifecycle} />
           <PostureBadge dimension="maturity" value={project.maturity} />
+          <PostureBadge dimension="health" value={health} />
         </div>
       </div>
     </article>

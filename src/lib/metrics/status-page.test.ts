@@ -151,7 +151,7 @@ describe("deriveOverallPublicStatus", () => {
 });
 
 describe("deriveProjectHealth", () => {
-  it("uses all configured checks and lets a down check win", () => {
+  it("returns degraded when a configured check is down while another is up", () => {
     expect(
       deriveProjectHealth(
         { slug: "sample", healthServiceIds: ["one", "two"] },
@@ -173,7 +173,57 @@ describe("deriveProjectHealth", () => {
         ],
         "fresh",
       ),
+    ).toBe("degraded");
+  });
+
+  it("returns disruption when every configured check is down", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "two"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "down",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+          {
+            id: "two",
+            label: "Two",
+            status: "down",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
     ).toBe("disruption");
+  });
+
+  it("returns degraded when an unknown check remains alongside an up check", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one", "two"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+          {
+            id: "two",
+            label: "Two",
+            status: "unknown",
+            latencyMs: null,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("degraded");
   });
 
   it("returns not monitored when no check is bound", () => {
@@ -184,6 +234,34 @@ describe("deriveProjectHealth", () => {
         "fresh",
       ),
     ).toBe("not-monitored");
+  });
+
+  it("returns unavailable when a configured binding has no matching check", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["missing"] },
+        [],
+        "fresh",
+      ),
+    ).toBe("unavailable");
+  });
+
+  it("returns unavailable for configured checks when telemetry is stale", () => {
+    expect(
+      deriveProjectHealth(
+        { slug: "sample", healthServiceIds: ["one"] },
+        [
+          {
+            id: "one",
+            label: "One",
+            status: "up",
+            latencyMs: 10,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "stale",
+      ),
+    ).toBe("unavailable");
   });
 });
 

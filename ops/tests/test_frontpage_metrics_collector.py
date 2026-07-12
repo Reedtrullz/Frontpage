@@ -1,7 +1,12 @@
+import http.server
 import importlib.util
 import json
+import os
+import stat
 import tempfile
+import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "frontpage-metrics-collector.py"
@@ -101,6 +106,44 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result["status"], "up")
         self.assertEqual(captured["user_agent"], "reidar-tech-status/1.0")
 
+    def test_service_result_does_not_follow_redirects(self):
+        target_hits = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/start":
+                    self.send_response(302)
+                    self.send_header("Location", "/target")
+                    self.end_headers()
+                    return
+                target_hits.append(self.path)
+                self.send_response(200)
+                self.end_headers()
+
+            def log_message(self, *_args):
+                return
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 1)
+        self.addCleanup(server.shutdown)
+
+        result = collector.service_result(
+            {
+                "id": "redirecting",
+                "label": "Redirecting",
+                "visibility": "public",
+                "url": f"http://127.0.0.1:{server.server_port}/start",
+                "expected_status": 200,
+                "timeout_ms": 1000,
+            },
+        )
+
+        self.assertEqual(result["status"], "down")
+        self.assertEqual(target_hits, [])
+
     def test_container_status_from_inspect(self):
         self.assertEqual(
             collector.container_status_from_inspect(
@@ -128,7 +171,18 @@ class CollectorTests(unittest.TestCase):
             target = Path(tmp) / "latest.json"
             collector.atomic_write_json(target, {"schema_version": 1})
             self.assertEqual(json.loads(target.read_text()), {"schema_version": 1})
-            self.assertFalse((Path(tmp) / "latest.json.tmp").exists())
+            self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o640)
+            self.assertEqual(list(Path(tmp).glob(".latest.json.*.tmp")), [])
+
+    def test_atomic_write_json_cleans_up_after_replace_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "latest.json"
+            with mock.patch.object(os, "replace", side_effect=OSError("replace failed")):
+                with self.assertRaises(OSError):
+                    collector.atomic_write_json(target, {"schema_version": 1})
+
+            self.assertFalse(target.exists())
+            self.assertEqual(list(Path(tmp).glob(".latest.json.*.tmp")), [])
 
 
 if __name__ == "__main__":

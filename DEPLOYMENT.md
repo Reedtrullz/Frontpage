@@ -5,7 +5,7 @@
 ```
 Local push → GitHub → CI workflow (lint, build, publish)
                               ↓
-                   GHCR: ghcr.io/reedtrullz/frontpage:latest + :sha-<short>
+                   GHCR: ghcr.io/reedtrullz/frontpage:latest + :sha-<full-commit>
                               ↓
                    ansible-playbook from local machine
                               ↓
@@ -57,23 +57,24 @@ ansible-vault view group_vars/all/vault.yml --vault-password-file ~/.vault_pass.
 
 The playbook:
 1. Records the currently-running image (for rollback)
-2. Pulls `ghcr.io/reedtrullz/frontpage:latest`
+2. Resolves a full commit SHA and pulls `ghcr.io/reedtrullz/frontpage:sha-<full-sha>`
 3. Stops + removes old container
 4. Starts new container on port 3002 (mapped from internal 3000)
 5. Polls `/api/health` until healthy (or rolls back)
+6. Verifies the running image tag and `VERSION` both match the requested full SHA
 
-### Force a specific tag
+### Deploy a specific full SHA
 ```bash
+GITHUB_SHA=<full-40-character-sha> \
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
-  --vault-password-file .vault_pass \
-  -e "docker_image=ghcr.io/reedtrullz/frontpage:sha-<short-sha>"
+  --vault-password-file .vault_pass
 ```
 
 ## Verify
 
 ```bash
-# Container status
-ssh deploy@198.23.137.16 "docker ps --filter name=frontpage --format '{{.Status}} {{.Image}}'"
+# Container status, image identity, and VERSION
+ssh deploy@198.23.137.16 "docker inspect --format '{{.State.Status}} {{.Config.Image}} {{range .Config.Env}}{{println .}}{{end}}' frontpage"
 
 # Health endpoint
 curl -s https://reidar.tech/api/health | jq
@@ -113,17 +114,18 @@ the dashboard and `/status`.
 
 ## Rollback
 
-Automatic: the playbook captures the previous image hash before swapping and
-restores it if the health check fails.
+Automatic: the playbook captures the previous image identity before swapping,
+restores it if the new health check fails, and verifies that the restored
+container becomes healthy before reporting rollback.
 
-Manual:
+Break-glass manual rollback should still use Ansible so the production
+environment, data volume, metrics mount, supplementary metrics group, and
+health checks remain identical to a normal deployment. Use the full commit SHA
+of the last known-good image; short SHA tags are not published:
 ```bash
-ssh deploy@198.23.137.16
-docker stop frontpage && docker rm frontpage
-docker run -d --name frontpage --restart unless-stopped \
-  -p 127.0.0.1:3002:3000 \
-  -e NODE_ENV=production -e PORT=3000 -e HOSTNAME=0.0.0.0 \
-  ghcr.io/reedtrullz/frontpage:sha-<previous-short-sha>
+GITHUB_SHA=<previous-full-40-character-sha> \
+ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
+  --vault-password-file .vault_pass
 ```
 
 ## Troubleshooting

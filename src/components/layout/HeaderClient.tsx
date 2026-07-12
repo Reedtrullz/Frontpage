@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   Circle,
@@ -88,6 +88,81 @@ export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [ownerOpen, setOwnerOpen] = useState(false);
+  const ownerMenuRef = useRef<HTMLDivElement>(null);
+  const ownerButtonRef = useRef<HTMLButtonElement>(null);
+  const ownerMenuItemsRef = useRef<Array<HTMLElement | null>>([]);
+  const ownerInitialFocusRef = useRef<"first" | "last">("first");
+
+  const ownerMenuItems = useCallback((): HTMLElement[] => {
+    return ownerMenuItemsRef.current.filter(
+      (item): item is HTMLElement => item !== null,
+    );
+  }, []);
+
+  const focusOwnerMenuItem = useCallback((index: number) => {
+    ownerMenuItems()[index]?.focus();
+  }, [ownerMenuItems]);
+
+  function handleOwnerMenuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Tab") {
+      setOwnerOpen(false);
+      return;
+    }
+
+    const items = ownerMenuItems();
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusOwnerMenuItem((currentIndex + 1) % items.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusOwnerMenuItem((currentIndex - 1 + items.length) % items.length);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusOwnerMenuItem(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusOwnerMenuItem(items.length - 1);
+    }
+  }
+
+  useEffect(() => {
+    if (!ownerOpen) return;
+
+    const items = ownerMenuItems();
+    focusOwnerMenuItem(
+      ownerInitialFocusRef.current === "last" ? items.length - 1 : 0,
+    );
+    ownerInitialFocusRef.current = "first";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setOwnerOpen(false);
+      ownerButtonRef.current?.focus();
+    }
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!ownerMenuRef.current?.contains(event.target as Node)) {
+        setOwnerOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+    };
+  }, [focusOwnerMenuItem, ownerMenuItems, ownerOpen]);
+
+  function handleOwnerButtonKeyDown(
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    ownerInitialFocusRef.current = event.key === "ArrowUp" ? "last" : "first";
+    setOwnerOpen(true);
+  }
 
   return (
     <>
@@ -125,12 +200,15 @@ export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
             <GitFork className="h-5 w-5" aria-hidden="true" />
           </a>
           {isOwner ? (
-            <div className="relative">
+            <div ref={ownerMenuRef} className="relative">
               <button
+                ref={ownerButtonRef}
                 type="button"
                 aria-expanded={ownerOpen}
                 aria-controls="owner-navigation"
+                aria-haspopup="menu"
                 onClick={() => setOwnerOpen((open) => !open)}
+                onKeyDown={handleOwnerButtonKeyDown}
                 className="inline-flex min-h-11 items-center gap-2 border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm font-medium text-[var(--text)] hover:border-[var(--border-strong)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
               >
                 Owner
@@ -139,13 +217,16 @@ export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
               {ownerOpen ? (
                 <div
                   id="owner-navigation"
+                  role="menu"
+                  aria-label="Owner navigation"
+                  onKeyDown={handleOwnerMenuKeyDown}
                   className="absolute right-0 top-12 w-52 border border-[var(--border)] bg-[var(--surface-overlay)] p-2 shadow-xl"
                 >
-                  <Link className="owner-menu-link" href="/admin">Content workspace</Link>
-                  <Link className="owner-menu-link" href="/ansible">Operations runbook</Link>
-                  <a className="owner-menu-link" href="/proposals">Proposals</a>
+                  <Link ref={(element) => { ownerMenuItemsRef.current[0] = element; }} tabIndex={-1} role="menuitem" className="owner-menu-link" href="/admin" onClick={() => setOwnerOpen(false)}>Content workspace</Link>
+                  <Link ref={(element) => { ownerMenuItemsRef.current[1] = element; }} tabIndex={-1} role="menuitem" className="owner-menu-link" href="/ansible" onClick={() => setOwnerOpen(false)}>Operations runbook</Link>
+                  <a ref={(element) => { ownerMenuItemsRef.current[2] = element; }} tabIndex={-1} role="menuitem" className="owner-menu-link" href="/proposals" onClick={() => setOwnerOpen(false)}>Proposals</a>
                   <form action={signOutAction}>
-                    <button className="owner-menu-link w-full" type="submit">Sign out</button>
+                    <button ref={(element) => { ownerMenuItemsRef.current[3] = element; }} tabIndex={-1} role="menuitem" className="owner-menu-link w-full" type="submit">Sign out</button>
                   </form>
                 </div>
               ) : null}
@@ -206,6 +287,7 @@ export function HeaderClient({ isOwner, statusKind }: HeaderClientProps) {
               <>
                 <Link className="mobile-menu-link" href="/admin" onClick={() => setMobileOpen(false)}>Content workspace</Link>
                 <Link className="mobile-menu-link" href="/ansible" onClick={() => setMobileOpen(false)}>Operations runbook</Link>
+                <a className="mobile-menu-link" href="/proposals" onClick={() => setMobileOpen(false)}>Proposals</a>
                 <form action={signOutAction}>
                   <button className="mobile-menu-link w-full" type="submit">Sign out</button>
                 </form>

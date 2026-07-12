@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
+import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import { repositoryActivity } from "@/lib/projects/presentation";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import {
@@ -17,12 +18,13 @@ import { RelativeTime } from "@/components/ui/RelativeTime";
 
 interface ProjectCardProps {
   project: ProjectContent;
+  health: ProjectRuntimeHealth;
   stats?: GitHubStats | null;
   now: Date;
   priority?: boolean;
 }
 
-export function ProjectCard({ project, stats, now, priority = false }: ProjectCardProps) {
+export function ProjectCard({ project, health, stats, now, priority = false }: ProjectCardProps) {
   const activity = repositoryActivity(stats);
 
   return (
@@ -62,6 +64,7 @@ export function ProjectCard({ project, stats, now, priority = false }: ProjectCa
         <div className="mt-5 flex flex-wrap gap-2">
           <PostureBadge dimension="lifecycle" value={project.lifecycle} />
           <PostureBadge dimension="maturity" value={project.maturity} />
+          <PostureBadge dimension="health" value={health} />
         </div>
 
         <div className="mt-auto pt-6">

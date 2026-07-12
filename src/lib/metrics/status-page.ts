@@ -112,10 +112,17 @@ export function deriveProjectHealth(
       ? configuredIds.has(service.id)
       : service.projectSlug === project.slug,
   );
+
+  if (configuredIds.size > 0 && checks.length === 0) return "unavailable";
   if (checks.length === 0) return "not-monitored";
   if (freshness !== "fresh") return "unavailable";
-  if (checks.some((check) => check.status === "down")) return "disruption";
-  if (checks.some((check) => check.status === "unknown")) return "unavailable";
+  const upChecks = checks.filter((check) => check.status === "up").length;
+  const downChecks = checks.filter((check) => check.status === "down").length;
+  const unknownChecks = checks.length - upChecks - downChecks;
+
+  if (downChecks === checks.length) return "disruption";
+  if (upChecks > 0 && upChecks < checks.length) return "degraded";
+  if (unknownChecks > 0) return "unavailable";
   return "healthy";
 }
 

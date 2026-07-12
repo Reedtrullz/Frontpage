@@ -3,7 +3,10 @@ import path from "node:path";
 
 const rootDir = process.cwd();
 const outputDir = path.join(rootDir, "tests", "e2e", ".metrics");
+const dataDir = path.join(rootDir, "tests", "e2e", ".data");
 fs.mkdirSync(outputDir, { recursive: true });
+fs.rmSync(dataDir, { force: true, recursive: true });
+fs.mkdirSync(dataDir, { recursive: true });
 
 const now = Date.now();
 const cpu = [18, 32, 64, 88, 52, 27, 21, 24];

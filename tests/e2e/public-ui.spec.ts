@@ -123,6 +123,12 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "THORArb" }),
     ).toBeVisible();
+
+    await page.goto("/projects");
+    await expect(page.getByText("Media not published").first()).toBeVisible();
+    await page.getByLabel("Health").selectOption("not-monitored");
+    await expect(page).toHaveURL(/health=not-monitored/);
+    await expect(page.getByText("9 of 14 projects")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
@@ -142,6 +148,7 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Current limitations" }),
     ).toBeVisible();
+    await expect(page.getByText("Unavailable", { exact: true }).first()).toBeVisible();
 
     for (const [slug, accessibleName] of [
       ["rfmc", /VirtualCDU training mission selector/i],
@@ -162,6 +169,9 @@ test.describe("public project experience", () => {
       page.getByRole("heading", { level: 1, name: "Nytt" }),
     ).toBeVisible();
     await expect(page.getByText(/coverage and certainty depend/i)).toBeVisible();
+
+    await page.goto("/projects/thorarb");
+    await expect(page.getByText("Not monitored", { exact: true }).first()).toBeVisible();
   });
 });
 

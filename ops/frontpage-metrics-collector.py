@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -15,6 +16,18 @@ SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
 STATUS_USER_AGENT = "reidar-tech-status/1.0"
 MAX_ITEMS = 64
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, file, code, message, headers, new_url):
+        return None
+
+
+STATUS_OPENER = urllib.request.build_opener(NoRedirectHandler())
+
+
+def open_status_request(request, timeout):
+    return STATUS_OPENER.open(request, timeout=timeout)
 
 
 def utc_now():
@@ -143,7 +156,7 @@ def collect_host_metrics():
     }
 
 
-def service_result(service, opener=urllib.request.urlopen, now=utc_now):
+def service_result(service, opener=open_status_request, now=utc_now):
     started = time.monotonic()
     timeout_seconds = clamp_timeout_ms(service.get("timeout_ms", 5000)) / 1000
     status = "unknown"
@@ -228,9 +241,31 @@ def prune_history(samples):
 def atomic_write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-    os.replace(tmp, path)
+    payload = json.dumps(data, indent=2, sort_keys=True) + "\n"
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o640)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except Exception:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def load_history(path):

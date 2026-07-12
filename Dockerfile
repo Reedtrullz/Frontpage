@@ -20,7 +20,7 @@ RUN set -eux; \
       amd64|x64) \
         npm install --no-save --no-package-lock \
           lightningcss-linux-x64-gnu@1.32.0 \
-          @tailwindcss/oxide-linux-x64-gnu@4.2.4 \
+          @tailwindcss/oxide-linux-x64-gnu@4.3.2 \
           @rolldown/binding-linux-x64-gnu@1.1.5 \
           @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
           @img/sharp-linux-x64@0.34.5 \
@@ -29,7 +29,7 @@ RUN set -eux; \
       arm64|aarch64) \
         npm install --no-save --no-package-lock \
           lightningcss-linux-arm64-gnu@1.32.0 \
-          @tailwindcss/oxide-linux-arm64-gnu@4.2.4 \
+          @tailwindcss/oxide-linux-arm64-gnu@4.3.2 \
           @rolldown/binding-linux-arm64-gnu@1.1.5 \
           @unrs/resolver-binding-linux-arm64-gnu@1.11.1 \
           @img/sharp-linux-arm64@0.34.5 \
