@@ -51,6 +51,7 @@ next-env.d.ts
 # commandcode
 .commandcode/
 .superpowers/
+.worktrees/
 
 # runtime data (generated at build time)
 public/data/
