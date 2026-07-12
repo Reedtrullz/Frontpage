@@ -59,6 +59,7 @@ class HostSample:
     memory_used_bytes: int
     load_average: tuple[float, float, float]
     uptime_seconds: float
+    logical_cpu_count: int = 1
     filesystem_usage: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
     disk_counters: Mapping[str, Mapping[str, int]] = field(default_factory=dict)
     disk_rates: Mapping[str, Mapping[str, float]] = field(default_factory=dict)

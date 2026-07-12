@@ -199,7 +199,10 @@ export function readOwnerLatestV2(
         ...result.data.host,
         totals: result.data.host.totals.map((total) => ({
           ...total,
-          freshness: result.data!.freshness,
+          freshness:
+            result.data!.freshness === "fresh"
+              ? total.freshness
+              : result.data!.freshness,
         })),
       },
     },

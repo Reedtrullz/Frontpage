@@ -33,6 +33,7 @@ class HostSourceTests(unittest.TestCase):
         first = collect_host(None, self.paths, now_ms=1000)
         self.assertTrue(first.available)
         self.assertEqual(first.value.memory_used_bytes, 600000 * 1024)
+        self.assertEqual(first.value.logical_cpu_count, 2)
         self.assertIsNone(first.value.cpu_percent)
 
         (self.proc_root / "stat").write_text("cpu  160 0 60 880 0 0 0 0 0 0\n")
@@ -116,6 +117,19 @@ class WorkloadSourceTests(unittest.TestCase):
         reset = collect_workloads(self.config, (second,), self.root, now_ms=3000).value[0]
         self.assertIsNone(reset.cpu_percent)
 
+    def test_workload_cpu_is_normalized_to_the_host_total_scale(self):
+        first = collect_workloads(self.config, None, self.root, now_ms=1000).value
+        path = self.root / "system.slice" / "frontpage.service"
+        (path / "cpu.stat").write_text("usage_usec 1500000\n")
+        second = collect_workloads(
+            self.config,
+            first,
+            self.root,
+            now_ms=2000,
+            logical_cpu_count=2,
+        ).value[0]
+        self.assertEqual(second.cpu_percent, 25.0)
+
     def test_path_escape_is_rejected_without_reading_outside_root(self):
         config = (WorkloadConfig("escape", "Escape", "cgroup-path", "../secret", None),)
         result = collect_workloads(config, None, self.root, now_ms=1000)
@@ -164,6 +178,27 @@ class ProcessSourceTests(unittest.TestCase):
         rows = result.value["frontpage-app"]
         self.assertEqual(len(rows), 20)
         self.assertGreaterEqual(rows[0].cpu_percent, rows[-1].cpu_percent)
+
+    def test_process_cpu_is_normalized_to_the_host_total_scale(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc_root = Path(directory)
+            shutil.copytree(FIXTURES / "proc" / "123", proc_root / "123")
+            one_core = collect_processes(
+                {"frontpage-app": (123,)},
+                proc_root,
+                previous={("frontpage-app", 123): (0, 1000)},
+                now_ms=2000,
+                logical_cpu_count=1,
+            ).value["frontpage-app"][0]
+            two_cores = collect_processes(
+                {"frontpage-app": (123,)},
+                proc_root,
+                previous={("frontpage-app", 123): (0, 1000)},
+                now_ms=2000,
+                logical_cpu_count=2,
+            ).value["frontpage-app"][0]
+        self.assertEqual(one_core.cpu_percent, 100)
+        self.assertEqual(two_cores.cpu_percent, 75)
 
 
 class RuntimeMapTests(unittest.TestCase):

@@ -149,6 +149,24 @@ describe("observability v2 latest readers", () => {
 
     const ownerRoot = temporaryRoot();
     copyFixture("owner-latest.json", path.join(ownerRoot, "latest.v2.json"));
+    const currentPayload = JSON.parse(
+      fs.readFileSync(path.join(ownerRoot, "latest.v2.json"), "utf8"),
+    );
+    currentPayload.host.totals.find(
+      (total: { resource: string }) => total.resource === "network",
+    ).freshness = "unavailable";
+    fs.writeFileSync(
+      path.join(ownerRoot, "latest.v2.json"),
+      JSON.stringify(currentPayload),
+    );
+    const currentOwner = readOwnerLatestV2(
+      ownerRoot,
+      new Date("2026-07-12T19:00:30Z"),
+    );
+    expect(
+      currentOwner.data?.host.totals.find((total) => total.resource === "network")
+        ?.freshness,
+    ).toBe("unavailable");
     const owner = readOwnerLatestV2(ownerRoot, new Date("2026-07-12T19:00:31Z"));
     expect(owner.data?.freshness).toBe("stale");
     expect(owner.data?.host.totals.every((total) => total.freshness === "stale")).toBe(true);

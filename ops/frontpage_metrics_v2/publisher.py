@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import dataclass
@@ -28,6 +29,9 @@ LATEST_CAP_BYTES = 512 * 1024
 SERIES_CAP_BYTES = 4 * 1024 * 1024
 MAX_RANKED_WORKLOADS = 16
 MAX_POINTS = {"1h": 240, "24h": 1440, "7d": 10080, "30d": 2880}
+DAILY_CHUNK_PATTERN = re.compile(
+    r"^(?:host|workloads/(?:cpu|ram|disk_io|network))/(?:minute|quarter-hour)/(\d{4}-\d{2}-\d{2})\.v2\.json$"
+)
 
 
 @dataclass(frozen=True)
@@ -217,5 +221,10 @@ class ProjectionPublisher:
         if not isinstance(public_files, dict) or not isinstance(owner_files, dict):
             raise ValueError("Projection snapshot must contain public and owner file maps")
         results = [self.publish_public(path, payload) for path, payload in public_files.items()]
-        results.extend(self.publish_owner(path, payload) for path, payload in owner_files.items())
+        latest = owner_files.get("latest.v2.json", {})
+        current_day = str(latest.get("generated_at", ""))[:10] if isinstance(latest, dict) else ""
+        for path, payload in owner_files.items():
+            match = DAILY_CHUNK_PATTERN.fullmatch(path)
+            immutable = bool(match and current_day and match.group(1) < current_day)
+            results.append(self.publish_owner(path, payload, immutable=immutable))
         return tuple(results)

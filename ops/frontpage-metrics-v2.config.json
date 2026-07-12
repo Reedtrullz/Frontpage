@@ -42,8 +42,8 @@
       "label": "Frontpage observer",
       "project_slug": "frontpage",
       "match": {
-        "type": "systemd-unit",
-        "value": "frontpage-metrics-collector-v2.service"
+        "type": "cgroup-pattern",
+        "value": "^system\\.slice/frontpage-metrics-collector-v2(?:-shadow)?\\.service$"
       }
     }
   ],

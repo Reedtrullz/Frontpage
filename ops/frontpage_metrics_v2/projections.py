@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from collections import defaultdict
 from typing import Mapping, Sequence
 
+MAX_OWNER_CURRENT_WORKLOADS = 31
 
 def _timestamp(timestamp_ms: int) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -19,24 +20,23 @@ def _resource_state(value: float | None, warning: float, critical: float) -> str
     return "healthy"
 
 
-def _latest_by(rows, key):
-    result = {}
-    for row in rows:
-        result[row[key]] = row
-    return result
-
-
-def _disk_rate(payload: Mapping[str, object]) -> float:
+def _disk_rate(payload: Mapping[str, object]) -> float | None:
+    rates = payload.get("disk_rates", {})
+    if not rates:
+        return None
     return float(sum(
         values.get("read_bytes_per_second", 0) + values.get("write_bytes_per_second", 0)
-        for values in payload.get("disk_rates", {}).values()
+        for values in rates.values()
     ))
 
 
-def _network_rate(payload: Mapping[str, object]) -> float:
+def _network_rate(payload: Mapping[str, object]) -> float | None:
+    rates = payload.get("network_rates", {})
+    if not rates:
+        return None
     return float(sum(
         values.get("receive_bytes_per_second", 0) + values.get("transmit_bytes_per_second", 0)
-        for values in payload.get("network_rates", {}).values()
+        for values in rates.values()
     ))
 
 
@@ -58,15 +58,25 @@ def _workload_value(payload: Mapping[str, object], resource: str) -> float | Non
     if resource == "ram":
         return payload.get("memory_current_bytes")
     if resource == "disk_io":
+        read_rate = payload.get("io_read_bytes_per_second")
+        write_rate = payload.get("io_write_bytes_per_second")
+        if read_rate is None and write_rate is None:
+            return None
         return float(
-            (payload.get("io_read_bytes_per_second") or 0)
-            + (payload.get("io_write_bytes_per_second") or 0)
+            (read_rate or 0) + (write_rate or 0)
         )
     raise ValueError(f"Unsupported workload resource: {resource}")
 
 
 def _day(timestamp_ms: int) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, timezone.utc).strftime("%Y-%m-%d")
+
+
+def _summary(values: Sequence[float | int | None], fallback: float) -> tuple[float, float]:
+    measured = [float(value) for value in values if value is not None]
+    if not measured:
+        return fallback, fallback
+    return sum(measured) / len(measured), max(measured)
 
 
 def _host_series(rows: Sequence[Mapping[str, object]], generated_at: str, range_name: str, resolution: int) -> dict[str, object]:
@@ -163,7 +173,7 @@ def _workload_series(
     }
 
 
-def _series_files(host_rows, workload_rows, generated_at):
+def _series_files(host_rows, workload_rows):
     owner_files = {}
     manifest_files = []
     tiers = (
@@ -183,7 +193,13 @@ def _series_files(host_rows, workload_rows, generated_at):
                 continue
             suffix = destination if day is None else f"{destination}/{day}.v2.json"
             host_path = f"host/{suffix}"
-            owner_files[host_path] = _host_series(grouped_host, generated_at, range_name, resolution)
+            chunk_generated_at = _timestamp(max(row["ts_ms"] for row in grouped_host))
+            owner_files[host_path] = _host_series(
+                grouped_host,
+                chunk_generated_at,
+                range_name,
+                resolution,
+            )
             manifest_files.append(host_path)
             timestamps = {row["ts_ms"] for row in grouped_host}
             grouped_workloads = [row for row in tier_workloads if row["ts_ms"] in timestamps]
@@ -191,7 +207,7 @@ def _series_files(host_rows, workload_rows, generated_at):
                 workload_projection = _workload_series(
                     grouped_workloads,
                     grouped_host,
-                    generated_at,
+                    chunk_generated_at,
                     range_name,
                     resolution,
                     resource,
@@ -240,7 +256,8 @@ def _incident_payload(row: Mapping[str, object], *, public: bool) -> dict[str, o
 
 def build_projection_files(snapshot: Mapping[str, object]) -> dict[str, object]:
     host_rows = snapshot.get("host", [])
-    latest_host_row = host_rows[-1] if host_rows else None
+    raw_host_rows = [row for row in host_rows if row["tier"] == "15s"]
+    latest_host_row = max(raw_host_rows, key=lambda row: row["ts_ms"], default=None)
     host = latest_host_row["payload"] if latest_host_row else {}
     host_available = bool(
         latest_host_row
@@ -250,8 +267,14 @@ def build_projection_files(snapshot: Mapping[str, object]) -> dict[str, object]:
     collected_ms = latest_host_row["ts_ms"] if latest_host_row else 0
     collected_at = _timestamp(collected_ms)
     generated_at = _timestamp(collected_ms)
-    services = list(_latest_by(snapshot.get("services", []), "service_id").values())
-    workloads = list(_latest_by(snapshot.get("workloads", []), "workload_id").values())
+    services = [
+        row
+        for row in snapshot.get("services", [])
+        if row["tier"] == "15s" and row["ts_ms"] == collected_ms
+    ]
+    workload_rows = snapshot.get("workloads", [])
+    raw_workload_rows = [row for row in workload_rows if row["tier"] == "15s"]
+    workloads = [row for row in raw_workload_rows if row["ts_ms"] == collected_ms]
 
     memory_total = host.get("memory_total_bytes", 0)
     memory_used = host.get("memory_used_bytes")
@@ -264,7 +287,7 @@ def build_projection_files(snapshot: Mapping[str, object]) -> dict[str, object]:
         {"resource": "cpu", "label": "CPU", "state": _resource_state(cpu, 75, 90), "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0},
         {"resource": "ram", "label": "RAM", "state": _resource_state(memory_percent, 80, 90), "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0},
         {"resource": "disk_io", "label": "Disk", "state": _resource_state(disk_percent, 80, 90), "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0},
-        {"resource": "network", "label": "Network", "state": "healthy" if host_available else "unknown", "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0},
+        {"resource": "network", "label": "Network", "state": "healthy" if host_available and host.get("network_rates") else "unknown", "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0},
     ]
     public_services = [
         {
@@ -291,63 +314,128 @@ def build_projection_files(snapshot: Mapping[str, object]) -> dict[str, object]:
     }
 
     exact_totals = [
-        ("cpu", "CPU total", "percent", float(cpu or 0), "available"),
-        ("ram", "RAM total", "bytes", float(memory_used or 0), "available"),
-        ("disk_io", "Disk I/O", "bytes_per_second", float(disk_rate), "available"),
-        ("network", "Network total", "bytes_per_second", float(network_rate), "unavailable"),
+        ("cpu", "CPU total", "percent", float(cpu or 0), cpu is not None),
+        ("ram", "RAM total", "bytes", float(memory_used or 0), memory_used is not None),
+        ("disk_io", "Disk I/O", "bytes_per_second", float(disk_rate or 0), disk_rate is not None),
+        ("network", "Network total", "bytes_per_second", float(network_rate or 0), network_rate is not None),
     ]
-    owner_totals = [
-        {
+    owner_totals = []
+    for index, (resource, label, unit, value, measured) in enumerate(exact_totals):
+        average, peak = _summary(
+            [_host_value(history_row["payload"], resource) for history_row in raw_host_rows],
+            value,
+        )
+        owner_totals.append({
             "resource": resource,
             "label": label,
             "unit": unit,
             "current": value,
-            "average": value,
-            "peak": value,
+            "average": average,
+            "peak": peak,
             "state": public_resources[index]["state"],
-            "freshness": "fresh" if host_available else "unavailable",
+            "freshness": "fresh" if host_available and measured else "unavailable",
             "updated_at": collected_at,
             "attribution_coverage_percent": 0,
             "reconciliation_error_percent": 0,
-            "workload_view": workload_view,
-        }
-        for index, (resource, label, unit, value, workload_view) in enumerate(exact_totals)
-    ]
+            "workload_view": "unavailable",
+        })
+
+    workload_history: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for history_row in raw_workload_rows:
+        workload_history[history_row["workload_id"]].append(history_row)
+
     owner_workloads = []
     for row in workloads:
         payload = row["payload"]
-        resources = [
-            {"resource": "cpu", "unit": "percent", "current": float(payload.get("cpu_percent") or 0), "average": float(payload.get("cpu_percent") or 0), "peak": float(payload.get("cpu_percent") or 0), "change_1h": None, "coverage_percent": row["coverage_percent"]},
-            {"resource": "ram", "unit": "bytes", "current": float(payload.get("memory_current_bytes", 0)), "average": float(payload.get("memory_current_bytes", 0)), "peak": float(payload.get("memory_current_bytes", 0)), "change_1h": None, "coverage_percent": row["coverage_percent"]},
-            {"resource": "disk_io", "unit": "bytes_per_second", "current": float((payload.get("io_read_bytes_per_second") or 0) + (payload.get("io_write_bytes_per_second") or 0)), "average": float((payload.get("io_read_bytes_per_second") or 0) + (payload.get("io_write_bytes_per_second") or 0)), "peak": float((payload.get("io_read_bytes_per_second") or 0) + (payload.get("io_write_bytes_per_second") or 0)), "change_1h": None, "coverage_percent": row["coverage_percent"]},
-        ]
-        owner_workloads.append(
-            {
-                "id": row["workload_id"],
-                "label": payload.get("label", row["workload_id"]),
-                "kind": payload.get("kind", "systemd"),
-                "cgroup_path": payload.get("cgroup_path"),
-                "resources": resources,
-                "processes": payload.get("processes", [])[:20],
-            }
-        )
+        resources = []
+        for resource, unit in (
+            ("cpu", "percent"),
+            ("ram", "bytes"),
+            ("disk_io", "bytes_per_second"),
+        ):
+            current = _workload_value(payload, resource)
+            if current is None:
+                continue
+            history_values = [
+                _workload_value(history_row["payload"], resource)
+                for history_row in workload_history[row["workload_id"]]
+            ]
+            average, peak = _summary(history_values, float(current))
+            first = next((float(value) for value in history_values if value is not None), None)
+            resources.append({
+                "resource": resource,
+                "unit": unit,
+                "current": float(current),
+                "average": average,
+                "peak": peak,
+                "change_1h": None if first is None else float(current) - first,
+                "coverage_percent": row["coverage_percent"],
+            })
+        owner_workloads.append({
+            "id": row["workload_id"],
+            "label": payload.get("label", row["workload_id"]),
+            "kind": payload.get("kind", "systemd"),
+            "cgroup_path": payload.get("cgroup_path"),
+            "resources": resources,
+            "processes": payload.get("processes", [])[:20],
+        })
 
-    host_values = {"cpu": float(cpu or 0), "ram": float(memory_used or 0), "disk_io": float(disk_rate)}
+    owner_workloads.sort(key=lambda workload: workload["id"])
+    latest_workloads_truncated = len(owner_workloads) > MAX_OWNER_CURRENT_WORKLOADS
+    owner_workloads = owner_workloads[:MAX_OWNER_CURRENT_WORKLOADS]
+
+    host_values = {"cpu": float(cpu or 0), "ram": float(memory_used or 0), "disk_io": float(disk_rate or 0)}
     attributed = {"cpu": 0.0, "ram": 0.0, "disk_io": 0.0}
+    measured_counts = {"cpu": 0, "ram": 0, "disk_io": 0}
     for workload in owner_workloads:
         for resource in workload["resources"]:
             attributed[resource["resource"]] += float(resource["current"])
+            measured_counts[resource["resource"]] += 1
     residual_resources = []
     for resource_name, unit in (("cpu", "percent"), ("ram", "bytes"), ("disk_io", "bytes_per_second")):
+        total = next(item for item in owner_totals if item["resource"] == resource_name)
+        if total["freshness"] != "fresh":
+            continue
+        if measured_counts[resource_name] > 0:
+            total["workload_view"] = "available"
         residual = max(0.0, host_values[resource_name] - attributed[resource_name])
         residual_resources.append(
             {"resource": resource_name, "unit": unit, "current": residual, "average": residual, "peak": residual, "change_1h": None, "coverage_percent": latest_host_row["coverage_percent"] if latest_host_row else 0}
         )
         denominator = host_values[resource_name]
         coverage = 0 if denominator <= 0 else min(100.0, attributed[resource_name] / denominator * 100)
-        next(total for total in owner_totals if total["resource"] == resource_name)["attribution_coverage_percent"] = coverage
-    owner_workloads.append(
-        {"id": "system-untracked", "label": "system/untracked", "kind": "residual", "resources": residual_resources, "processes": []}
+        reconciliation_error = (
+            0
+            if denominator <= 0 and attributed[resource_name] <= 0
+            else 100
+            if denominator <= 0
+            else max(0.0, attributed[resource_name] - denominator) / denominator * 100
+        )
+        total["attribution_coverage_percent"] = coverage
+        total["reconciliation_error_percent"] = min(100.0, reconciliation_error)
+    if residual_resources:
+        owner_workloads.append(
+            {"id": "system-untracked", "label": "system/untracked", "kind": "residual", "resources": residual_resources, "processes": []}
+        )
+
+    diagnostics = []
+    if latest_workloads_truncated:
+        diagnostics.append({
+            "id": "current-workloads-truncated",
+            "severity": "warning",
+            "message": "Current workload detail was bounded to 31 configured workloads plus system/untracked.",
+        })
+    reconciliation_threshold = float(host.get("reconciliation_error_threshold_percent", 10))
+    for total in owner_totals:
+        if total["reconciliation_error_percent"] > reconciliation_threshold:
+            diagnostics.append({
+                "id": f"reconciliation-{total['resource']}",
+                "severity": "warning",
+                "message": f"{total['label']} attribution exceeds the host total by {total['reconciliation_error_percent']:.1f}%.",
+            })
+    diagnostics.extend(
+        {"id": f"source-error-{index + 1}", "severity": "warning", "message": message}
+        for index, message in enumerate(host.get("source_errors", []))
     )
 
     owner_incidents = [_incident_payload(row, public=False) for row in snapshot.get("incidents", [])]
@@ -365,13 +453,10 @@ def build_projection_files(snapshot: Mapping[str, object]) -> dict[str, object]:
             ],
         },
         "workloads": owner_workloads,
-        "diagnostics": [
-            {"id": f"source-error-{index + 1}", "severity": "warning", "message": message}
-            for index, message in enumerate(host.get("source_errors", [])[:32])
-        ],
+        "diagnostics": diagnostics[:32],
         "incidents": owner_incidents[:256],
     }
-    series_files, series_manifest = _series_files(host_rows, snapshot.get("workloads", []), generated_at)
+    series_files, series_manifest = _series_files(host_rows, snapshot.get("workloads", []))
     incident_list_owner = {"schema_version": 2, "generated_at": generated_at, "incidents": owner_incidents[:256]}
     incident_list_public = {"schema_version": 2, "generated_at": generated_at, "incidents": public_incidents[:256]}
     owner_files = {

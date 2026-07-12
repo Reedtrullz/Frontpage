@@ -55,6 +55,7 @@ def main() -> int:
         ProjectionPublisher(config.public_dir, config.owner_dir),
         interval_seconds=config.sample_interval_seconds,
         projection_builder=build_projection_files,
+        active_incidents=store.read_active_incidents(),
     )
     try:
         if args.once:

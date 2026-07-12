@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Sequence
 
+from .incidents import IncidentRecord
 from .migrations import migrate
 
 
@@ -340,6 +341,30 @@ class MetricsStore:
             "summary": json.loads(row[5]),
             "evidence": json.loads(row[6]),
         }
+
+    def read_active_incidents(self) -> tuple[IncidentRecord, ...]:
+        incidents = []
+        for row in self._connection.execute(
+            "SELECT * FROM incidents WHERE state='active' ORDER BY opened_at_ms,id"
+        ):
+            summary = json.loads(row[5])
+            incidents.append(
+                IncidentRecord(
+                    id=row[0],
+                    rule_id=str(summary["rule_id"]),
+                    target_id=str(summary["target_id"]),
+                    title=str(summary["title"]),
+                    severity=str(summary["severity"]),
+                    state=row[1],
+                    visibility=row[4],
+                    opened_at_ms=row[2],
+                    updated_at_ms=int(summary.get("updated_at_ms", row[2])),
+                    recovered_at_ms=row[3],
+                    summary=summary,
+                    evidence=json.loads(row[6]),
+                )
+            )
+        return tuple(incidents)
 
     def prune(self, now_ms: int) -> None:
         with self._connection:

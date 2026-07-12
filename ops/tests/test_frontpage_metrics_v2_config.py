@@ -213,6 +213,16 @@ class ProductionCollectorV2ConfigTests(unittest.TestCase):
                 "heimdall-public",
             },
         )
+        observer = next(workload for workload in config.workloads if workload.id == "frontpage-observer")
+        self.assertEqual(observer.match_type, "cgroup-pattern")
+        self.assertRegex(
+            "system.slice/frontpage-metrics-collector-v2-shadow.service",
+            observer.match_value,
+        )
+        self.assertRegex(
+            "system.slice/frontpage-metrics-collector-v2.service",
+            observer.match_value,
+        )
         self.assertEqual(config.root_filesystems, (Path("/"),))
         self.assertGreaterEqual(len(config.block_devices), 1)
         self.assertGreaterEqual(len(config.network_interfaces), 1)

@@ -47,7 +47,10 @@ def collect_processes(
     proc_root: Path,
     previous: Mapping[tuple[str, int], tuple[int, int]],
     now_ms: int,
+    logical_cpu_count: int = 1,
 ) -> SourceResult[dict[str, tuple[ProcessSample, ...]]]:
+    if logical_cpu_count < 1:
+        raise ValueError("logical_cpu_count must be positive")
     clock_ticks = int(os.sysconf("SC_CLK_TCK"))
     result: dict[str, tuple[ProcessSample, ...]] = {}
     errors: list[str] = []
@@ -67,7 +70,14 @@ def collect_processes(
                     before_ticks, before_ms = before
                     elapsed = (now_ms - before_ms) / 1000
                     if elapsed > 0 and ticks >= before_ticks:
-                        cpu_percent = min(100.0, (ticks - before_ticks) / clock_ticks / elapsed * 100)
+                        cpu_percent = min(
+                            100.0,
+                            (ticks - before_ticks)
+                            / clock_ticks
+                            / elapsed
+                            * 100
+                            / logical_cpu_count,
+                        )
                 rows.append(
                     ProcessSample(
                         pid=pid,

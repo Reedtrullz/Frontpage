@@ -29,18 +29,21 @@ class LinuxCycleCollector:
         self.previous_workloads: tuple[WorkloadSample, ...] | None = None
         self.previous_process_counters: dict[tuple[str, int], tuple[int, int]] = {}
 
-    def _resolved_workloads(self) -> tuple[WorkloadConfig, ...]:
+    def _resolved_workloads(self) -> tuple[tuple[WorkloadConfig, ...], set[str]]:
         if not self.config.runtime_map_path.is_file():
-            return self.config.workloads
+            return self.config.workloads, set()
         runtime = load_runtime_map(
             self.config.runtime_map_path,
             {workload.id for workload in self.config.workloads},
         )
-        return tuple(
-            replace(workload, match_type="cgroup-path", match_value=runtime[workload.id].cgroup_path)
-            if workload.id in runtime
-            else workload
-            for workload in self.config.workloads
+        return (
+            tuple(
+                replace(workload, match_type="cgroup-path", match_value=runtime[workload.id].cgroup_path)
+                if workload.id in runtime
+                else workload
+                for workload in self.config.workloads
+            ),
+            set(runtime),
         )
 
     @staticmethod
@@ -66,11 +69,17 @@ class LinuxCycleCollector:
             ),
             now_ms,
         )
+        resolved_workloads, runtime_workload_ids = self._resolved_workloads()
         workloads_result = collect_workloads(
-            self._resolved_workloads(),
+            resolved_workloads,
             self.previous_workloads,
             self.cgroup_root,
             now_ms,
+            logical_cpu_count=(
+                host_result.value.logical_cpu_count
+                if host_result.value is not None
+                else 1
+            ),
         )
         workload_pids = {
             workload.workload_id: workload.pids for workload in workloads_result.value or ()
@@ -80,6 +89,11 @@ class LinuxCycleCollector:
             self.proc_root,
             self.previous_process_counters,
             now_ms,
+            logical_cpu_count=(
+                host_result.value.logical_cpu_count
+                if host_result.value is not None
+                else 1
+            ),
         )
         services_result = collect_services(self.config.services, now_ms)
 
@@ -97,7 +111,7 @@ class LinuxCycleCollector:
                 {
                     "label": metadata.label,
                     "project_slug": metadata.project_slug,
-                    "kind": "container" if metadata.match_type == "cgroup-pattern" else "systemd",
+                    "kind": "container" if sample.workload_id in runtime_workload_ids else "systemd",
                     "coverage_percent": 100.0,
                     "oom_kill_delta": (
                         0
@@ -130,14 +144,16 @@ class LinuxCycleCollector:
             root = host.get("filesystem_usage", {}).get("/", {})
             total = root.get("total_bytes", 0)
             host["disk_used_percent"] = 0 if not total else root.get("used_bytes", 0) / total * 100
+            host["reconciliation_error_threshold_percent"] = (
+                self.config.thresholds.reconciliation_error_percent
+            )
         source_errors = [
             *host_result.errors,
             *workloads_result.errors,
             *processes_result.errors,
             *services_result.errors,
         ]
-        if host:
-            host["source_errors"] = source_errors[:32]
+        host["source_errors"] = source_errors[:32]
         cycle = {
             "ts_ms": now_ms,
             "freshness": "fresh" if host_result.available else "unavailable",

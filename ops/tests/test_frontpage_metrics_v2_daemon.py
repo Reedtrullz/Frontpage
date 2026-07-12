@@ -160,6 +160,14 @@ class CollectorDaemonTests(unittest.TestCase):
             )
             store = MetricsStore.open(config.database_path)
             self.addCleanup(store.close)
+            config.runtime_map_path.write_text(json.dumps({
+                "generated_at": "2026-07-12T20:00:00Z",
+                "workloads": [{
+                    "workload_id": "frontpage-app",
+                    "cgroup_path": "system.slice/frontpage.service",
+                    "image_sha": "sha256:" + "a" * 64,
+                }],
+            }))
             collector = LinuxCycleCollector(config, proc_root=fixtures / "proc", cgroup_root=fixtures / "cgroup")
             service_result = SourceResult(
                 (ServiceSample("frontpage-public", "public", "up", 1_700_000_000_000, 5),),
@@ -180,6 +188,7 @@ class CollectorDaemonTests(unittest.TestCase):
             owner_latest = json.loads((config.owner_dir / "latest.v2.json").read_text())
             self.assertNotIn("workloads", public_latest)
             self.assertIn("workloads", owner_latest)
+            self.assertEqual(owner_latest["workloads"][0]["kind"], "container")
             self.assertTrue(config.database_path.exists())
             self.assertFalse((config.owner_dir / config.database_path.name).exists())
 

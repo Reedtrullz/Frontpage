@@ -107,6 +107,30 @@ class IncidentEngineTests(unittest.TestCase):
         opened = engine.evaluate(cycle(NOW + 15_000, services=[service]), ()).opened[0]
         self.assertEqual(opened.visibility, "owner")
 
+    def test_persisted_active_incident_hydrates_without_duplicate_after_restart(self):
+        service = {"service_id": "frontpage-public", "status": "down", "visibility": "public"}
+        first_engine = IncidentEngine(thresholds())
+        first_engine.evaluate(cycle(services=[service]), ())
+        opened = first_engine.evaluate(
+            cycle(NOW + 15_000, services=[service]), ()
+        ).opened
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "metrics.sqlite3"
+            store = MetricsStore.open(path)
+            store.persist_incidents(type("Transitions", (), {"opened": opened, "updated": (), "recovered": ()})())
+            store.close()
+            reopened = MetricsStore.open(path)
+            active = reopened.read_active_incidents()
+            reopened.close()
+
+        self.assertEqual(active[0].id, opened[0].id)
+        restarted_engine = IncidentEngine(thresholds())
+        restarted_engine.evaluate(cycle(NOW + 30_000, services=[service]), active)
+        transitions = restarted_engine.evaluate(
+            cycle(NOW + 45_000, services=[service]), active
+        )
+        self.assertEqual(transitions.opened, ())
+
     def test_missing_measurements_never_recover_active_incidents(self):
         disk_engine = IncidentEngine(thresholds())
         disk = disk_engine.evaluate(cycle(host={"disk_used_percent": 91}), ()).opened[0]

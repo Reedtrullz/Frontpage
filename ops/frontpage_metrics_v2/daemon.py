@@ -25,6 +25,7 @@ class CollectorDaemon:
         monotonic: Callable[[], float] = time.monotonic,
         wall_clock_ms: Callable[[], int] = lambda: int(time.time() * 1000),
         projection_builder: Callable[[object], object] = lambda snapshot: snapshot,
+        active_incidents: tuple[IncidentRecord, ...] = (),
     ) -> None:
         self.collector = collector
         self.store = store
@@ -34,7 +35,7 @@ class CollectorDaemon:
         self.monotonic = monotonic
         self.wall_clock_ms = wall_clock_ms
         self.projection_builder = projection_builder
-        self.active_incidents: tuple[IncidentRecord, ...] = ()
+        self.active_incidents = active_incidents
 
     def _evaluate(self, cycle):
         return self.incident_engine.evaluate(cycle, self.active_incidents)

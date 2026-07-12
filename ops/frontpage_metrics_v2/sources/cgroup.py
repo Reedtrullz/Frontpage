@@ -63,7 +63,10 @@ def collect_workloads(
     previous: tuple[WorkloadSample, ...] | None,
     cgroup_root: Path,
     now_ms: int,
+    logical_cpu_count: int = 1,
 ) -> SourceResult[tuple[WorkloadSample, ...]]:
+    if logical_cpu_count < 1:
+        raise ValueError("logical_cpu_count must be positive")
     previous_by_id = {item.workload_id: item for item in previous or ()}
     samples: list[WorkloadSample] = []
     errors: list[str] = []
@@ -105,7 +108,11 @@ def collect_workloads(
             write_rate = None
             if before is not None:
                 cpu_rate = _delta_rate(cpu["usage_usec"], before.cpu_usage_usec, elapsed)
-                cpu_percent = None if cpu_rate is None else cpu_rate / 10_000
+                cpu_percent = (
+                    None
+                    if cpu_rate is None
+                    else cpu_rate / 10_000 / logical_cpu_count
+                )
                 read_rate = _delta_rate(io_read, before.io_read_bytes, elapsed)
                 write_rate = _delta_rate(io_write, before.io_write_bytes, elapsed)
             samples.append(

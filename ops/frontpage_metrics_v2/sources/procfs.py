@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -27,12 +28,18 @@ def _read_key_values(path: Path) -> dict[str, int]:
     return values
 
 
-def _read_cpu(path: Path) -> tuple[int, int]:
-    parts = [int(value) for value in path.read_text(encoding="utf-8").splitlines()[0].split()[1:]]
+def _read_cpu(path: Path) -> tuple[int, int, int]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    parts = [int(value) for value in lines[0].split()[1:]]
     if len(parts) < 4:
         raise ValueError("invalid cpu counters")
     idle = parts[3] + (parts[4] if len(parts) > 4 else 0)
-    return sum(parts), idle
+    logical_cpu_count = sum(
+        bool(re.fullmatch(r"cpu\d+", line.split(maxsplit=1)[0]))
+        for line in lines[1:]
+        if line
+    )
+    return sum(parts), idle, max(1, logical_cpu_count)
 
 
 def _read_diskstats(path: Path, devices: tuple[str, ...]) -> dict[str, dict[str, int]]:
@@ -141,7 +148,7 @@ def collect_host(previous: HostSample | None, paths: HostPaths, now_ms: int) -> 
     try:
         root = paths.proc_root
         boot_id = (root / "sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
-        cpu_total, cpu_idle = _read_cpu(root / "stat")
+        cpu_total, cpu_idle, logical_cpu_count = _read_cpu(root / "stat")
         memory = _read_key_values(root / "meminfo")
         load = tuple(float(value) for value in (root / "loadavg").read_text(encoding="utf-8").split()[:3])
         uptime = float((root / "uptime").read_text(encoding="utf-8").split()[0])
@@ -197,6 +204,7 @@ def collect_host(previous: HostSample | None, paths: HostPaths, now_ms: int) -> 
             memory_used_bytes=memory["MemTotal"] - memory.get("MemAvailable", 0),
             load_average=load,
             uptime_seconds=uptime,
+            logical_cpu_count=logical_cpu_count,
             filesystem_usage=_filesystem_usage(paths.filesystems),
             disk_counters=disks,
             disk_rates=disk_rates,
