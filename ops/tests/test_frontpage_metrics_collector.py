@@ -107,6 +107,8 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(captured["user_agent"], "reidar-tech-status/1.0")
 
     def test_status_check_can_require_a_bounded_health_marker(self):
+        read_sizes = []
+
         class Response:
             status = 200
 
@@ -114,6 +116,7 @@ class CollectorTests(unittest.TestCase):
                 self.body = body
 
             def read(self, size):
+                read_sizes.append(size)
                 return self.body[:size]
 
             def __enter__(self):
@@ -149,6 +152,40 @@ class CollectorTests(unittest.TestCase):
 
         self.assertEqual(healthy["status"], "up")
         self.assertEqual(wrong_marker["status"], "down")
+        self.assertEqual(read_sizes, [64 * 1024, 64 * 1024])
+
+    def test_status_check_supports_a_nested_json_field_path(self):
+        class Response:
+            status = 200
+
+            def read(self, _size):
+                return b'{"meta":{"service":{"status":"healthy"}}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        result = collector.service_result(
+            {
+                "id": "frontpage-public",
+                "label": "Frontpage",
+                "visibility": "public",
+                "url": "https://example.com/api/health",
+                "expected_status": 200,
+                "timeout_ms": 1000,
+                "check": {
+                    "type": "json-field",
+                    "path": ["meta", "service", "status"],
+                    "expected": "healthy",
+                },
+            },
+            opener=lambda *_args, **_kwargs: Response(),
+            now=lambda: "2026-07-09T02:00:00Z",
+        )
+
+        self.assertEqual(result["status"], "up")
 
     def test_check_failure_redacts_response_body_and_target_details(self):
         class Response:
@@ -221,6 +258,7 @@ class CollectorTests(unittest.TestCase):
 
     def test_load_config_rejects_malformed_service_check(self):
         invalid_checks = [
+            None,
             "json-field",
             {"type": "unsupported"},
             {"type": "http-status", "path": ["status"]},

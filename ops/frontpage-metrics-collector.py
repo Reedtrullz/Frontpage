@@ -70,8 +70,6 @@ def _is_simple_field_name(value):
 
 
 def _validate_check(check):
-    if check is None:
-        return
     if not isinstance(check, dict):
         raise ValueError("Service check must be an object")
 
@@ -116,7 +114,8 @@ def load_config(path):
         service["timeout_ms"] = clamp_timeout_ms(service.get("timeout_ms", 5000))
         if service.get("visibility") not in {"public", "owner"}:
             raise ValueError("Service visibility must be public or owner")
-        _validate_check(service.get("check"))
+        if "check" in service:
+            _validate_check(service["check"])
 
     seen_containers = set()
     for container in containers:
