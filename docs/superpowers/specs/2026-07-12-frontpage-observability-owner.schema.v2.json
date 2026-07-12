@@ -249,9 +249,9 @@
     "owner_process": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "pid", "comm", "uid", "cpu_percent", "rss_bytes", "state"],
+      "required": ["workload_id", "pid", "comm", "uid", "cpu_percent", "rss_bytes", "state"],
       "properties": {
-        "id": {
+        "workload_id": {
           "$ref": "#/$defs/id"
         },
         "pid": {

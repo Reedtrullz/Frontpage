@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
   MAX_INCIDENTS,
+  MAX_OWNER_API_RANKED_WORKLOAD_SERIES,
+  MAX_OWNER_API_UNTRACKED_SERIES,
+  MAX_OWNER_API_WORKLOAD_SERIES,
+  MAX_OWNER_LATEST_WORKLOADS,
   MAX_PROCESSES_PER_WORKLOAD,
-  MAX_SERIES_ITEMS,
   MAX_SERIES_POINTS_BY_RANGE,
-  MAX_WORKLOADS,
   OBSERVABILITY_RANGES,
   OBSERVABILITY_RESOURCES,
   OBSERVABILITY_SCHEMA_VERSION,
@@ -13,6 +15,13 @@ import {
   type OwnerLatestV2,
   type PublicLatestV2,
   type SeriesV2,
+} from "./types";
+
+export {
+  MAX_OWNER_API_RANKED_WORKLOAD_SERIES,
+  MAX_OWNER_API_UNTRACKED_SERIES,
+  MAX_OWNER_API_WORKLOAD_SERIES,
+  MAX_OWNER_LATEST_WORKLOADS,
 } from "./types";
 
 const utcDateTimeSchema = z
@@ -154,7 +163,7 @@ const workloadResourceSnapshotSchema = z
 
 const ownerProcessSchema = z
   .object({
-    id: idSchema,
+    workload_id: idSchema,
     pid: z.number().int().min(1),
     comm: z.string().min(1).max(64),
     uid: z.number().int().min(0),
@@ -263,7 +272,7 @@ export const ownerLatestV2Schema = z
         capabilities: z.array(capabilityStatusSchema).max(8),
       })
       .strict(),
-    workloads: z.array(workloadSnapshotSchema).max(MAX_WORKLOADS),
+    workloads: z.array(workloadSnapshotSchema).max(MAX_OWNER_LATEST_WORKLOADS),
     diagnostics: z.array(diagnosticSchema).max(32),
     incidents: z.array(incidentSchema).max(MAX_INCIDENTS),
   })
@@ -287,7 +296,7 @@ export const seriesV2Schema = z
     view: observabilityViewSchema,
     resource: observabilityResourceSchema.nullable(),
     timestamps: z.array(utcDateTimeSchema),
-    series: z.array(seriesPointSetSchema).min(1).max(MAX_SERIES_ITEMS),
+    series: z.array(seriesPointSetSchema).min(1).max(MAX_OWNER_API_WORKLOAD_SERIES),
     coverage_percent: percentageSchema,
     truncated: z.boolean(),
   })
@@ -397,13 +406,31 @@ export function parseOwnerLatestV2(input: unknown): OwnerLatestV2 {
   );
   assertUniqueIds(parsed.data.host.capabilities, "capability");
   assertUniqueIds(parsed.data.workloads, "workload");
+  const hostNetworkTotal = parsed.data.host.totals.find(
+    (total) => total.resource === "network",
+  );
   for (const workload of parsed.data.workloads) {
     assertUniqueValues(
       workload.resources,
       (item) => item.resource,
       `workload resource for ${workload.id}`,
     );
-    assertUniqueIds(workload.processes, `process for ${workload.id}`);
+    if (
+      hostNetworkTotal?.workload_view === "unavailable" &&
+      workload.resources.some((resource) => resource.resource === "network")
+    ) {
+      throw new ObservabilityValidationError(
+        "Network resource rows may not be serialized for workloads when host network workload_view is unavailable.",
+      );
+    }
+
+    for (const process of workload.processes) {
+      if (process.workload_id !== workload.id) {
+        throw new ObservabilityValidationError(
+          `Process workload_id must match its containing workload: ${workload.id}`,
+        );
+      }
+    }
   }
   assertUniqueIds(parsed.data.diagnostics, "diagnostic");
   assertUniqueIds(parsed.data.incidents, "incident");

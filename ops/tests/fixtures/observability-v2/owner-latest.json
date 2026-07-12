@@ -118,20 +118,11 @@
           "peak": 360000,
           "change_1h": -12000,
           "coverage_percent": 94.1
-        },
-        {
-          "resource": "network",
-          "unit": "bytes_per_second",
-          "current": 0,
-          "average": 0,
-          "peak": 0,
-          "change_1h": null,
-          "coverage_percent": 0
         }
       ],
       "processes": [
         {
-          "id": "frontpage-node-4121",
+          "workload_id": "frontpage-app",
           "pid": 4121,
           "comm": "node",
           "uid": 1001,
@@ -173,15 +164,6 @@
           "peak": 520000,
           "change_1h": 9000,
           "coverage_percent": 82.7
-        },
-        {
-          "resource": "network",
-          "unit": "bytes_per_second",
-          "current": 0,
-          "average": 0,
-          "peak": 0,
-          "change_1h": null,
-          "coverage_percent": 0
         }
       ],
       "processes": []

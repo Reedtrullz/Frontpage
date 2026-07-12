@@ -7,10 +7,13 @@ export const OBSERVABILITY_RESOURCES = [
   "disk_io",
   "network",
 ] as const;
-export const MAX_WORKLOADS = 32;
+export const MAX_OWNER_LATEST_WORKLOADS = 32;
 export const MAX_PROCESSES_PER_WORKLOAD = 20;
 export const MAX_INCIDENTS = 256;
-export const MAX_SERIES_ITEMS = 17;
+export const MAX_OWNER_API_RANKED_WORKLOAD_SERIES = 16;
+export const MAX_OWNER_API_UNTRACKED_SERIES = 1;
+export const MAX_OWNER_API_WORKLOAD_SERIES =
+  MAX_OWNER_API_RANKED_WORKLOAD_SERIES + MAX_OWNER_API_UNTRACKED_SERIES;
 export const MAX_SERIES_POINTS_BY_RANGE = {
   "1h": 240,
   "24h": 1440,
@@ -102,7 +105,7 @@ export interface WorkloadResourceSnapshotV2 {
 }
 
 export interface OwnerProcessV2 {
-  id: string;
+  workload_id: string;
   pid: number;
   comm: string;
   uid: number;

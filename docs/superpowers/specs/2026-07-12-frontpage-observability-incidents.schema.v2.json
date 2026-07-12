@@ -166,7 +166,31 @@
         "evidence": {
           "$ref": "#/$defs/incident_evidence"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["visibility"],
+            "properties": {
+              "visibility": {
+                "const": "public"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["workload_id"]
+                },
+                {
+                  "required": ["evidence"]
+                }
+              ]
+            }
+          }
+        }
+      ]
     }
   }
 }
