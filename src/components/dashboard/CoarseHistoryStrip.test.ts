@@ -65,6 +65,61 @@ describe("CoarseHistoryStrip", () => {
     expect(markup).toContain("1 gap in coverage");
   });
 
+  it("bounds the known segment before a long internal gap", () => {
+    const markup = renderToStaticMarkup(
+      createElement(CoarseHistoryStrip, {
+        label: "CPU pressure",
+        values: ["low", "high"],
+        legend,
+        history: [
+          { collectedAt: "2026-07-08T10:00:00Z", value: "low", gapBefore: false },
+          { collectedAt: "2026-07-08T20:00:00Z", value: "high", gapBefore: true },
+        ],
+        coverage: {
+          availability: "available",
+          windowStartAt: "2026-07-08T00:00:00Z",
+          windowEndAt: "2026-07-09T00:00:00Z",
+          sampleCount: 2,
+          gapCount: 1,
+          leadingGap: true,
+          trailingGap: false,
+        },
+      }),
+    );
+
+    expect(markup).toMatch(/left:41\.66666666666667%;width:0\.06944444444444445%/);
+    expect(markup).not.toMatch(/left:41\.66666666666667%;width:20\.833333333333332%/);
+    expect(markup).toContain("Coverage missing before this sample");
+  });
+
+  it("caps dense history at 96 timestamp-proportional buckets", () => {
+    const windowStart = Date.parse("2026-07-08T00:00:00Z");
+    const history = Array.from({ length: 1_440 }, (_, index) => ({
+      collectedAt: new Date(windowStart + index * 60_000).toISOString(),
+      value: "low" as const,
+      gapBefore: false,
+    }));
+    const markup = renderToStaticMarkup(
+      createElement(CoarseHistoryStrip, {
+        label: "CPU pressure",
+        values: history.map((sample) => sample.value),
+        legend,
+        history,
+        coverage: {
+          availability: "available",
+          windowStartAt: "2026-07-08T00:00:00Z",
+          windowEndAt: "2026-07-09T00:00:00Z",
+          sampleCount: 1_440,
+          gapCount: 0,
+          leadingGap: false,
+          trailingGap: false,
+        },
+      }),
+    );
+
+    expect(markup.match(/class="absolute/g) ?? []).toHaveLength(96);
+  });
+
   it("distinguishes unavailable history from an empty recent window", () => {
     const unavailable = renderToStaticMarkup(
       createElement(CoarseHistoryStrip, {

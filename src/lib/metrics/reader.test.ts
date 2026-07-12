@@ -164,6 +164,35 @@ describe("readMetricsFromDir", () => {
     expect(result.freshness).toBe("stale");
   });
 
+  it("sanitizes a future latest sample before public and owner derivation", () => {
+    const dir = makeTempDir();
+    const now = new Date("2026-07-09T02:00:00Z");
+    const previous = snapshotAt("2026-07-09T01:59:00Z", {
+      host: { ...snapshot.host, disk_used_bytes: 40 },
+    });
+    const future = snapshotAt("2026-07-09T02:01:00Z", {
+      host: { ...snapshot.host, disk_used_bytes: 99 },
+    });
+    fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(future));
+    fs.writeFileSync(
+      path.join(dir, "history.json"),
+      JSON.stringify({ schema_version: 1, samples: [previous] }),
+    );
+
+    const result = readMetricsFromDir(dir, now);
+    const publicModel = derivePublicMetrics(result, now);
+    const ownerModel = deriveOwnerMetrics(result, now);
+
+    expect(result.latest).toBeNull();
+    expect(result.freshness).toBe("unavailable");
+    expect(result.diagnostics).toContain("latest.json is dated in the future.");
+    expect(publicModel.host.diskPressure).toBe("unknown");
+    expect(publicModel.host.lastUpdatedAt).toBeNull();
+    expect(publicModel.services).toEqual([]);
+    expect(ownerModel.latest).toBeNull();
+    expect(ownerModel.freshness).toBe("unavailable");
+  });
+
   it("keeps only samples from the preceding 24 hours", () => {
     const dir = makeTempDir();
     const now = new Date("2026-07-10T02:00:00Z");
@@ -268,6 +297,27 @@ describe("readMetricsFromDir", () => {
 });
 
 describe("derivePublicMetrics", () => {
+  it("rejects a future latest sample supplied by an in-memory caller", () => {
+    const now = new Date("2026-07-09T02:00:00Z");
+    const future = snapshotAt("2026-07-09T02:01:00Z", {
+      host: { ...snapshot.host, disk_used_bytes: 99 },
+    });
+    const model = derivePublicMetrics(
+      {
+        freshness: "fresh",
+        latest: future,
+        history: [snapshotAt("2026-07-09T01:59:00Z")],
+        diagnostics: [],
+      },
+      now,
+    );
+
+    expect(model.freshness).toBe("unavailable");
+    expect(model.host.diskPressure).toBe("unknown");
+    expect(model.host.lastUpdatedAt).toBeNull();
+    expect(model.services).toEqual([]);
+  });
+
   it("derives coarse public status without exact host metrics", () => {
     const dir = makeTempDir();
     fs.writeFileSync(path.join(dir, "latest.json"), JSON.stringify(snapshot));

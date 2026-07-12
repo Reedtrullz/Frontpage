@@ -368,6 +368,32 @@ describe("deriveProjectHealth", () => {
 });
 
 describe("deriveOwnerAttention", () => {
+  it("does not alert on a future latest sample", () => {
+    const now = new Date("2026-07-09T02:00:00Z");
+    const future = readResult.latest
+      ? {
+          ...readResult.latest,
+          collected_at: "2026-07-09T02:01:00Z",
+          host: { ...readResult.latest.host, disk_used_bytes: 99 },
+        }
+      : null;
+    const owner = createStatusPageModel({
+      readResult: {
+        ...readResult,
+        freshness: "fresh",
+        latest: future,
+        history: [],
+      },
+      isOwner: true,
+      now,
+    }).owner;
+
+    expect(owner?.latest).toBeNull();
+    expect(deriveOwnerAttention(owner)).toEqual([
+      expect.objectContaining({ id: "metrics-unavailable" }),
+    ]);
+  });
+
   it("identifies resource and service issues", () => {
     const owner = createStatusPageModel({
       readResult: {

@@ -119,6 +119,17 @@ function ageMs(snapshot: MetricsSnapshot, now: Date): number {
   return now.getTime() - new Date(snapshot.collected_at).getTime();
 }
 
+function isFutureSnapshot(snapshot: MetricsSnapshot, now: Date): boolean {
+  return Date.parse(snapshot.collected_at) > now.getTime();
+}
+
+function latestAtOrBefore(
+  latest: MetricsSnapshot | null,
+  now: Date,
+): MetricsSnapshot | null {
+  return latest && !isFutureSnapshot(latest, now) ? latest : null;
+}
+
 function freshnessFor(
   snapshot: MetricsSnapshot | null,
   now: Date,
@@ -267,6 +278,10 @@ export function readMetricsFromDir(
     latest = parseMetricsSnapshot(
       readJsonFile(path.join(metricsDir, "latest.json")),
     );
+    if (latest && isFutureSnapshot(latest, now)) {
+      latest = null;
+      diagnostics.push("latest.json is dated in the future.");
+    }
   } catch (error) {
     diagnostics.push(diagnosticFor("latest.json", error));
   }
@@ -444,7 +459,9 @@ export function derivePublicMetrics(
   result: MetricsReadInput,
   now: Date = new Date(),
 ): PublicMetricsModel {
-  const services = publicServices(result.latest, result.freshness);
+  const latest = latestAtOrBefore(result.latest, now);
+  const freshness = result.latest && !latest ? "unavailable" : result.freshness;
+  const services = publicServices(latest, freshness);
   const { history, metadata: historyMetadata } = normalizedHistoryFor(
     result,
     now,
@@ -459,12 +476,12 @@ export function derivePublicMetrics(
   );
 
   return {
-    freshness: result.freshness,
+    freshness,
     host: {
-      state: publicState(result.freshness, result.latest),
-      diskPressure: diskPressure(result.latest),
-      lastUpdatedAt: result.latest?.collected_at ?? null,
-      lastUpdatedLabel: ageLabel(result.latest, now),
+      state: publicState(freshness, latest),
+      diskPressure: diskPressure(latest),
+      lastUpdatedAt: latest?.collected_at ?? null,
+      lastUpdatedLabel: ageLabel(latest, now),
       serviceSummary,
     },
     services,
@@ -490,12 +507,17 @@ export function deriveOwnerMetrics(
   now: Date = new Date(),
 ): OwnerMetricsModel {
   const { history, metadata } = normalizedHistoryFor(result, now);
+  const latest = latestAtOrBefore(result.latest, now);
+  const freshness = result.latest && !latest ? "unavailable" : result.freshness;
+  const diagnostics = result.latest && !latest && !result.diagnostics.includes("latest.json is dated in the future.")
+    ? [...result.diagnostics, "latest.json is dated in the future."]
+    : result.diagnostics;
   return {
-    freshness: result.freshness,
-    latest: result.latest,
+    freshness,
+    latest,
     history,
     historyGapBefore: metadata.gapBefore,
     historyCoverage: metadata.coverage,
-    diagnostics: result.diagnostics,
+    diagnostics,
   };
 }

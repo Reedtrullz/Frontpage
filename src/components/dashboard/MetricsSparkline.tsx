@@ -56,9 +56,9 @@ export function MetricsSparkline({
   const pointFor = (sample: MetricsSparklineProps["samples"][number]) => {
     const x = ((Date.parse(sample.collectedAt) - windowStart) / windowDuration) * width;
     const y = height - (Math.max(0, Math.min(100, sample.value)) / 100) * height;
-    return `${x.toFixed(1)},${y.toFixed(1)}`;
+    return { point: `${x.toFixed(1)},${y.toFixed(1)}`, x, y };
   };
-  const segments: string[][] = [];
+  const segments: Array<Array<ReturnType<typeof pointFor>>> = [];
   for (const sample of samples) {
     if (sample.gapBefore && segments.at(-1)?.length) {
       segments.push([pointFor(sample)]);
@@ -85,7 +85,11 @@ export function MetricsSparkline({
         <line x1="0" x2={width} y1={warningY} y2={warningY} stroke="var(--role-warning)" strokeWidth="1" strokeDasharray="4 4" />
         <line x1="0" x2={width} y1={criticalY} y2={criticalY} stroke="var(--role-failure)" strokeWidth="1" strokeDasharray="4 4" />
         {segments.map((points, index) => (
-          <polyline key={index} fill="none" stroke="var(--role-info)" strokeWidth="2" points={points.join(" ")} />
+          points.length === 1 ? (
+            <circle key={index} cx={points[0]!.x} cy={points[0]!.y} r="2.5" fill="var(--role-info)" />
+          ) : (
+            <polyline key={index} fill="none" stroke="var(--role-info)" strokeWidth="2" points={points.map(({ point }) => point).join(" ")} />
+          )
         ))}
       </svg>
       <p className="mt-3 text-xs text-[var(--text-subtle)]">

@@ -62,4 +62,39 @@ All commands below passed on the final working tree:
 - Metrics read-model types, timestamp normalization, and owner gap alignment.
 - Public status inventory, coarse history strip, owner sparklines, and owner panel wiring.
 - Project health derivation.
+
+## Final Corrective Fix
+
+Date: 2026-07-12
+Base HEAD: `1a7e602`
+
+### Fixes Applied
+
+- `CoarseHistoryStrip` now bounds the known interval before a `gapBefore` sample to the collector's 60-second cadence. Large missing spans remain unknown from the end of that bounded interval through the next sample while timestamp-proportional positioning is preserved.
+- Dense coarse history is aggregated into at most 96 fixed time buckets per strip. Bucket values use overlap duration, and any bucket intersecting unknown coverage remains unknown.
+- `MetricsSparkline` now renders a visible SVG marker for isolated one-point segments while continuing to break polylines at missing-time boundaries.
+- The metrics reader rejects future-dated `latest.json` samples, records only a safe owner diagnostic, and returns unavailable freshness. Both `derivePublicMetrics` and `deriveOwnerMetrics` repeat the future-date boundary check for in-memory/legacy callers, so public disk/services/timestamps and owner latest/attention cannot use future evidence.
+
+### Covering Regressions
+
+- Long internal gap strip geometry verifies the preceding known segment is limited to one minute rather than the large-gap midpoint.
+- A 1,440-sample strip verifies no more than 96 visual buckets render.
+- Sparse sparkline coverage verifies one isolated sample renders as a visible `circle` and missing-time polyline splitting remains intact.
+- Reader and read-model tests verify future latest sanitization, unavailable public state, null owner latest, safe diagnostics, and no owner alert based on future host values.
+
+### Final Verification
+
+- Focused chart/reader/status slice: 4 files, 47 tests passed.
+- `npm test` -> 23 test files, 137 tests passed.
+- `npm run lint` -> passed.
+- `npx tsc --noEmit` -> passed.
+- `AUTH_SECRET=dev-secret npm run build` -> passed; 29 routes generated.
+- `python3 -m unittest ops.tests.test_frontpage_metrics_collector` -> 14 tests passed.
+- `python3 -m py_compile ops/frontpage-metrics-collector.py` -> passed.
+- `ansible-playbook --syntax-check -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass` -> passed.
+- `git diff --check` -> passed.
+
+### Scope and Non-Claims
+
+- No client polling, external dependency, public exact host metric, production deployment, CI run, GitHub mutation, OAuth flow, or browser/E2E run was added or performed by this worker.
 - Focused component, reader, status-page, and public-page regression tests.

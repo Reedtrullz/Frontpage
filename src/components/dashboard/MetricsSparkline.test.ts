@@ -78,7 +78,8 @@ describe("MetricsSparkline", () => {
       }),
     );
 
-    expect(markup.match(/<polyline/g)).toHaveLength(2);
+    expect(markup.match(/<polyline/g)).toHaveLength(1);
+    expect(markup.match(/<circle/g)).toHaveLength(1);
     expect(markup).toContain("293.3");
     expect(markup).toContain("306.7");
   });

@@ -22,6 +22,9 @@ interface HistorySegment<T extends string> {
   gapLabel?: string;
 }
 
+const EXPECTED_SAMPLE_INTERVAL_MS = 60_000;
+const MAX_RENDERED_SEGMENTS = 96;
+
 const toneClasses: Record<HistoryTone, string> = {
   positive: "bg-[var(--role-positive)]",
   information: "bg-[var(--role-info)]",
@@ -66,6 +69,16 @@ function compressSamples<T extends string>(
     timestamp: Date.parse(sample.collectedAt),
   }));
 
+  const segmentEnd = (index: number): number => {
+    const sample = values[index]!;
+    const next = values[index + 1];
+    if (!next) return coverage.trailingGap ? sample.timestamp : windowEnd;
+    const midpoint = sample.timestamp + (next.timestamp - sample.timestamp) / 2;
+    return next.gapBefore
+      ? Math.min(midpoint, sample.timestamp + EXPECTED_SAMPLE_INTERVAL_MS)
+      : midpoint;
+  };
+
   const unknown = (start: number, end: number, gapBefore: boolean, gapLabel: string) => {
     if (end <= start) return;
     segments.push({
@@ -84,15 +97,12 @@ function compressSamples<T extends string>(
 
   values.forEach((sample, index) => {
     const previous = values[index - 1]?.timestamp ?? windowStart;
-    const next = values[index + 1]?.timestamp ?? windowEnd;
     const start = index === 0
       ? (coverage.leadingGap ? sample.timestamp : windowStart)
       : sample.gapBefore ? sample.timestamp : midpoint(previous, sample.timestamp);
-    const end = index === values.length - 1
-      ? (coverage.trailingGap ? sample.timestamp : windowEnd)
-      : midpoint(sample.timestamp, next);
+    const end = segmentEnd(index);
     if (sample.gapBefore && index > 0) {
-      unknown(midpoint(previous, sample.timestamp), sample.timestamp, true, "Coverage missing before this sample");
+      unknown(segmentEnd(index - 1), sample.timestamp, true, "Coverage missing before this sample");
     }
     if (end > start) {
       segments.push({
@@ -109,10 +119,50 @@ function compressSamples<T extends string>(
     unknown(lastTimestamp, windowEnd, true, "Coverage missing after last sample");
   }
 
-  return segments.filter((segment) => {
+  const visibleSegments = segments.filter((segment) => {
     const start = (Date.parse(segment.startAt) - windowStart) / windowDuration;
     const end = (Date.parse(segment.endAt) - windowStart) / windowDuration;
     return end > 0 && start < 1;
+  });
+
+  if (visibleSegments.length <= MAX_RENDERED_SEGMENTS) return visibleSegments;
+
+  const unknownValue = severity.at(-1) as T;
+  return Array.from({ length: MAX_RENDERED_SEGMENTS }, (_, index) => {
+    const start = windowStart + (windowDuration * index) / MAX_RENDERED_SEGMENTS;
+    const end = windowStart + (windowDuration * (index + 1)) / MAX_RENDERED_SEGMENTS;
+    const overlapping = visibleSegments.filter((segment) =>
+      Date.parse(segment.endAt) > start && Date.parse(segment.startAt) < end,
+    );
+    const gap = overlapping.find(
+      (segment) => segment.gapLabel || segment.value === unknownValue,
+    );
+    if (gap) {
+      return {
+        value: unknownValue,
+        startAt: new Date(start).toISOString(),
+        endAt: new Date(end).toISOString(),
+        gapBefore: true,
+        gapLabel: gap.gapLabel ?? "Coverage missing in this interval",
+      };
+    }
+
+    const durations = new Map<T, number>();
+    for (const segment of overlapping) {
+      const overlapStart = Math.max(start, Date.parse(segment.startAt));
+      const overlapEnd = Math.min(end, Date.parse(segment.endAt));
+      durations.set(
+        segment.value,
+        (durations.get(segment.value) ?? 0) + Math.max(0, overlapEnd - overlapStart),
+      );
+    }
+    const value = [...durations.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? unknownValue;
+    return {
+      value,
+      startAt: new Date(start).toISOString(),
+      endAt: new Date(end).toISOString(),
+      gapBefore: false,
+    };
   });
 }
 
