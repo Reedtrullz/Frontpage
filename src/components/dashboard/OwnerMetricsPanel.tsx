@@ -164,9 +164,9 @@ export function OwnerMetricsPanel({ metrics }: { metrics: OwnerMetricsModel | nu
         </dl>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          <MetricsSparkline label="CPU" values={metrics.history.map((sample) => sample.host.cpu_percent)} warningAt={OWNER_RESOURCE_THRESHOLDS.cpu.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.cpu.critical} />
-          <MetricsSparkline label="RAM" values={metrics.history.map((sample) => percentage(sample.host.ram_used_bytes, sample.host.ram_total_bytes))} warningAt={OWNER_RESOURCE_THRESHOLDS.ram.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.ram.critical} />
-          <MetricsSparkline label="Disk" values={metrics.history.map((sample) => percentage(sample.host.disk_used_bytes, sample.host.disk_total_bytes))} warningAt={OWNER_RESOURCE_THRESHOLDS.disk.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.disk.critical} />
+          <MetricsSparkline label="CPU" values={metrics.history.map((sample) => sample.host.cpu_percent)} warningAt={OWNER_RESOURCE_THRESHOLDS.cpu.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.cpu.critical} coverage={metrics.historyCoverage} />
+          <MetricsSparkline label="RAM" values={metrics.history.map((sample) => percentage(sample.host.ram_used_bytes, sample.host.ram_total_bytes))} warningAt={OWNER_RESOURCE_THRESHOLDS.ram.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.ram.critical} coverage={metrics.historyCoverage} />
+          <MetricsSparkline label="Disk" values={metrics.history.map((sample) => percentage(sample.host.disk_used_bytes, sample.host.disk_total_bytes))} warningAt={OWNER_RESOURCE_THRESHOLDS.disk.warning} criticalAt={OWNER_RESOURCE_THRESHOLDS.disk.critical} coverage={metrics.historyCoverage} />
         </div>
       </section>
 

@@ -54,6 +54,12 @@ export default async function StatusPage() {
             <CoarseHistoryStrip
               label="CPU pressure"
               values={model.public.history.map((sample) => sample.cpu)}
+              history={model.public.history.map(({ collectedAt, cpu, gapBefore }) => ({
+                collectedAt,
+                value: cpu,
+                gapBefore,
+              }))}
+              coverage={model.public.historyCoverage}
               legend={[
                 { value: "low", label: "Low", tone: "positive" },
                 { value: "medium", label: "Medium", tone: "information" },
@@ -64,6 +70,12 @@ export default async function StatusPage() {
             <CoarseHistoryStrip
               label="RAM pressure"
               values={model.public.history.map((sample) => sample.ram)}
+              history={model.public.history.map(({ collectedAt, ram, gapBefore }) => ({
+                collectedAt,
+                value: ram,
+                gapBefore,
+              }))}
+              coverage={model.public.historyCoverage}
               legend={[
                 { value: "low", label: "Low", tone: "positive" },
                 { value: "medium", label: "Medium", tone: "information" },
@@ -74,6 +86,12 @@ export default async function StatusPage() {
             <CoarseHistoryStrip
               label="Disk pressure"
               values={model.public.history.map((sample) => sample.disk)}
+              history={model.public.history.map(({ collectedAt, disk, gapBefore }) => ({
+                collectedAt,
+                value: disk,
+                gapBefore,
+              }))}
+              coverage={model.public.historyCoverage}
               legend={[
                 { value: "ok", label: "OK", tone: "positive" },
                 { value: "watch", label: "Watch", tone: "warning" },
