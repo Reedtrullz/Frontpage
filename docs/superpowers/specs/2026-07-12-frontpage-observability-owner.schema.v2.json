@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://reidar.tech/schemas/2026-07-12-frontpage-observability-owner.schema.v2.json",
+  "title": "Frontpage Observability Owner Latest v2",
+  "description": "Schema for the owner-only latest observability projection produced by the Frontpage observability collector.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "collected_at",
+    "freshness",
+    "host",
+    "workloads",
+    "diagnostics",
+    "incidents"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "generated_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "collected_at": {
+      "$ref": "#/$defs/utc_timestamp"
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["fresh", "stale", "unavailable"]
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totals", "capabilities"],
+      "properties": {
+        "totals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/owner_resource_total"
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/capability_status"
+          }
+        }
+      }
+    },
+    "workloads": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/workload"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    },
+    "incidents": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/incident"
+      }
+    }
+  },
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+    },
+    "path_like": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9._/-]+$"
+    },
+    "resource": {
+      "type": "string",
+      "enum": ["cpu", "ram", "disk_io", "network"]
+    },
+    "capability_state": {
+      "type": "string",
+      "enum": ["available", "partial", "unavailable"]
+    },
+    "resource_state": {
+      "type": "string",
+      "enum": ["healthy", "watch", "critical", "unknown"]
+    },
+    "freshness": {
+      "type": "string",
+      "enum": ["fresh", "stale", "unavailable"]
+    },
+    "incident_severity": {
+      "type": "string",
+      "enum": ["warning", "critical"]
+    },
+    "incident_state": {
+      "type": "string",
+      "enum": ["active", "recovered", "maintenance"]
+    },
+    "incident_visibility": {
+      "type": "string",
+      "enum": ["public", "owner"]
+    },
+    "process_state": {
+      "type": "string",
+      "enum": ["running", "sleeping", "stopped", "zombie", "unknown"]
+    },
+    "unit": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "coverage_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "capability_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "state", "detail"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "state": {
+          "$ref": "#/$defs/capability_state"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "owner_resource_total": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource",
+        "label",
+        "unit",
+        "current",
+        "average",
+        "peak",
+        "state",
+        "freshness",
+        "updated_at",
+        "attribution_coverage_percent",
+        "reconciliation_error_percent",
+        "workload_view"
+      ],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/resource"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "current": {
+          "type": "number",
+          "minimum": 0
+        },
+        "average": {
+          "type": "number",
+          "minimum": 0
+        },
+        "peak": {
+          "type": "number",
+          "minimum": 0
+        },
+        "state": {
+          "$ref": "#/$defs/resource_state"
+        },
+        "freshness": {
+          "$ref": "#/$defs/freshness"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "attribution_coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        },
+        "reconciliation_error_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        },
+        "workload_view": {
+          "$ref": "#/$defs/capability_state"
+        }
+      }
+    },
+    "workload_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resource", "unit", "current", "average", "peak", "change_1h", "coverage_percent"],
+      "properties": {
+        "resource": {
+          "$ref": "#/$defs/resource"
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "current": {
+          "type": "number",
+          "minimum": 0
+        },
+        "average": {
+          "type": "number",
+          "minimum": 0
+        },
+        "peak": {
+          "type": "number",
+          "minimum": 0
+        },
+        "change_1h": {
+          "type": ["number", "null"]
+        },
+        "coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        }
+      }
+    },
+    "owner_process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pid", "comm", "uid", "cpu_percent", "rss_bytes", "state"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "comm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cpu_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        },
+        "rss_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "state": {
+          "$ref": "#/$defs/process_state"
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "kind", "resources", "processes"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["systemd", "container", "residual"]
+        },
+        "systemd_unit": {
+          "$ref": "#/$defs/path_like"
+        },
+        "cgroup_path": {
+          "$ref": "#/$defs/path_like"
+        },
+        "container_id": {
+          "$ref": "#/$defs/path_like"
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/workload_resource"
+          }
+        },
+        "processes": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/owner_process"
+          }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "severity", "message"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "severity": {
+          "$ref": "#/$defs/incident_severity"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      }
+    },
+    "incident_evidence_point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded_at", "value"],
+      "properties": {
+        "recorded_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "value": {
+          "type": ["number", "null"]
+        }
+      }
+    },
+    "incident_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger_value", "threshold_value", "peak_value", "points"],
+      "properties": {
+        "trigger_value": {
+          "type": ["number", "null"]
+        },
+        "threshold_value": {
+          "type": ["number", "null"]
+        },
+        "peak_value": {
+          "type": ["number", "null"]
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/incident_evidence_point"
+          }
+        }
+      }
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "rule_id",
+        "title",
+        "severity",
+        "state",
+        "visibility",
+        "resource",
+        "opened_at",
+        "updated_at",
+        "coverage_percent",
+        "capability_state",
+        "summary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "rule_id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "severity": {
+          "$ref": "#/$defs/incident_severity"
+        },
+        "state": {
+          "$ref": "#/$defs/incident_state"
+        },
+        "visibility": {
+          "$ref": "#/$defs/incident_visibility"
+        },
+        "resource": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/resource"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "workload_id": {
+          "$ref": "#/$defs/id"
+        },
+        "opened_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "resolved_at": {
+          "$ref": "#/$defs/utc_timestamp"
+        },
+        "coverage_percent": {
+          "$ref": "#/$defs/coverage_percent"
+        },
+        "capability_state": {
+          "$ref": "#/$defs/capability_state"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "evidence": {
+          "$ref": "#/$defs/incident_evidence"
+        }
+      }
+    }
+  }
+}

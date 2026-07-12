@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-12T18:59:45Z",
+  "range": "1h",
+  "resolution_seconds": 15,
+  "view": "host",
+  "resource": "cpu",
+  "timestamps": [
+    "2026-07-12T18:59:00Z",
+    "2026-07-12T18:59:15Z",
+    "2026-07-12T18:59:30Z",
+    "2026-07-12T18:59:45Z"
+  ],
+  "series": [
+    {
+      "id": "host-total",
+      "label": "CPU total",
+      "unit": "percent",
+      "values": [
+        22.1,
+        24.4,
+        null,
+        31.2
+      ]
+    }
+  ],
+  "coverage_percent": 75,
+  "truncated": false
+}

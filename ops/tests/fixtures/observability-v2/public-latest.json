@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-07-12T18:59:45Z",
+  "collected_at": "2026-07-12T18:59:45Z",
+  "freshness": "fresh",
+  "overall_state": "operational",
+  "resources": [
+    {
+      "resource": "cpu",
+      "label": "CPU",
+      "state": "healthy",
+      "coverage_percent": 100
+    },
+    {
+      "resource": "ram",
+      "label": "RAM",
+      "state": "healthy",
+      "coverage_percent": 100
+    },
+    {
+      "resource": "disk_io",
+      "label": "Disk I/O",
+      "state": "watch",
+      "coverage_percent": 100
+    },
+    {
+      "resource": "network",
+      "label": "Network",
+      "state": "unknown",
+      "coverage_percent": 0
+    }
+  ],
+  "services": [
+    {
+      "id": "frontpage-public",
+      "label": "reidar.tech/status",
+      "status": "up",
+      "checked_at": "2026-07-12T18:59:45Z",
+      "latency_ms": 48,
+      "availability_percent": 99.98,
+      "coverage_percent": 100
+    }
+  ]
+}
