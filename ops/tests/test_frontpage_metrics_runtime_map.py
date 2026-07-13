@@ -135,6 +135,11 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn('permissions: x', playbook)
         self.assertIn("Normalize existing shadow projection directory ownership", playbook)
         self.assertIn("Normalize existing shadow projection file ownership", playbook)
+        stop_index = playbook.index("Stop shadow collector before rebuilding runtime state")
+        map_index = playbook.index("Generate current allowlisted runtime map")
+        start_index = playbook.index("Enable observability collector shadow service")
+        self.assertLess(stop_index, map_index)
+        self.assertLess(map_index, start_index)
 
 
 if __name__ == "__main__":
