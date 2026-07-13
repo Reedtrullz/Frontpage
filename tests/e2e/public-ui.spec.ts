@@ -153,6 +153,7 @@ test.describe("public project experience", () => {
     for (const [slug, accessibleName] of [
       ["rfmc", /VirtualCDU training mission selector/i],
       ["heimdall", /Heimdall THORChain operations console/i],
+      ["thorchain-wiki", /THORChain Wiki homepage with protocol navigation/i],
     ] as const) {
       await page.goto(`/projects/${slug}`);
       const proofImage = page.getByRole("img", { name: accessibleName });

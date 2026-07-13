@@ -150,6 +150,15 @@
     "techStack": ["Next.js 16", "React 19", "Recharts", "lunr", "SWR", "date-fns"],
     "repoUrl": "https://github.com/Reedtrullz/thorchain-wiki",
     "liveUrl": "https://wiki.thorchain.no/",
+    "media": {
+      "cover": {
+        "src": "/projects/thorchain-wiki/cover.webp",
+        "alt": "THORChain Wiki homepage with protocol navigation, source posture, live operations guidance, and claim verification boundaries",
+        "width": 1440,
+        "height": 900,
+        "caption": "Live source-backed THORChain Wiki homepage, captured July 2026."
+      }
+    },
     "healthServiceIds": ["tcwiki-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
