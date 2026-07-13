@@ -256,6 +256,20 @@ class CollectorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "up")
 
+    def test_checked_in_config_declares_tcwiki_public_service(self):
+        config = collector.load_config(
+            Path(__file__).resolve().parents[1] / "frontpage-metrics.config.json"
+        )
+        service = next(
+            service for service in config["services"] if service["id"] == "tcwiki-public"
+        )
+
+        self.assertEqual(service["label"], "THORChain Wiki")
+        self.assertEqual(service["project_slug"], "thorchain-wiki")
+        self.assertEqual(service["visibility"], "public")
+        self.assertEqual(service["url"], "https://wiki.thorchain.no/")
+        self.assertEqual(service["expected_status"], 200)
+
     def test_load_config_rejects_malformed_service_check(self):
         invalid_checks = [
             None,

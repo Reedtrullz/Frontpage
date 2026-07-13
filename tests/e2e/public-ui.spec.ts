@@ -128,7 +128,7 @@ test.describe("public project experience", () => {
     await expect(page.getByText("Media not published").first()).toBeVisible();
     await page.getByLabel("Health").selectOption("not-monitored");
     await expect(page).toHaveURL(/health=not-monitored/);
-    await expect(page.getByText("9 of 14 projects")).toBeVisible();
+    await expect(page.getByText("8 of 14 projects")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
@@ -170,6 +170,16 @@ test.describe("public project experience", () => {
     ).toBeVisible();
     await expect(page.getByText(/coverage and certainty depend/i)).toBeVisible();
 
+    await page.goto("/projects/thorchain-wiki");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "tcwiki / THORChain Wiki" }),
+    ).toBeVisible();
+    await expect(page.getByText("Healthy", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open live product" })).toHaveAttribute(
+      "href",
+      "https://wiki.thorchain.no/",
+    );
+
     await page.goto("/projects/thorarb");
     await expect(page.getByText("Not monitored", { exact: true }).first()).toBeVisible();
   });
@@ -181,7 +191,7 @@ test.describe("public status", () => {
     await page.goto("/status");
 
     await expect(page.getByText("Operational", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("5/5 up", { exact: true })).toBeVisible();
+    await expect(page.getByText("6/6 up", { exact: true })).toBeVisible();
     await expect(
       page.getByText(/100% available across 8 known checks/i).first(),
     ).toBeVisible();

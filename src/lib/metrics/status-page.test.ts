@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getCanonicalProject } from "../content";
 import type { MetricsReadResult } from "./reader";
 import {
   createStatusPageModel,
@@ -235,6 +236,31 @@ describe("deriveOverallPublicStatus", () => {
 });
 
 describe("deriveProjectHealth", () => {
+  it("reports the canonical TC Wiki check as healthy when its telemetry is fresh", () => {
+    const project = getCanonicalProject("thorchain-wiki");
+    if (!project) throw new Error("Canonical TC Wiki project is missing");
+    expect(project).toMatchObject({
+      liveUrl: "https://wiki.thorchain.no/",
+      healthServiceIds: ["tcwiki-public"],
+    });
+    expect(
+      deriveProjectHealth(
+        project,
+        [
+          {
+            id: "tcwiki-public",
+            label: "THORChain Wiki",
+            projectSlug: "thorchain-wiki",
+            status: "up",
+            latencyMs: 35,
+            checkedAt: "2026-07-09T02:00:00Z",
+          },
+        ],
+        "fresh",
+      ),
+    ).toBe("healthy");
+  });
+
   it("returns degraded when a configured check is down while another is up", () => {
     expect(
       deriveProjectHealth(

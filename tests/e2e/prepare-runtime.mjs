@@ -82,6 +82,15 @@ function snapshot(index) {
         latency_ms: 94,
       },
       {
+        id: "tcwiki-public",
+        label: "THORChain Wiki",
+        project_slug: "thorchain-wiki",
+        visibility: "public",
+        status: "up",
+        checked_at: collectedAt,
+        latency_ms: 76,
+      },
+      {
         id: "frontpage-internal",
         label: "Frontpage internal",
         project_slug: "frontpage",
