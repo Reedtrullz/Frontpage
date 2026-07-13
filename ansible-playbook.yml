@@ -37,6 +37,7 @@
       - sources/services.py
     owner_github_login: "Reedtrullz"
     observability_v2_promote: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_V2_PROMOTE') | default('0', true) == '1' }}"
+    observability_v2_reset_evidence: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_RESET_EVIDENCE') | default('0', true) == '1' }}"
     observability_v2_shadow_gate: "{{ lookup('env', 'OBSERVABILITY_V2_SHADOW_GATE') | default('', true) }}"
     observer_service_name: "{{ 'frontpage-metrics-collector-v2.service' if observability_v2_promote else 'frontpage-metrics-collector-v2-shadow.service' }}"
 
@@ -52,6 +53,12 @@
         that:
           - not observability_v2_promote or observability_v2_shadow_gate == 'approved'
         fail_msg: "Promotion requires OBSERVABILITY_V2_SHADOW_GATE=approved after the documented 48-hour comparison gate."
+
+    - name: Prevent evidence reset during observability promotion
+      ansible.builtin.assert:
+        that:
+          - not (observability_v2_promote and observability_v2_reset_evidence)
+        fail_msg: "Evidence reset and observability promotion cannot run in the same deployment."
 
     - name: Validate required deployment secrets
       ansible.builtin.assert:
@@ -316,6 +323,7 @@
           [
             {"workload_id": "frontpage-app", "container_name": "{{ container_name }}"}
           ]
+      register: runtime_allowlist_copy
 
     - name: Install metrics collector systemd units
       become: true
@@ -339,18 +347,88 @@
         path: "{{ shadow_evidence_epoch_file }}"
       register: shadow_evidence_epoch
 
-    - name: Determine whether shadow evidence must restart
+    - name: Read current shadow collector state
+      become: true
+      ansible.builtin.command:
+        argv: ["systemctl", "is-active", "frontpage-metrics-collector-v2-shadow.service"]
+      register: shadow_collector_state_before_deploy
+      changed_when: false
+      failed_when: false
+
+    - name: Determine changed observability runtime assets
+      ansible.builtin.set_fact:
+        observer_runtime_executable_changed: >-
+          {{
+            observer_executables_copy.results
+            | selectattr('changed')
+            | map(attribute='item.dest')
+            | reject('equalto', '/usr/local/bin/frontpage-metrics-shadow-compare')
+            | list
+            | length > 0
+          }}
+        observer_comparator_executable_changed: >-
+          {{
+            observer_executables_copy.results
+            | selectattr('changed')
+            | map(attribute='item.dest')
+            | select('equalto', '/usr/local/bin/frontpage-metrics-shadow-compare')
+            | list
+            | length > 0
+          }}
+        observer_runtime_unit_changed: >-
+          {{
+            collector_units_copy.results
+            | selectattr('changed')
+            | map(attribute='item')
+            | select('match', '^frontpage-metrics-collector-v2')
+            | list
+            | length > 0
+          }}
+
+    - name: Determine whether comparison semantics changed
+      ansible.builtin.set_fact:
+        shadow_collector_runtime_changed: >-
+          {{
+            observer_stale_package_files_removed.changed
+            or observer_package_copy.changed
+            or observer_runtime_executable_changed
+            or observer_config_copy.changed
+            or runtime_allowlist_copy.changed
+            or observer_runtime_unit_changed
+          }}
+        comparison_semantics_changed: >-
+          {{
+            metrics_collector_script_copy.changed
+            or metrics_collector_config_copy.changed
+            or observer_stale_package_files_removed.changed
+            or observer_package_copy.changed
+            or observer_runtime_executable_changed
+            or observer_comparator_executable_changed
+            or observer_config_copy.changed
+            or runtime_allowlist_copy.changed
+            or collector_units_copy.changed
+          }}
+
+    - name: Determine shadow collector continuity actions
       ansible.builtin.set_fact:
         shadow_evidence_reset_required: >-
           {{
             not shadow_evidence_epoch.stat.exists
-            or metrics_collector_script_copy.changed
-            or metrics_collector_config_copy.changed
-            or observer_stale_package_files_removed.changed
-            or observer_package_copy.changed
-            or observer_executables_copy.changed
-            or observer_config_copy.changed
-            or collector_units_copy.changed
+            or comparison_semantics_changed
+            or observability_v2_reset_evidence
+          }}
+        shadow_collector_restart_required: >-
+          {{
+            shadow_collector_runtime_changed
+            or shadow_collector_state_before_deploy.rc != 0
+          }}
+        shadow_evidence_reset_reason: >-
+          {{
+            'collector_or_comparator_change' if comparison_semantics_changed
+            else (
+              'evidence_marker_missing' if not shadow_evidence_epoch.stat.exists
+              else 'explicit_operator_reset'
+            )
           }}
 
     - name: Enable metrics collector timer
@@ -405,8 +483,9 @@
       ansible.builtin.systemd:
         name: frontpage-metrics-collector-v2-shadow.service
         state: stopped
+      when: shadow_collector_restart_required
 
-    - name: Recreate observer runtime directory after service stop
+    - name: Ensure observer runtime directory exists
       become: true
       ansible.builtin.file:
         path: "{{ observer_run_dir }}"
@@ -420,8 +499,8 @@
       ansible.builtin.copy:
         dest: "{{ observer_run_dir }}/container-facts.json"
         owner: root
-        group: root
-        mode: "0600"
+        group: "{{ observer_user }}"
+        mode: "0640"
         content: >-
           {{
             {
@@ -441,6 +520,10 @@
       become: true
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - "{{ observer_user }}"
+          - --
           - /usr/local/bin/frontpage-metrics-runtime-map
           - --allowlist
           - "{{ metrics_config_dir }}/runtime-allowlist.json"
@@ -517,13 +600,14 @@
           - "{{ observer_run_dir }}/runtime-map.json"
           - --once
       changed_when: true
+      when: shadow_collector_restart_required
 
     - name: Enable observability collector shadow service
       become: true
       ansible.builtin.systemd:
         name: frontpage-metrics-collector-v2-shadow.service
         enabled: true
-        state: restarted
+        state: "{{ 'restarted' if shadow_collector_restart_required else 'started' }}"
         daemon_reload: true
 
     - name: Read host clock for shadow evidence restart
@@ -533,7 +617,7 @@
       changed_when: false
       when: shadow_evidence_reset_required
 
-    - name: Start a new shadow evidence epoch after collector changes
+    - name: Start a new shadow evidence epoch
       become: true
       ansible.builtin.copy:
         dest: "{{ shadow_evidence_epoch_file }}"
@@ -545,7 +629,7 @@
             "schema_version": 1,
             "started_at": "{{ shadow_evidence_clock.stdout }}",
             "commit_sha": "{{ deploy_commit_sha }}",
-            "reason": "collector_or_comparator_change"
+            "reason": "{{ shadow_evidence_reset_reason }}"
           }
       when: shadow_evidence_reset_required
 
@@ -749,12 +833,6 @@
         name: "{{ container_name }}"
       register: active_container_for_runtime_map
 
-    - name: Stop selected collector before active runtime rebinding
-      become: true
-      ansible.builtin.systemd:
-        name: "{{ observer_service_name }}"
-        state: stopped
-
     - name: Recreate observer runtime directory for active binding
       become: true
       ansible.builtin.file:
@@ -769,8 +847,8 @@
       ansible.builtin.copy:
         dest: "{{ observer_run_dir }}/container-facts.json"
         owner: root
-        group: root
-        mode: "0600"
+        group: "{{ observer_user }}"
+        mode: "0640"
         content: >-
           {{
             {
@@ -788,6 +866,10 @@
       become: true
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - "{{ observer_user }}"
+          - --
           - /usr/local/bin/frontpage-metrics-runtime-map
           - --allowlist
           - "{{ metrics_config_dir }}/runtime-allowlist.json"
@@ -806,12 +888,6 @@
         owner: "{{ observer_user }}"
         group: "{{ observer_user }}"
         mode: "0640"
-
-    - name: Restart selected collector with active runtime binding
-      become: true
-      ansible.builtin.systemd:
-        name: "{{ observer_service_name }}"
-        state: restarted
 
     - name: Wait for application to become healthy
       uri:
@@ -897,8 +973,8 @@
           ansible.builtin.copy:
             dest: "{{ observer_run_dir }}/container-facts.json"
             owner: root
-            group: root
-            mode: "0600"
+            group: "{{ observer_user }}"
+            mode: "0640"
             content: >-
               {{
                 {
@@ -916,6 +992,10 @@
           become: true
           ansible.builtin.command:
             argv:
+              - /usr/sbin/runuser
+              - --user
+              - "{{ observer_user }}"
+              - --
               - /usr/local/bin/frontpage-metrics-runtime-map
               - --allowlist
               - "{{ metrics_config_dir }}/runtime-allowlist.json"
@@ -935,11 +1015,11 @@
             group: "{{ observer_user }}"
             mode: "0640"
 
-        - name: Restart shadow collector after rollback binding
+        - name: Ensure shadow collector is active after rollback binding
           become: true
           ansible.builtin.systemd:
             name: frontpage-metrics-collector-v2-shadow.service
-            state: restarted
+            state: started
 
     - name: Wait for rollback application to become healthy
       ansible.builtin.uri:
