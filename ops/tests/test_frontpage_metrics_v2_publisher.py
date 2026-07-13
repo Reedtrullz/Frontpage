@@ -39,6 +39,22 @@ class ProjectionPublisherTests(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(result.path.parent.stat().st_mode), 0o2750)
         self.assertEqual(list(result.path.parent.glob(".*.tmp")), [])
 
+    def test_setgid_projection_root_is_not_rechmodded_by_unprivileged_publisher(self):
+        os.chmod(self.publisher.owner_dir, 0o2750)
+        original_chmod = os.chmod
+        with mock.patch.object(os, "chmod", wraps=original_chmod) as chmod:
+            self.publisher.publish_owner(
+                "host/1h.v2.json",
+                {
+                    "schema_version": 2,
+                    "range": "1h",
+                    "timestamps": ["2026-07-12T20:00:00Z"],
+                    "series": [{"id": "cpu", "values": [1]}],
+                },
+            )
+        self.assertEqual(stat.S_IMODE(self.publisher.owner_dir.stat().st_mode), 0o2750)
+        self.assertFalse(any(call.args[0] == self.publisher.owner_dir for call in chmod.call_args_list))
+
     def test_public_projection_rejects_private_keys_recursively(self):
         projection = public_projection()
         projection["nested"] = {"workloads": [{"pid": 1}]}

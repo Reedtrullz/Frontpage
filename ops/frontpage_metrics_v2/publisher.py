@@ -65,13 +65,29 @@ def _relative_json_path(value: str) -> PurePosixPath:
 
 
 class ProjectionPublisher:
+    @staticmethod
+    def _mkdir_secure(directory: Path) -> None:
+        previous_umask = os.umask(0o027)
+        try:
+            directory.mkdir(mode=0o750, parents=True, exist_ok=True)
+        finally:
+            os.umask(previous_umask)
+
+    @staticmethod
+    def _secure_directory(directory: Path) -> None:
+        mode = stat.S_IMODE(directory.stat().st_mode)
+        if mode & stat.S_ISGID:
+            if mode & 0o007:
+                raise PermissionError(f"Setgid projection directory has unsafe permissions: {directory}")
+            return
+        os.chmod(directory, 0o750)
+
     def __init__(self, public_dir: Path, owner_dir: Path) -> None:
         self.public_dir = Path(public_dir)
         self.owner_dir = Path(owner_dir)
         for directory in (self.public_dir, self.owner_dir):
-            directory.mkdir(parents=True, exist_ok=True)
-            inherited_setgid = directory.stat().st_mode & stat.S_ISGID
-            os.chmod(directory, 0o750 | inherited_setgid)
+            self._mkdir_secure(directory)
+            self._secure_directory(directory)
 
     @staticmethod
     def _encode(payload: Mapping[str, object], cap: int, label: str) -> bytes:
@@ -124,11 +140,10 @@ class ProjectionPublisher:
     @staticmethod
     def _prepare_parent(root: Path, relative: PurePosixPath) -> Path:
         target = root.joinpath(*relative.parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        ProjectionPublisher._mkdir_secure(target.parent)
         current = target.parent
         while current == root or root in current.parents:
-            inherited_setgid = current.stat().st_mode & stat.S_ISGID
-            os.chmod(current, 0o750 | inherited_setgid)
+            ProjectionPublisher._secure_directory(current)
             if current == root:
                 break
             current = current.parent
