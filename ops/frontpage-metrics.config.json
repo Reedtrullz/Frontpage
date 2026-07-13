@@ -64,6 +64,15 @@
       "url": "https://bond.thorchain.no/",
       "expected_status": 200,
       "timeout_ms": 5000
+    },
+    {
+      "id": "tcwiki-public",
+      "label": "THORChain Wiki",
+      "project_slug": "thorchain-wiki",
+      "visibility": "public",
+      "url": "https://wiki.thorchain.no/",
+      "expected_status": 200,
+      "timeout_ms": 5000
     }
   ],
   "containers": [

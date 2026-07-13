@@ -149,6 +149,8 @@
     "tags": ["thorchain", "wiki", "documentation", "charts", "data"],
     "techStack": ["Next.js 16", "React 19", "Recharts", "lunr", "SWR", "date-fns"],
     "repoUrl": "https://github.com/Reedtrullz/thorchain-wiki",
+    "liveUrl": "https://wiki.thorchain.no/",
+    "healthServiceIds": ["tcwiki-public"],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",

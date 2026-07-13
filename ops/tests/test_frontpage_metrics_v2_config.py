@@ -211,8 +211,15 @@ class ProductionCollectorV2ConfigTests(unittest.TestCase):
                 "rfs-public",
                 "rfmc-public",
                 "heimdall-public",
+                "tcwiki-public",
             },
         )
+        tcwiki = next(
+            service for service in config.services if service["id"] == "tcwiki-public"
+        )
+        self.assertEqual(tcwiki["project_slug"], "thorchain-wiki")
+        self.assertEqual(tcwiki["visibility"], "public")
+        self.assertEqual(tcwiki["url"], "https://wiki.thorchain.no/")
         observer = next(workload for workload in config.workloads if workload.id == "frontpage-observer")
         self.assertEqual(observer.match_type, "cgroup-pattern")
         self.assertRegex(
