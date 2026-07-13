@@ -359,6 +359,44 @@
         group: "{{ observer_user }}"
         mode: "0640"
 
+    - name: Find existing shadow projection directories
+      become: true
+      ansible.builtin.find:
+        paths:
+          - "{{ observer_shadow_dir }}/public"
+          - "{{ observer_shadow_dir }}/owner"
+        file_type: directory
+        recurse: true
+      register: shadow_projection_directories
+
+    - name: Normalize existing shadow projection directory ownership
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ observer_user }}"
+        group: "{{ metrics_user }}"
+        mode: "2750"
+      loop: "{{ shadow_projection_directories.files }}"
+
+    - name: Find existing shadow projection files
+      become: true
+      ansible.builtin.find:
+        paths:
+          - "{{ observer_shadow_dir }}/public"
+          - "{{ observer_shadow_dir }}/owner"
+        file_type: file
+        recurse: true
+      register: existing_shadow_projection_files
+
+    - name: Normalize existing shadow projection file ownership
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ observer_user }}"
+        group: "{{ metrics_user }}"
+        mode: "0640"
+      loop: "{{ existing_shadow_projection_files.files }}"
+
     - name: Run observability collector shadow preflight
       become: true
       ansible.builtin.command:

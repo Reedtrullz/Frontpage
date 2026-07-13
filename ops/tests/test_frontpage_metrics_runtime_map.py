@@ -133,6 +133,8 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn("name: acl", playbook)
         self.assertIn("ansible.posix.acl:", playbook)
         self.assertIn('permissions: x', playbook)
+        self.assertIn("Normalize existing shadow projection directory ownership", playbook)
+        self.assertIn("Normalize existing shadow projection file ownership", playbook)
 
 
 if __name__ == "__main__":
