@@ -17,6 +17,24 @@
     observer_shadow_dir: "{{ metrics_dir }}/v2-shadow"
     observer_private_dir: "{{ metrics_dir }}/private"
     shadow_evidence_epoch_file: "{{ metrics_dir }}/shadow-evidence-epoch.json"
+    observer_package_files:
+      - __init__.py
+      - collector.py
+      - config.py
+      - daemon.py
+      - incidents.py
+      - migrations.py
+      - model.py
+      - projections.py
+      - publisher.py
+      - rollups.py
+      - store.py
+      - sources/__init__.py
+      - sources/cgroup.py
+      - sources/processes.py
+      - sources/procfs.py
+      - sources/runtime.py
+      - sources/services.py
     owner_github_login: "Reedtrullz"
     observability_v2_promote: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_V2_PROMOTE') | default('0', true) == '1' }}"
     observability_v2_shadow_gate: "{{ lookup('env', 'OBSERVABILITY_V2_SHADOW_GATE') | default('', true) }}"
@@ -160,6 +178,8 @@
         - { path: "{{ metrics_dir }}/v2/owner", owner: "{{ observer_user }}", group: "{{ metrics_user }}", mode: "2750" }
         - { path: "{{ observer_run_dir }}", owner: "{{ observer_user }}", group: "{{ observer_user }}", mode: "0750" }
         - { path: "{{ observer_lib_dir }}/ops", owner: "root", group: "root", mode: "0755" }
+        - { path: "{{ observer_lib_dir }}/ops/frontpage_metrics_v2", owner: "root", group: "root", mode: "0755" }
+        - { path: "{{ observer_lib_dir }}/ops/frontpage_metrics_v2/sources", owner: "root", group: "root", mode: "0755" }
 
     - name: Grant observer execute-only traversal of metrics root
       become: true
@@ -212,14 +232,53 @@
         mode: "0644"
       register: metrics_collector_config_copy
 
+    - name: Find stale observer bytecode directories
+      become: true
+      ansible.builtin.find:
+        paths: "{{ observer_lib_dir }}/ops/frontpage_metrics_v2"
+        patterns: "__pycache__"
+        recurse: true
+        file_type: directory
+      register: installed_observer_bytecode_directories
+
+    - name: Remove stale observer bytecode
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ installed_observer_bytecode_directories.files }}"
+
+    - name: Find installed observability collector source files
+      become: true
+      ansible.builtin.find:
+        paths: "{{ observer_lib_dir }}/ops/frontpage_metrics_v2"
+        patterns: "*.py"
+        recurse: true
+        file_type: file
+      register: installed_observer_package_files
+
+    - name: Remove stale observability collector source files
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ installed_observer_package_files.files }}"
+      when: >-
+        (
+          item.path
+          | regex_replace('^' ~ observer_lib_dir ~ '/ops/frontpage_metrics_v2/', '')
+        ) not in observer_package_files
+      register: observer_stale_package_files_removed
+
     - name: Install observability collector Python package
       become: true
       ansible.builtin.copy:
-        src: ops/frontpage_metrics_v2
-        dest: "{{ observer_lib_dir }}/ops/"
+        src: "ops/frontpage_metrics_v2/{{ item }}"
+        dest: "{{ observer_lib_dir }}/ops/frontpage_metrics_v2/{{ item }}"
         owner: root
         group: root
-        mode: preserve
+        mode: "0644"
+      loop: "{{ observer_package_files }}"
       register: observer_package_copy
 
     - name: Install observability collector executables
@@ -287,6 +346,7 @@
             not shadow_evidence_epoch.stat.exists
             or metrics_collector_script_copy.changed
             or metrics_collector_config_copy.changed
+            or observer_stale_package_files_removed.changed
             or observer_package_copy.changed
             or observer_executables_copy.changed
             or observer_config_copy.changed

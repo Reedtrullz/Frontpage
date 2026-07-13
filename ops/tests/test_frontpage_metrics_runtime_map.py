@@ -124,12 +124,34 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn("shadow-evidence-epoch.json", playbook)
         self.assertIn("Start a new shadow evidence epoch after collector changes", playbook)
         self.assertIn("--evidence-epoch", playbook)
+        self.assertIn("observer_package_files:", playbook)
+        self.assertIn("Remove stale observer bytecode", playbook)
+        self.assertIn("Remove stale observability collector source files", playbook)
+        self.assertIn("or observer_stale_package_files_removed.changed", playbook)
+        self.assertIn('src: "ops/frontpage_metrics_v2/{{ item }}"', playbook)
+        self.assertNotIn("src: ops/frontpage_metrics_v2\n", playbook)
         restart_index = playbook.index("Enable observability collector shadow service")
         epoch_index = playbook.index("Start a new shadow evidence epoch after collector changes")
         self.assertLess(restart_index, epoch_index)
         self.assertNotIn('"{{ metrics_dir }}:/metrics:ro"', playbook)
         self.assertNotIn("v2-shadow:/metrics", playbook)
         self.assertNotIn("/private:/metrics", playbook)
+
+    def test_ansible_observer_package_manifest_matches_local_python_sources(self):
+        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
+        manifest_block = playbook.split("observer_package_files:", 1)[1].split(
+            "owner_github_login:", 1
+        )[0]
+        manifest = {
+            line.strip().removeprefix("- ")
+            for line in manifest_block.splitlines()
+            if line.strip().startswith("- ")
+        }
+        package_root = SCRIPT.parent / "frontpage_metrics_v2"
+        local_sources = {
+            str(path.relative_to(package_root)) for path in package_root.rglob("*.py")
+        }
+        self.assertEqual(manifest, local_sources)
 
     def test_ansible_runs_collector_preflights_as_the_observer_without_become_user(self):
         playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()

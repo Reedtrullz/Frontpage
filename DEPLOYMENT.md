@@ -146,6 +146,9 @@ Ansible installs Collector v2 beside v1 before any promotion:
 - Service account: `frontpage-observer`, with no supplementary groups and no Docker access.
 - Shadow projections: `/var/lib/frontpage-metrics/v2-shadow/{public,owner}`.
 - Private working database: `/var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3`.
+- Collector package deploys copy an explicit tracked `.py` manifest. Local
+  bytecode caches are removed on the host and cannot reset the shadow evidence
+  epoch; tracked source additions, changes, and removals still reset it.
 - Runtime map: `/run/frontpage-metrics/runtime-map.json`, generated only from the repository allowlist and exact container facts supplied by Ansible.
 - Service: `frontpage-metrics-collector-v2-shadow.service`.
 
