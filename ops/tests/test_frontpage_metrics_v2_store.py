@@ -82,6 +82,44 @@ class MetricsStoreTests(unittest.TestCase):
         self.assertEqual(self.store.count("host_points", "1m"), 10080)
         self.assertEqual(self.store.count("host_points", "15m"), 2880)
 
+    def test_raw_retention_caps_extra_preflight_timestamps(self):
+        timestamps = [NOW - index * 5_000 for index in range(446)]
+        self.store.executemany(
+            "INSERT INTO host_points(tier,ts_ms,payload_json,coverage_percent) VALUES('15s',?,?,?)",
+            ((timestamp, json.dumps({"cpu_percent": 10}), 100.0) for timestamp in timestamps),
+        )
+        self.store.executemany(
+            "INSERT INTO workload_points(tier,ts_ms,workload_id,payload_json,coverage_percent) VALUES('15s',?,?,?,?)",
+            (
+                (timestamp, workload_id, json.dumps({"cpu_percent": 5}), 100.0)
+                for timestamp in timestamps
+                for workload_id in ("frontpage-app", "frontpage-observer")
+            ),
+        )
+        self.store.executemany(
+            "INSERT INTO service_points(tier,ts_ms,service_id,payload_json) VALUES('15s',?,?,?)",
+            (
+                (timestamp, service_id, json.dumps({"status": "up"}))
+                for timestamp in timestamps
+                for service_id in ("frontpage-public", "tcwiki-public")
+            ),
+        )
+
+        self.store.prune(NOW)
+
+        for table in ("host_points", "workload_points", "service_points"):
+            distinct_timestamps = self.store.scalar(
+                f"SELECT count(DISTINCT ts_ms) FROM {table} WHERE tier='15s'"
+            )
+            self.assertEqual(distinct_timestamps, 240)
+        self.assertEqual(self.store.count("host_points", "15s"), 240)
+        self.assertEqual(self.store.count("workload_points", "15s"), 480)
+        self.assertEqual(self.store.count("service_points", "15s"), 480)
+        self.assertEqual(
+            self.store.scalar("SELECT min(ts_ms) FROM host_points WHERE tier='15s'"),
+            timestamps[239],
+        )
+
     def test_incident_evidence_is_bounded_and_retained_for_90_days(self):
         oversized = "x" * (256 * 1024 + 1)
         with self.assertRaisesRegex(ValueError, "256 KiB"):

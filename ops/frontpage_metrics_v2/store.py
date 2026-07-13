@@ -19,6 +19,11 @@ RETENTION_MS = {
     "1m": 7 * 86400_000,
     "15m": 30 * 86400_000,
 }
+RETENTION_POINTS = {
+    "15s": 240,
+    "1m": 10080,
+    "15m": 2880,
+}
 INCIDENT_RETENTION_MS = 90 * 86400_000
 MAX_EVIDENCE_BYTES = 256 * 1024
 _WRITER_LOCK = threading.Lock()
@@ -376,6 +381,18 @@ class MetricsStore:
                 self._connection.execute(
                     f"DELETE FROM {table} WHERE tier=? AND ts_ms<=?",
                     (tier, now_ms - retention_ms),
+                )
+        for tier, max_points in RETENTION_POINTS.items():
+            cutoff = self.scalar(
+                "SELECT ts_ms FROM host_points WHERE tier=? ORDER BY ts_ms DESC LIMIT 1 OFFSET ?",
+                (tier, max_points - 1),
+            )
+            if cutoff is None:
+                continue
+            for table in TABLES:
+                self._connection.execute(
+                    f"DELETE FROM {table} WHERE tier=? AND ts_ms<?",
+                    (tier, cutoff),
                 )
         self._connection.execute(
             "DELETE FROM incidents WHERE recovered_at_ms IS NOT NULL AND recovered_at_ms<=?",
