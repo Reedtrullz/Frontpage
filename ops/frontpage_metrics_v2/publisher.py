@@ -66,6 +66,14 @@ def _relative_json_path(value: str) -> PurePosixPath:
 
 class ProjectionPublisher:
     @staticmethod
+    def _mkdir_secure(directory: Path) -> None:
+        previous_umask = os.umask(0o027)
+        try:
+            directory.mkdir(mode=0o750, parents=True, exist_ok=True)
+        finally:
+            os.umask(previous_umask)
+
+    @staticmethod
     def _secure_directory(directory: Path) -> None:
         mode = stat.S_IMODE(directory.stat().st_mode)
         if mode & stat.S_ISGID:
@@ -78,7 +86,7 @@ class ProjectionPublisher:
         self.public_dir = Path(public_dir)
         self.owner_dir = Path(owner_dir)
         for directory in (self.public_dir, self.owner_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+            self._mkdir_secure(directory)
             self._secure_directory(directory)
 
     @staticmethod
@@ -132,7 +140,7 @@ class ProjectionPublisher:
     @staticmethod
     def _prepare_parent(root: Path, relative: PurePosixPath) -> Path:
         target = root.joinpath(*relative.parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
+        ProjectionPublisher._mkdir_secure(target.parent)
         current = target.parent
         while current == root or root in current.parents:
             ProjectionPublisher._secure_directory(current)
