@@ -140,6 +140,11 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         start_index = playbook.index("Enable observability collector shadow service")
         self.assertLess(stop_index, map_index)
         self.assertLess(map_index, start_index)
+        rebind_stop_index = playbook.index("Stop selected collector before active runtime rebinding")
+        rebind_map_index = playbook.index("Regenerate runtime map for newly active container")
+        rebind_start_index = playbook.index("Restart selected collector with active runtime binding")
+        self.assertLess(rebind_stop_index, rebind_map_index)
+        self.assertLess(rebind_map_index, rebind_start_index)
 
 
 if __name__ == "__main__":
