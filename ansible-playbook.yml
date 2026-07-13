@@ -314,6 +314,21 @@
           - metrics_history.stat.mode == "0640"
         fail_msg: "Metrics directory or JSON file permissions are too broad."
 
+    - name: Stop shadow collector before rebuilding runtime state
+      become: true
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2-shadow.service
+        state: stopped
+
+    - name: Recreate observer runtime directory after service stop
+      become: true
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}"
+        state: directory
+        owner: "{{ observer_user }}"
+        group: "{{ observer_user }}"
+        mode: "0750"
+
     - name: Write current allowlisted container facts for shadow collection
       become: true
       ansible.builtin.copy:
