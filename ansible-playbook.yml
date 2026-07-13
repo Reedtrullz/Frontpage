@@ -16,6 +16,7 @@
     observer_run_dir: "/run/frontpage-metrics"
     observer_shadow_dir: "{{ metrics_dir }}/v2-shadow"
     observer_private_dir: "{{ metrics_dir }}/private"
+    shadow_evidence_epoch_file: "{{ metrics_dir }}/shadow-evidence-epoch.json"
     owner_github_login: "Reedtrullz"
     observability_v2_promote: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_V2_PROMOTE') | default('0', true) == '1' }}"
     observability_v2_shadow_gate: "{{ lookup('env', 'OBSERVABILITY_V2_SHADOW_GATE') | default('', true) }}"
@@ -199,6 +200,7 @@
         owner: root
         group: root
         mode: "0755"
+      register: metrics_collector_script_copy
 
     - name: Install metrics collector config
       become: true
@@ -208,6 +210,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: metrics_collector_config_copy
 
     - name: Install observability collector Python package
       become: true
@@ -217,6 +220,7 @@
         owner: root
         group: root
         mode: preserve
+      register: observer_package_copy
 
     - name: Install observability collector executables
       become: true
@@ -230,6 +234,7 @@
         - { src: "ops/frontpage-metrics-collector-v2.py", dest: "/usr/local/bin/frontpage-metrics-collector-v2" }
         - { src: "ops/frontpage-metrics-runtime-map.py", dest: "/usr/local/bin/frontpage-metrics-runtime-map" }
         - { src: "ops/frontpage-metrics-shadow-compare.py", dest: "/usr/local/bin/frontpage-metrics-shadow-compare" }
+      register: observer_executables_copy
 
     - name: Install observability collector config
       become: true
@@ -239,6 +244,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: observer_config_copy
 
     - name: Install runtime workload allowlist
       become: true
@@ -265,7 +271,27 @@
         - frontpage-metrics-collector.timer
         - frontpage-metrics-collector-v2.service
         - frontpage-metrics-collector-v2-shadow.service
+      register: collector_units_copy
       notify: Reload systemd
+
+    - name: Inspect shadow evidence epoch
+      become: true
+      ansible.builtin.stat:
+        path: "{{ shadow_evidence_epoch_file }}"
+      register: shadow_evidence_epoch
+
+    - name: Determine whether shadow evidence must restart
+      ansible.builtin.set_fact:
+        shadow_evidence_reset_required: >-
+          {{
+            not shadow_evidence_epoch.stat.exists
+            or metrics_collector_script_copy.changed
+            or metrics_collector_config_copy.changed
+            or observer_package_copy.changed
+            or observer_executables_copy.changed
+            or observer_config_copy.changed
+            or collector_units_copy.changed
+          }}
 
     - name: Enable metrics collector timer
       become: true
@@ -440,6 +466,29 @@
         state: restarted
         daemon_reload: true
 
+    - name: Read host clock for shadow evidence restart
+      become: true
+      ansible.builtin.command: date -u +%Y-%m-%dT%H:%M:%SZ
+      register: shadow_evidence_clock
+      changed_when: false
+      when: shadow_evidence_reset_required
+
+    - name: Start a new shadow evidence epoch after collector changes
+      become: true
+      ansible.builtin.copy:
+        dest: "{{ shadow_evidence_epoch_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          {
+            "schema_version": 1,
+            "started_at": "{{ shadow_evidence_clock.stdout }}",
+            "commit_sha": "{{ deploy_commit_sha }}",
+            "reason": "collector_or_comparator_change"
+          }
+      when: shadow_evidence_reset_required
+
     - name: Verify collector services and observer group isolation
       become: true
       ansible.builtin.command:
@@ -488,6 +537,8 @@
           - "{{ observer_private_dir }}/metrics-v2-shadow.sqlite3"
           - --projection-root
           - "{{ observer_shadow_dir }}"
+          - --evidence-epoch
+          - "{{ shadow_evidence_epoch_file }}"
           - --output
           - "{{ metrics_dir }}/shadow-gate.json"
       register: shadow_comparison
@@ -511,10 +562,14 @@
       ansible.builtin.assert:
         that:
           - shadow_comparison.rc == 0
+          - shadow_gate_evidence.schema_version | int == 2
           - shadow_gate_evidence.approved | bool
           - shadow_gate_evidence.duration_hours | float >= 48
           - shadow_gate_evidence.missed_minutes | int == 0
           - shadow_gate_evidence.maximum_gap_seconds | int <= 120
+          - shadow_gate_evidence.evidence_age_seconds | float >= 0
+          - shadow_gate_evidence.evidence_age_seconds | float <= 120
+          - shadow_gate_evidence.incomplete_v2_host_minutes | int == 0
           - shadow_gate_evidence.p99_relative_divergence_percent.cpu | float < 2
           - shadow_gate_evidence.p99_relative_divergence_percent.ram | float < 2
           - shadow_gate_evidence.p99_relative_divergence_percent.disk | float < 2
