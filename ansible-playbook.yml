@@ -634,6 +634,21 @@
         name: "{{ container_name }}"
       register: active_container_for_runtime_map
 
+    - name: Stop selected collector before active runtime rebinding
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ observer_service_name }}"
+        state: stopped
+
+    - name: Recreate observer runtime directory for active binding
+      become: true
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}"
+        state: directory
+        owner: "{{ observer_user }}"
+        group: "{{ observer_user }}"
+        mode: "0750"
+
     - name: Write newly active allowlisted container facts
       become: true
       ansible.builtin.copy:
