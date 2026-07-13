@@ -204,14 +204,25 @@ sudo /usr/local/bin/frontpage-metrics-shadow-compare \
   --v1-history /var/lib/frontpage-metrics/v1/comparison-history.json \
   --v2-database /var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3 \
   --projection-root /var/lib/frontpage-metrics/v2-shadow \
+  --evidence-epoch /var/lib/frontpage-metrics/shadow-evidence-epoch.json \
   --output /var/lib/frontpage-metrics/shadow-gate.json
 ```
 
-Approval requires at least 48 continuous hours, no paired-sample gap above
-120 seconds, zero missed paired minutes, p99 relative divergence below 2% for CPU, RAM, and disk capacity,
-and zero mismatches across paired public service states. The artifact also
-records paired and missed minutes, database size, and projection size. A
-non-approved comparison exits with status 2.
+Ansible creates the host-only evidence epoch when collector code, comparator
+logic, configuration, or systemd units change. It preserves the marker on
+web-only deploys. The comparator evaluates the latest rolling 48-hour window
+after that epoch, so a collector or comparison change cannot reuse older
+evidence. Incomplete host rows are unavailable evidence rather than parser
+errors and are counted as missed minutes.
+
+The resulting gate artifact uses schema version 2. Approval requires 48
+continuous hours, evidence no older than 120 seconds, no
+paired-sample gap above 120 seconds, zero missed or incomplete host minutes,
+p99 relative divergence below 2% for CPU, RAM, and disk capacity, and zero
+mismatches or missing entries across public service states. The artifact also
+records the epoch, window bounds, evidence age, paired and missed minutes,
+database size, and projection size. A valid but non-approved comparison exits
+with status 2; malformed inputs still fail operationally.
 
 Promotion is a separate exact-SHA invocation and requires both the generated
 artifact and an explicit operator acknowledgment:
