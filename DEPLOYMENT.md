@@ -189,7 +189,9 @@ Expected evidence:
 - Container mounts list only the v1 directory at `/metrics`. Directory mounting
   is required so atomic collector replacements become visible without pinning
   stale file inodes.
-- The runtime map is rewritten after both a successful container swap and rollback.
+- The runtime map is atomically rewritten as `frontpage-observer` after both a
+  successful container swap and rollback. Web-image deploys do not restart the
+  shadow collector; collector code, config, executable, or unit changes do.
 
 Shadow operation is not promotion. A running v2 service does not prove the
 48-hour divergence gate, owner UI activation, public redaction, or production
@@ -217,6 +219,12 @@ web-only deploys. The comparator evaluates the latest rolling 48-hour window
 after that epoch, so a collector or comparison change cannot reuse older
 evidence. Incomplete host rows are unavailable evidence rather than parser
 errors and are counted as missed minutes.
+
+An operator can deliberately discard a contaminated window without deleting
+host files by deploying once with
+`FRONTPAGE_OBSERVABILITY_RESET_EVIDENCE=1`. This starts a new epoch without
+restarting an otherwise healthy collector. Evidence reset and promotion are
+mutually exclusive in one deployment.
 
 The resulting gate artifact uses schema version 2. Approval requires 48
 continuous hours, evidence no older than 120 seconds, no
