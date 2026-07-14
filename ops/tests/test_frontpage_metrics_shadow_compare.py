@@ -267,17 +267,36 @@ class ShadowComparisonTests(unittest.TestCase):
     def test_evidence_epoch_is_strict_and_rounds_up_to_a_complete_minute(self):
         with tempfile.TemporaryDirectory() as temporary:
             epoch = Path(temporary) / "epoch.json"
+            self.assertEqual(MODULE.EVIDENCE_EPOCH_REASONS, {
+                "collector_or_comparator_change",
+                "evidence_marker_missing",
+                "explicit_operator_reset",
+            })
+            for reason in MODULE.EVIDENCE_EPOCH_REASONS:
+                with self.subTest(reason=reason):
+                    epoch.write_text(json.dumps({
+                        "schema_version": 1,
+                        "started_at": "2026-07-13T22:24:31Z",
+                        "commit_sha": "a" * 40,
+                        "reason": reason,
+                    }))
+
+                    payload, timestamp = MODULE._load_evidence_epoch(epoch)
+
+                    self.assertEqual(payload["reason"], reason)
+                    self.assertEqual(
+                        MODULE._timestamp(MODULE._next_minute(timestamp)),
+                        "2026-07-13T22:25:00Z",
+                    )
+
             epoch.write_text(json.dumps({
                 "schema_version": 1,
                 "started_at": "2026-07-13T22:24:31Z",
                 "commit_sha": "a" * 40,
-                "reason": "collector_or_comparator_change",
+                "reason": "manual",
             }))
-
-            payload, timestamp = MODULE._load_evidence_epoch(epoch)
-
-            self.assertEqual(payload["commit_sha"], "a" * 40)
-            self.assertEqual(MODULE._timestamp(MODULE._next_minute(timestamp)), "2026-07-13T22:25:00Z")
+            with self.assertRaisesRegex(ValueError, "reason"):
+                MODULE._load_evidence_epoch(epoch)
 
     def test_cli_writes_unapproved_artifact_for_incomplete_production_row(self):
         with tempfile.TemporaryDirectory() as temporary:

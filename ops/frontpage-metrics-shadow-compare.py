@@ -16,6 +16,13 @@ MINUTE_MS = 60_000
 WINDOW_MS = 48 * 3_600_000
 MAX_EVIDENCE_AGE_SECONDS = 120
 GATE_SCHEMA_VERSION = 2
+EVIDENCE_EPOCH_REASONS = frozenset(
+    {
+        "collector_or_comparator_change",
+        "evidence_marker_missing",
+        "explicit_operator_reset",
+    }
+)
 
 
 def _minute(timestamp_ms: int) -> int:
@@ -260,7 +267,7 @@ def _load_evidence_epoch(path: Path) -> tuple[dict[str, object], int]:
         r"[a-f0-9]{40}", payload["commit_sha"]
     ):
         raise ValueError("Evidence epoch commit_sha must be a full Git SHA")
-    if payload["reason"] != "collector_or_comparator_change":
+    if payload["reason"] not in EVIDENCE_EPOCH_REASONS:
         raise ValueError("Evidence epoch reason is invalid")
     return payload, _timestamp_ms(payload["started_at"])
 
