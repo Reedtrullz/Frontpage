@@ -253,6 +253,13 @@ database and `private/` directory are never mounted. Ansible fails promotion
 when the on-host comparison artifact does not independently satisfy every
 gate, even if the acknowledgment environment variable is present.
 
+`FRONTPAGE_OBSERVABILITY_V2_PROMOTE=1` is a one-time transition input, not the
+steady-state mode selector. After promotion, Ansible derives v2 activation from
+the enabled state of `frontpage-metrics-collector-v2.service`. Ordinary later
+deployments therefore retain the promoted app mounts and cannot re-enable the
+shadow collector. Rollback remains deliberately v1-first and explicitly stops
+the promoted collector before restoring shadow operation.
+
 The active and shadow units intentionally use the same private
 `metrics-v2-shadow.sqlite3` database and are mutually exclusive. Reusing that
 file preserves the history that passed the gate; only the projection output

@@ -41,7 +41,7 @@ export async function fetchMiningV2(): Promise<{
       ? Math.floor(Date.now() / 1000 - loginMs / 1000)
       : null;
 
-    const avg = (stats as any).hashrateAvg;
+    const avg = stats.hashrateAvg as unknown as Record<string, string> | undefined;
     return {
       data: {
         hashrate: parseInt(stats.hashrate ?? "0", 10),

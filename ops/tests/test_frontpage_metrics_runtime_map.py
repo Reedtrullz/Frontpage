@@ -119,7 +119,7 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn('"{{ metrics_v1_dir }}:/metrics:ro"', playbook)
         self.assertIn("metrics_dir ~ '/v2/public:/metrics-public:ro'", playbook)
         self.assertIn("metrics_dir ~ '/v2/owner:/metrics-owner:ro'", playbook)
-        self.assertIn("if observability_v2_promote else []", playbook)
+        self.assertIn("if observability_v2_enabled else []", playbook)
         self.assertIn("OBSERVABILITY_V2_SHADOW_GATE=approved", playbook)
         self.assertIn("shadow-evidence-epoch.json", playbook)
         self.assertIn("Start a new shadow evidence epoch", playbook)
@@ -136,6 +136,35 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertNotIn('"{{ metrics_dir }}:/metrics:ro"', playbook)
         self.assertNotIn("v2-shadow:/metrics", playbook)
         self.assertNotIn("/private:/metrics", playbook)
+
+    def test_ansible_preserves_promoted_mode_on_ordinary_deployments(self):
+        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
+        self.assertIn("Gather systemd service state for observability mode", playbook)
+        self.assertIn("observability_v2_enabled", playbook)
+        self.assertIn("observability_v2_promote\n            or (", playbook)
+        self.assertNotIn(
+            "if observability_v2_promote else 'frontpage-metrics-collector-v2-shadow.service'",
+            playbook,
+        )
+        self.assertNotIn("if observability_v2_promote else []", playbook)
+        self.assertIn(
+            "'FRONTPAGE_OBSERVABILITY_V2': '1'\n"
+            "                } if observability_v2_enabled else {}",
+            playbook,
+        )
+        self.assertIn(
+            "- (not observability_v2_enabled) or "
+            "('FRONTPAGE_OBSERVABILITY_V2=1' in container_info.container.Config.Env)",
+            playbook,
+        )
+        self.assertIn("Read both observability collector service states", playbook)
+        self.assertIn("exactly one observability collector is active", playbook)
+        self.assertEqual(
+            playbook.count(
+                "when: (not observability_v2_enabled) or observability_v2_promote"
+            ),
+            3,
+        )
 
     def test_ansible_observer_package_manifest_matches_local_python_sources(self):
         playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()

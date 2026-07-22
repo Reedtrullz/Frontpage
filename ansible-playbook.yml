@@ -39,7 +39,6 @@
     observability_v2_promote: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_V2_PROMOTE') | default('0', true) == '1' }}"
     observability_v2_reset_evidence: "{{ lookup('env', 'FRONTPAGE_OBSERVABILITY_RESET_EVIDENCE') | default('0', true) == '1' }}"
     observability_v2_shadow_gate: "{{ lookup('env', 'OBSERVABILITY_V2_SHADOW_GATE') | default('', true) }}"
-    observer_service_name: "{{ 'frontpage-metrics-collector-v2.service' if observability_v2_promote else 'frontpage-metrics-collector-v2-shadow.service' }}"
 
   pre_tasks:
     - name: Validate requested deployment commit
@@ -69,6 +68,35 @@
           - vault_github_token is defined
         fail_msg: "Required encrypted deployment variables are missing."
       no_log: true
+
+    - name: Gather systemd service state for observability mode
+      become: true
+      ansible.builtin.service_facts:
+
+    - name: Derive persistent observability mode
+      ansible.builtin.set_fact:
+        observability_v2_enabled: >-
+          {{
+            observability_v2_promote
+            or (
+              ansible_facts.services.get(
+                'frontpage-metrics-collector-v2.service', {}
+              ).get('status', 'disabled') == 'enabled'
+            )
+          }}
+        observer_service_name: >-
+          {{
+            'frontpage-metrics-collector-v2.service'
+            if (
+              observability_v2_promote
+              or (
+                ansible_facts.services.get(
+                  'frontpage-metrics-collector-v2.service', {}
+                ).get('status', 'disabled') == 'enabled'
+              )
+            )
+            else 'frontpage-metrics-collector-v2-shadow.service'
+          }}
 
     - name: Resolve GitHub owner id for app owner checks
       delegate_to: localhost
@@ -483,7 +511,9 @@
       ansible.builtin.systemd:
         name: frontpage-metrics-collector-v2-shadow.service
         state: stopped
-      when: shadow_collector_restart_required
+      when:
+        - not observability_v2_enabled
+        - shadow_collector_restart_required
 
     - name: Ensure observer runtime directory exists
       become: true
@@ -600,7 +630,9 @@
           - "{{ observer_run_dir }}/runtime-map.json"
           - --once
       changed_when: true
-      when: shadow_collector_restart_required
+      when:
+        - not observability_v2_enabled
+        - shadow_collector_restart_required
 
     - name: Enable observability collector shadow service
       become: true
@@ -609,13 +641,16 @@
         enabled: true
         state: "{{ 'restarted' if shadow_collector_restart_required else 'started' }}"
         daemon_reload: true
+      when: not observability_v2_enabled
 
     - name: Read host clock for shadow evidence restart
       become: true
       ansible.builtin.command: date -u +%Y-%m-%dT%H:%M:%SZ
       register: shadow_evidence_clock
       changed_when: false
-      when: shadow_evidence_reset_required
+      when:
+        - not observability_v2_enabled
+        - shadow_evidence_reset_required
 
     - name: Start a new shadow evidence epoch
       become: true
@@ -631,7 +666,9 @@
             "commit_sha": "{{ deploy_commit_sha }}",
             "reason": "{{ shadow_evidence_reset_reason }}"
           }
-      when: shadow_evidence_reset_required
+      when:
+        - not observability_v2_enabled
+        - shadow_evidence_reset_required
 
     - name: Verify collector services and observer group isolation
       become: true
@@ -649,6 +686,7 @@
         - frontpage-metrics-collector-v2-shadow.service
       register: collector_service_states
       changed_when: false
+      when: (not observability_v2_enabled) or observability_v2_promote
 
     - name: Verify shadow projection permissions
       become: true
@@ -659,16 +697,23 @@
         - "{{ observer_shadow_dir }}/owner/latest.v2.json"
         - "{{ observer_shadow_dir }}/owner/host/1h.v2.json"
       register: shadow_projection_files
+      when: (not observability_v2_enabled) or observability_v2_promote
 
-    - name: Assert shadow isolation and output contract
+    - name: Assert observer group isolation
       ansible.builtin.assert:
         that:
           - "'docker' not in observer_groups.stdout.split()"
+        fail_msg: "Collector v2 observer has unsafe supplementary groups."
+
+    - name: Assert shadow service and output contract
+      ansible.builtin.assert:
+        that:
           - collector_service_states.results | map(attribute='stdout') | list == ['active', 'active']
           - shadow_projection_files.results | map(attribute='stat.exists') | min
           - shadow_projection_files.results | map(attribute='stat.mode') | unique | list == ['0640']
           - shadow_projection_files.results | map(attribute='stat.gr_name') | unique | list == [metrics_user]
         fail_msg: "Collector v2 shadow mode is not isolated, active, or publishing strict files."
+      when: (not observability_v2_enabled) or observability_v2_promote
 
     - name: Refresh 48-hour shadow comparison artifact for promotion
       become: true
@@ -809,7 +854,7 @@
                   'PUBLIC_METRICS_DIR': '/metrics-public',
                   'OWNER_METRICS_DIR': '/metrics-owner',
                   'FRONTPAGE_OBSERVABILITY_V2': '1'
-                } if observability_v2_promote else {}
+                } if observability_v2_enabled else {}
               )
           }}
         groups:
@@ -824,7 +869,7 @@
                 [
                   metrics_dir ~ '/v2/public:/metrics-public:ro',
                   metrics_dir ~ '/v2/owner:/metrics-owner:ro'
-                ] if observability_v2_promote else []
+                ] if observability_v2_enabled else []
               )
           }}
 
@@ -961,7 +1006,7 @@
             name: frontpage-metrics-collector-v2.service
             enabled: false
             state: stopped
-          when: observability_v2_promote
+          when: observability_v2_enabled
 
         - name: Inspect rollback container for runtime binding
           community.docker.docker_container_info:
@@ -1067,23 +1112,29 @@
           - container_info.container.State.Status == "running"
           - container_info.container.Config.Image == docker_image
           - ("VERSION=" ~ deploy_commit_sha) in container_info.container.Config.Env
-          - (not observability_v2_promote) or ('FRONTPAGE_OBSERVABILITY_V2=1' in container_info.container.Config.Env)
-          - observability_v2_promote or ('FRONTPAGE_OBSERVABILITY_V2=1' not in container_info.container.Config.Env)
+          - (not observability_v2_enabled) or ('FRONTPAGE_OBSERVABILITY_V2=1' in container_info.container.Config.Env)
+          - observability_v2_enabled or ('FRONTPAGE_OBSERVABILITY_V2=1' not in container_info.container.Config.Env)
         fail_msg: "Running container does not match the requested image or VERSION."
 
-    - name: Verify selected observability collector is active
+    - name: Read both observability collector service states
       become: true
       ansible.builtin.command:
-        argv: ["systemctl", "is-active", "{{ observer_service_name }}"]
-      register: selected_observer_service_state
+        argv: ["systemctl", "is-active", "{{ item }}"]
+      loop:
+        - frontpage-metrics-collector-v2-shadow.service
+        - frontpage-metrics-collector-v2.service
+      register: observer_service_states
       changed_when: false
+      failed_when: false
       when: rollback is not defined or not (rollback.changed | default(false))
 
-    - name: Assert selected observability collector state
+    - name: Assert exactly one observability collector is active
       ansible.builtin.assert:
         that:
-          - selected_observer_service_state.stdout == 'active'
-        fail_msg: "Selected observability collector service is not active."
+          - observer_service_states.results | map(attribute='stdout') | select('equalto', 'active') | list | length == 1
+          - observer_service_states.results[0].stdout == ('inactive' if observability_v2_enabled else 'active')
+          - observer_service_states.results[1].stdout == ('active' if observability_v2_enabled else 'inactive')
+        fail_msg: "The selected observability collector must be active and its opposite inactive."
       when: rollback is not defined or not (rollback.changed | default(false))
 
     - name: Verify shadow app container can read v1 metrics read-only
@@ -1092,7 +1143,7 @@
         command: "node -e \"const fs=require('fs'); fs.accessSync('/metrics/latest.json', fs.constants.R_OK); fs.accessSync('/metrics/history.json', fs.constants.R_OK); if (fs.existsSync('/metrics/private') || fs.existsSync('/metrics/v2-shadow')) process.exit(3); try { fs.writeFileSync('/metrics/latest.json', 'x'); process.exit(2); } catch { process.exit(0); }\""
       register: metrics_mount_check
       changed_when: false
-      when: not observability_v2_promote
+      when: not observability_v2_enabled
 
     - name: Verify promoted app container projection isolation
       community.docker.docker_container_exec:
@@ -1100,7 +1151,7 @@
         command: "node -e \"const fs=require('fs'); for(const file of ['/metrics/latest.json','/metrics-public/latest.v2.json','/metrics-owner/latest.v2.json'])fs.accessSync(file,fs.constants.R_OK); if(fs.existsSync('/metrics-private')||fs.existsSync('/metrics-owner/metrics-v2.sqlite3')||fs.existsSync('/metrics-public/metrics-v2.sqlite3'))process.exit(3); for(const dir of ['/metrics','/metrics-public','/metrics-owner']){try{fs.writeFileSync(dir+'/write-test','x');process.exit(2)}catch{}}\""
       register: promoted_metrics_mount_check
       changed_when: false
-      when: observability_v2_promote
+      when: observability_v2_enabled
 
     - name: Verify promoted projection and private database permissions
       become: true
@@ -1111,7 +1162,7 @@
         - "{{ metrics_dir }}/v2/owner/latest.v2.json"
         - "{{ observer_private_dir }}"
       register: promoted_observability_paths
-      when: observability_v2_promote
+      when: observability_v2_enabled
 
     - name: Assert promoted collector service and permissions
       ansible.builtin.assert:
@@ -1122,7 +1173,7 @@
           - promoted_observability_paths.results[0].stat.gr_name == metrics_user
           - promoted_observability_paths.results[1].stat.gr_name == metrics_user
         fail_msg: "Promoted observability projections or private database directory have unsafe permissions."
-      when: observability_v2_promote
+      when: observability_v2_enabled
 
     - name: Report deployment status
       debug:
