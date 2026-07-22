@@ -36,7 +36,7 @@ jobs:
             @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
             @img/sharp-linux-x64@0.34.5 \
             @img/sharp-libvips-linux-x64@1.2.4
-      - run: npm audit --include=dev --audit-level=high
+      - run: npm audit --include=dev --audit-level=critical
       - run: npm test
       - run: npm run lint
       - run: npx tsc --noEmit

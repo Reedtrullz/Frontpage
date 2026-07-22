@@ -21,6 +21,7 @@ import {
   readSeriesV2,
 } from "@/lib/metrics/v2/reader";
 import { createPublicStatusV2 } from "@/lib/metrics/v2/public-status";
+import { fetchMiningV2 } from "@/lib/metrics/v2/mining";
 
 export const dynamic = "force-dynamic";
 
@@ -147,6 +148,26 @@ export default async function StatusPage() {
       )
     : model.ownerAttention;
 
+  const miningData = await fetchMiningV2();
+
+function formatHashrate(h: number): string {
+  // ponytail: simple H/s formatting, add more granularity if needed
+  if (h >= 1e12) return `${(h / 1e12).toFixed(2)} TH/s`;
+  if (h >= 1e9) return `${(h / 1e9).toFixed(2)} GH/s`;
+  if (h >= 1e6) return `${(h / 1e6).toFixed(2)} MH/s`;
+  if (h >= 1e3) return `${(h / 1e3).toFixed(2)} KH/s`;
+  return `${h.toFixed(0)} H/s`;
+}
+
+function formatDuration(s: number): string {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
   return (
     <div>
       <header className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12">
@@ -166,6 +187,61 @@ export default async function StatusPage() {
       </header>
 
       <VpsStatusSummary metrics={publicDisplayMetrics} overall={publicDisplayOverall} />
+
+      <section className="border-y border-[var(--border)] bg-[var(--surface-raised)]" aria-labelledby="mining-heading">
+        <div className="mx-auto grid max-w-7xl gap-0 px-4 sm:px-6 lg:grid-cols-[1.4fr_repeat(3,0.7fr)]">
+          <div className="flex gap-3 py-6 lg:pr-8">
+            <div className={miningData.data && miningData.data.hashrate > 0 ? "mt-1 h-2 w-2 shrink-0 rounded-full bg-green-500" : "mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--text-muted)]"} aria-hidden="true" />
+            <div>
+              <h2 id="mining-heading" className="text-base font-semibold">
+                {miningData.data && miningData.data.hashrate > 0 ? "Mining PEARL" : "Miner offline"}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">
+                {miningData.data && miningData.data.hashrate > 0
+                  ? `Desktop miner on LuckyPool${miningData.data.worker_name ? ` (${miningData.data.worker_name})` : ""}`
+                  : miningData.data && miningData.age !== null && miningData.age < 600_000
+                    ? `No recent shares — miner may be starting up`
+                    : miningData.data
+                      ? `No known miner activity`
+                      : `Mining stats not available`}
+              </p>
+            </div>
+          </div>
+          <div className="border-t border-[var(--border)] py-5 lg:border-l lg:border-t-0 lg:px-6">
+            <p className="text-xs text-[var(--text-subtle)]">Hashrate</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--text)]">
+              {miningData.data ? formatHashrate(miningData.data.hashrate) : "—"}
+            </p>
+            {miningData.data && miningData.data.hashrate_avg_1h > 0 ? (
+              <span className="mt-1 block text-xs text-[var(--text-subtle)]">
+                1h avg {formatHashrate(miningData.data.hashrate_avg_1h)}
+              </span>
+            ) : null}
+          </div>
+          <div className="border-t border-[var(--border)] py-5 lg:border-l lg:border-t-0 lg:px-6">
+            <p className="text-xs text-[var(--text-subtle)]">Uptime</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--text)]">
+              {miningData.data?.uptime_seconds ? formatDuration(miningData.data.uptime_seconds) : "—"}
+            </p>
+            <span className="mt-1 block text-xs text-[var(--text-subtle)]">
+              {miningData.data ? `${(miningData.data.accepted_shares / 1000).toFixed(1)}k shares` : ""}
+            </span>
+          </div>
+          <div className="border-t border-[var(--border)] py-5 lg:border-l lg:border-t-0 lg:px-6">
+            <p className="text-xs text-[var(--text-subtle)]">Last share</p>
+            <p className="mt-1 text-sm font-semibold text-[var(--text)]">
+              {miningData.data?.last_share_at_ms && miningData.data.last_share_at_ms > 0
+                ? <RelativeTime value={new Date(miningData.data.last_share_at_ms).toISOString()} />
+                : "—"}
+            </p>
+            {miningData.data ? (
+              <span className="mt-1 block text-xs text-[var(--text-subtle)]">
+                <RelativeTime value={miningData.data.collected_at} />
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </section>
 
       <div className="mx-auto grid max-w-7xl gap-12 px-4 py-12 sm:px-6 sm:py-14 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <div className="lg:order-2">
