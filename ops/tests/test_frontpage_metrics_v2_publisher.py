@@ -122,8 +122,13 @@ class ProjectionPublisherTests(unittest.TestCase):
                 },
             },
         }
-        with self.assertRaisesRegex(FileExistsError, "immutable"):
-            self.publisher.publish(changed)
+        previous = self.publisher.owner_dir.joinpath("host", "minute", "2026-07-11.v2.json").read_bytes()
+        results = self.publisher.publish(changed)
+        self.assertEqual(
+            self.publisher.owner_dir.joinpath("host", "minute", "2026-07-11.v2.json").read_bytes(),
+            previous,
+        )
+        self.assertFalse(next(result for result in results if result.path.name == "2026-07-11.v2.json").changed)
 
     def test_payload_caps_are_enforced_before_write(self):
         with self.assertRaisesRegex(ValueError, "512 KiB"):

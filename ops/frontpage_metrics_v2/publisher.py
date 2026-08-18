@@ -241,5 +241,14 @@ class ProjectionPublisher:
         for path, payload in owner_files.items():
             match = DAILY_CHUNK_PATTERN.fullmatch(path)
             immutable = bool(match and current_day and match.group(1) < current_day)
-            results.append(self.publish_owner(path, payload, immutable=immutable))
+            try:
+                results.append(self.publish_owner(path, payload, immutable=immutable))
+            except FileExistsError:
+                # Rolling retention can leave only part of a closed day in SQLite.
+                # Keep the sealed projection rather than trying to rewrite it with
+                # an incomplete payload. Direct immutable writes remain strict.
+                if not immutable:
+                    raise
+                target = self.owner_dir.joinpath(*_relative_json_path(path).parts)
+                results.append(PublicationResult(target, target.stat().st_size, False))
         return tuple(results)
