@@ -6,6 +6,7 @@
     docker_image_repository: "ghcr.io/reedtrullz/frontpage"
     container_name: "frontpage"
     requested_commit_sha: "{{ lookup('env', 'GITHUB_SHA') | default('', true) }}"
+    image_preloaded: "{{ lookup('env', 'FRONTPAGE_IMAGE_PRELOADED') | default('0', true) == '1' }}"
     docker_image: "{{ docker_image_repository }}:sha-{{ deploy_commit_sha }}"
     metrics_dir: "/var/lib/frontpage-metrics"
     metrics_v1_dir: "{{ metrics_dir }}/v1"
@@ -812,12 +813,27 @@
         password: "{{ vault_github_token }}"
         reauthorize: true
       no_log: true
+      when: not image_preloaded
 
     - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
         source: pull
         force_source: yes
+      when: not image_preloaded
+
+    - name: Verify preloaded commit-addressed image
+      community.docker.docker_image_info:
+        name: "{{ docker_image }}"
+      register: preloaded_image_info
+      when: image_preloaded
+
+    - name: Fail if preloaded commit-addressed image is missing
+      ansible.builtin.assert:
+        that:
+          - preloaded_image_info.images | default([]) | length > 0
+        fail_msg: "The requested preloaded image is not present on the VPS."
+      when: image_preloaded
 
     - name: Stop and remove existing container
       community.docker.docker_container:

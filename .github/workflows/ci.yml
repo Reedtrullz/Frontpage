@@ -186,3 +186,32 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Pull with: \`docker pull $latest_image\`" >> $GITHUB_STEP_SUMMARY
+
+  preload:
+    name: Preload deploy image on VPS
+    needs: [publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Install SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/id_rsa"
+          chmod 600 "$HOME/.ssh/id_rsa"
+          ssh-keyscan -H 198.23.137.16 >> "$HOME/.ssh/known_hosts"
+
+      - name: Authenticate and preload immutable image
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USERNAME: ${{ github.actor }}
+          IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+        run: |
+          printf '%s\n' "$GHCR_TOKEN" | ssh -o StrictHostKeyChecking=yes deploy@198.23.137.16 \
+            "sudo docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin >/dev/null"
+          ssh -o StrictHostKeyChecking=yes deploy@198.23.137.16 \
+            "sudo docker pull '$IMAGE'"
