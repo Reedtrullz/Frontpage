@@ -804,6 +804,15 @@
         daemon_reload: true
       when: observability_v2_promote
 
+    - name: Authenticate host to GHCR for immutable image pull
+      become: true
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ owner_github_login }}"
+        password: "{{ vault_github_token }}"
+        reauthorize: true
+      no_log: true
+
     - name: Pull commit-addressed image from GHCR
       community.docker.docker_image:
         name: "{{ docker_image }}"
