@@ -53,7 +53,7 @@ describe("runtime data files", () => {
     const projects = getProjects();
 
     expect(personal.name).toBe("Reidar");
-    expect(projects).toHaveLength(14);
+    expect(projects).toHaveLength(23);
     expect(fs.readFileSync(path.join(dataDir, "projects.json"), "utf8")).toBe(
       "[]",
     );

@@ -38,7 +38,7 @@
     "tags": ["aviation", "flight-sim", "physics", "autopilot", "webgl"],
     "techStack": ["React", "TypeScript", "Vite", "Three.js", "Zustand"],
     "featuredRank": 2,
-    "repoUrl": "https://github.com/Reedtrullz/RFS",
+    "repoUrl": "https://github.com/Reedtrullz/ReedFS",
     "liveUrl": "https://fly.reidar.tech",
     "media": {
       "cover": {
@@ -148,7 +148,7 @@
     "category": "wiki",
     "tags": ["thorchain", "wiki", "documentation", "charts", "data"],
     "techStack": ["Next.js 16", "React 19", "Recharts", "lunr", "SWR", "date-fns"],
-    "repoUrl": "https://github.com/Reedtrullz/thorchain-wiki",
+    "repoUrl": "https://github.com/Reedtrullz/tcwiki",
     "liveUrl": "https://wiki.thorchain.no/",
     "media": {
       "cover": {
@@ -184,7 +184,6 @@
     "category": "bot",
     "tags": ["thorchain", "arbitrage", "defi", "trading", "experimental", "safety"],
     "techStack": ["TypeScript", "Node.js", "ethers.js", "Jest", "GitHub Actions"],
-    "repoUrl": "https://github.com/Reedtrullz/THORArb",
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -209,7 +208,6 @@
     "category": "frontend",
     "tags": ["thorchain", "maya", "swap", "frontend", "quotes-only", "experimental"],
     "techStack": ["Next.js 15", "React 19", "Zustand", "Vitest", "Tailwind"],
-    "repoUrl": "https://github.com/Reedtrullz/thor-maya-swap-frontend",
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
@@ -324,27 +322,29 @@
   },
   {
     "slug": "inebotten",
-    "name": "inebotten",
-    "outcome": "Automates community operations and THORChain utility workflows through a Discord bot.",
-    "shortDescription": "An active Discord and community automation bot with signed-session hardening and ongoing modular extraction.",
-    "longDescription": "inebotten handles moderation, THORChain information, scheduled announcements, and external API integrations. Recent work tightened session handling and modular boundaries.",
+    "name": "Inebotten Discord",
+    "outcome": "Provides Norwegian Discord calendar, reminder, utility, and AI-chat workflows through a selfbot.",
+    "shortDescription": "A Norwegian Discord selfbot with conservative intent routing, calendar integration, AI chat, utility commands, and a web console.",
+    "longDescription": "Inebotten handles calendar workflows, reminders, utility and social commands, AI chat, and external integrations through a conservative intent router. The repository also includes a web console and desktop/VPS launchers.",
     "lifecycle": "active",
     "maturity": "stable",
     "category": "bot",
-    "tags": ["discord", "bot", "automation", "community", "thorchain"],
-    "techStack": ["TypeScript", "discord.js", "Node.js"],
+    "tags": ["discord", "selfbot", "ai", "calendar", "norwegian", "automation", "python"],
+    "techStack": ["Python 3.12+", "LM Studio", "OpenRouter", "Google Calendar", "Docker"],
+    "repoUrl": "https://github.com/Reedtrullz/inebotten-discord",
     "evidence": {
-      "reviewedAt": "2026-07-09T18:00:00Z",
+      "reviewedAt": "2026-08-18T08:44:53Z",
       "level": "source-reviewed",
-      "note": "Current routing, health, and session-hardening posture reviewed."
+      "commitSha": "55ab3662480f34f4e0e72cbb2f6d3da840c724ab",
+      "note": "Repository source, release posture, routing boundaries, and selfbot risk reviewed."
     },
     "sections": {
-      "whatItSolves": ["Community operations need repeatable moderation, information, and scheduled automation."],
-      "currentState": ["Active deployed community infrastructure with ongoing modular extraction."],
-      "howItWorks": ["Uses discord.js commands, events, schedules, and external data integrations."],
-      "nextPriorities": ["Continue modular extraction and operational health visibility."]
+      "whatItSolves": ["Community workflows need repeatable reminders, calendar actions, utility commands, and information access."],
+      "currentState": ["Active Python application with intent routing, calendar workflows, utility and social commands, a web console, and desktop/VPS launchers."],
+      "howItWorks": ["Routes explicit commands and Norwegian natural language through a conservative intent router, with LM Studio or OpenRouter as the AI fallback."],
+      "nextPriorities": ["Continue modular extraction and keep provider, account, and Discord policy boundaries explicit."]
     },
-    "limitations": ["Behaviour depends on Discord and external APIs.", "Public status does not currently expose a dedicated service probe."]
+    "limitations": ["Discord selfbots violate Discord's Terms of Service; use a dedicated test account at your own risk.", "Behaviour depends on Discord and external APIs.", "No public runtime health proof is attached to this project."]
   },
   {
     "slug": "thornode-watcher",
@@ -397,5 +397,248 @@
       "nextPriorities": ["Complete the trust-first UI, canonical content migration, and owner draft/publish workflow."]
     },
     "limitations": ["Only configured public services receive runtime health.", "Deployment remains a deliberate external Ansible action."]
+  },
+  {
+    "slug": "keyspilli",
+    "name": "Keyspilli",
+    "outcome": "Makes learning familiar piano songs more approachable through playable arrangements, visual guidance, and practice feedback.",
+    "shortDescription": "A private browser-based piano-learning app with a color-coded player, four view modes, a roughly 100-song catalogue, MIDI/YouTube input, practice grading, and PDF/MIDI/MusicXML export.",
+    "longDescription": "Keyspilli is a private, single-user piano-learning app for turning familiar songs into playable practice material. It combines a color-coded interactive player, multiple arrangement and view modes, MIDI uploads, optional YouTube-to-MIDI conversion, live practice grading, and free PDF, MIDI, and MusicXML export.",
+    "lifecycle": "active",
+    "maturity": "flagship",
+    "category": "frontend",
+    "tags": ["piano", "music-learning", "midi", "musicxml", "practice", "transcription", "audio", "private", "frontend"],
+    "techStack": ["Next.js 15", "React 19", "TypeScript", "Tailwind CSS 4", "Vitest", "Playwright", "SQLite", "Basic Pitch", "yt-dlp", "MIDI", "MusicXML"],
+    "featuredRank": 5,
+    "repoUrl": "https://github.com/Reedtrullz/Keyspilli",
+    "liveUrl": "https://keys.reidar.tech",
+    "evidence": {
+      "reviewedAt": "2026-08-18T09:00:11Z",
+      "level": "live-verified",
+      "commitSha": "7d147dcf7618fc8bf92c1ff43c571a9b1e0e7663",
+      "url": "https://keys.reidar.tech/api/health",
+      "note": "Live health returned healthy; source, catalogue posture, and human-review limits were also reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Song transcriptions are often difficult to learn literally; Keyspilli turns them into visual, practice-oriented piano arrangements."],
+      "currentState": ["Active private single-user app with a public site, catalogue, uploads, YouTube conversion, practice grading, and export paths."],
+      "howItWorks": ["A Next.js and React player reads generated catalogue and SQLite artifacts; an optional Basic Pitch and yt-dlp worker handles audio-derived material."],
+      "nextPriorities": ["Continue human musical review of arrangements and keep the deployed revision aligned with CI and production smoke checks."]
+    },
+    "limitations": ["Private single-user product; do not imply a multi-user SaaS offering.", "Audio-derived and generated arrangements can require manual musical review.", "The deployed revision is 7d147dc; release correctness still depends on CI and production smoke checks."]
+  },
+  {
+    "slug": "rshelper",
+    "name": "RSHelper",
+    "outcome": "Helps OSRS players evaluate Grand Exchange opportunities with transparent margins, signals, paper trading, and P&L tracking.",
+    "shortDescription": "A stdlib-only Python OSRS trading companion for alch-profit and flip scanning, confidence-scored margins, market signals, paper trading, monitoring, and a local web dashboard.",
+    "longDescription": "RSHelper combines command-line market analysis with a local dashboard for OSRS Grand Exchange activity. It covers alch-profit scanning, flip and margin analysis, confidence and risk metrics, market signals, background monitoring with macOS notifications, watchlists, paper trades, trade journals, historical P&L, and GE/Bank views.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "tooling",
+    "tags": ["osrs", "grand-exchange", "market-analysis", "paper-trading", "trading-journal", "python", "dashboard", "monitoring", "stdlib"],
+    "techStack": ["Python 3.11+", "Python standard library", "HTML/CSS", "Jinja", "Docker", "Ansible", "Caddy", "GitHub Actions", "Server-Sent Events"],
+    "repoUrl": "https://github.com/Reedtrullz/RSHelper",
+    "liveUrl": "https://rs.reidar.tech",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "live-verified",
+      "commitSha": "4ac013cc1b339579a16c530b03be4250ac8a776a",
+      "url": "https://rs.reidar.tech/api/health",
+      "note": "Live health returned healthy; repository source, tax boundaries, and paper-trading posture were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["OSRS market data is difficult to turn into risk-aware, trackable decisions rather than one-off price lookups."],
+      "currentState": ["Active stable personal tool with a public dashboard, CLI scans, paper-trading journal, alerts, monitoring, and GE/Bank surfaces."],
+      "howItWorks": ["A dependency-free Python CLI and web server consume OSRS market sources, apply tax and margin logic, persist local state, and deploy behind Caddy using immutable images."],
+      "nextPriorities": ["Keep source freshness and fallback behavior visible, and deploy the current main state-sync revision when the normal deployment path is intended."]
+    },
+    "limitations": ["Paper trading and analysis only; it does not execute real Grand Exchange orders or provide financial advice.", "The OSRS Wiki API can be unavailable from datacenter IPs, so production falls back to GE Tracker for some data; real volume time series remain source-limited.", "Live health reports 4ac013c while current main is 3b35568; the latest successful workflow was state sync rather than a deployment."]
+  },
+  {
+    "slug": "handleplan",
+    "name": "Handleplan",
+    "outcome": "Makes grocery planning more honest by comparing eligible, source-labelled prices without hiding unknown coverage behind a simple 'best' claim.",
+    "shortDescription": "An anonymous-first Norwegian grocery planner in protected alpha, comparing complete non-dominated baskets across eligible prices from up to Bunnpris, REMA 1000, and Extra.",
+    "longDescription": "Handleplan is a Norwegian grocery-planning project focused on transparent price evidence rather than unqualified cheapest-basket claims. It distinguishes ordinary observations, official offers, and historical comparisons; supports exact products and reviewed product families; and keeps source coverage, uncertainty, privacy, and release boundaries explicit.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "frontend",
+    "tags": ["grocery", "price-comparison", "norway", "kassalapp", "basket-planning", "provenance", "privacy", "postgresql", "protected-alpha"],
+    "techStack": ["Next.js 16", "React 19", "TypeScript", "pnpm", "PostgreSQL", "Zod", "Vitest", "Playwright", "Docker", "Caddy", "Ansible", "Cloudflare Access"],
+    "repoUrl": "https://github.com/Reedtrullz/Handli",
+    "liveUrl": "https://handle.reidar.tech",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:16:39Z",
+      "level": "source-reviewed",
+      "commitSha": "5f7a45f5020e768bd05a6b4dc19d668cd1dcfdd8",
+      "note": "Repository contract, protected-alpha boundaries, deployment policy, and monitor mismatch were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Grocery comparison tools can overstate coverage and certainty; Handleplan makes eligible prices, source type, and unknown coverage explicit."],
+      "currentState": ["Protected-alpha implementation with separate public, review, operations, worker, and database boundaries; not a public shopping service."],
+      "howItWorks": ["A Next.js web app and worker use PostgreSQL, source-labelled ingestion, reviewed product-family matching, and local browser basket state behind least-privilege runtime roles."],
+      "nextPriorities": ["Resolve the external monitor revision mismatch and complete the documented v1 rights, coverage, ingestion, privacy, accessibility, backup, and monitoring gates."]
+    },
+    "limitations": ["Do not present this as a public live demo: the hostname is Cloudflare Access-protected and unauthenticated probes redirect to sign-in.", "The README explicitly describes protected alpha and says public-release gates are not complete.", "Current external monitor runs fail with REVISION_MISMATCH; no claim should be made that the protected runtime matches current main.", "Coverage is limited to eligible, verifiable prices and at most three intended chains; it does not claim a universally cheapest basket."]
+  },
+  {
+    "slug": "innsats-appen",
+    "name": "Beredskapsboka / Innsats-appen",
+    "outcome": "Provides source-backed Civil Defence field guidance and local mission, checklist, map, and log workflows in an offline-first mobile PWA.",
+    "shortDescription": "An offline-first Norwegian Civil Defence field-support PWA with source-backed quick cards, local missions, checklists, map/log workflows, and privacy-safe exports.",
+    "longDescription": "Beredskapsboka/Innsats-appen turns curated knowledge into a mobile and offline operational-support app for Sivilforsvaret-style field work. It provides source-backed action cards, phase guidance, local mission context, checklists, map markers, field logs, order and communications exports, after-action reports, and privacy-safe local reset without central mission sync.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "frontend",
+    "tags": ["offline-first", "civil-defense", "sivilforsvaret", "field-operations", "incident-response", "checklists", "field-logging", "pwa", "maplibre", "pmtiles", "privacy-first", "norwegian"],
+    "techStack": ["Next.js 16", "React 19", "TypeScript", "PWA", "Service Worker", "IndexedDB", "MapLibre GL", "PMTiles", "Vitest", "Playwright", "Docker", "Ansible", "Obsidian"],
+    "repoUrl": "https://github.com/Reedtrullz/Innsats-appen",
+    "liveUrl": "https://innsats.reidar.tech",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "live-verified",
+      "commitSha": "78e4d43a821f56f40cf96a69b2a1770dc20667c9",
+      "url": "https://innsats.reidar.tech/api/health",
+      "note": "Live health returned healthy; source, privacy boundaries, and decision-support limits were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Field teams need source-backed guidance and local operational notes that remain useful when connectivity is poor."],
+      "currentState": ["Public production PWA with quick cards, search, local missions, checklist progress, map and log workflow, exports, and an offline shell."],
+      "howItWorks": ["Generated content is compiled from a curated knowledge bank into a Next.js PWA with service-worker caching, local browser storage, optional MapLibre and PMTiles assets, and sanitized exports."],
+      "nextPriorities": ["Repair the current main CI installation failure, redeploy and verify the exact SHA, and keep real-device, staging, rollback, and pilot evidence separate from automated checks."]
+    },
+    "limitations": ["Decision support only; not an official command, order, journal, tracking, alerting, archive, or incident system.", "No login, backend mission sync, live tracking, push notifications, patient or person-data workflow, or official command-system integration.", "Pilot readiness and real-device evidence remain separate open gates.", "Live health reports 78e4d while current main is 81a89f; the latest main CI and deploy run failed during native-package installation."]
+  },
+  {
+    "slug": "ryddi",
+    "name": "Ryddi",
+    "outcome": "Safely reclaims macOS disk space while keeping cleanup local, reviewable, and recoverable.",
+    "shortDescription": "A local-first macOS disk cleaner for developer and AI-agent bloat, with Clean, Offload, Control, and Audit tools.",
+    "longDescription": "Ryddi scans common developer and AI-agent storage roots, groups findings by safety, and keeps destructive actions reviewable. It revalidates containment and filesystem state before moving safe items to Trash while keeping Offload originals untouched.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "tooling",
+    "tags": ["macos", "disk-cleanup", "storage", "privacy", "swift", "swiftui", "docker", "xcode"],
+    "techStack": ["Swift 6", "SwiftUI", "Finder Trash", "Xcode"],
+    "repoUrl": "https://github.com/Reedtrullz/Ryddi",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "source-reviewed",
+      "commitSha": "c2ed09c1a508ab893a610facb05eb31f8c88eb1e",
+      "note": "Repository source, v0.8.2 release posture, and cleanup safety boundaries were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Developer machines accumulate large caches and artifacts, but cleanup tools can be opaque or irreversible."],
+      "currentState": ["Active macOS utility with a public v0.8.2 release and a safety model that keeps uncertain operations review-only."],
+      "howItWorks": ["Scans known storage roots, groups findings by safety, revalidates containment and filesystem state before Trash, and never deletes Offload originals."],
+      "nextPriorities": ["Continue signed and notarized release work, filesystem edge-case coverage, and user-facing audit clarity."]
+    },
+    "limitations": ["macOS 14+ only.", "Source builds do not establish signed or notarized release trust.", "Offload does not claim cloud-upload completion."]
+  },
+  {
+    "slug": "clankeros",
+    "name": "ClankerOS",
+    "outcome": "Makes AI coding work durable and reviewable through local task graphs, evidence, and approval gates.",
+    "shortDescription": "A local-first agent OS harness for durable AI coding: task graphs, deterministic context packs, executable delegation, verification evidence, and approval gates.",
+    "longDescription": "ClankerOS turns coding goals into durable local task graphs, executes bounded delegation, records artifacts and verifier evidence, and exposes a local operator app. Approval boundaries keep external side effects, remote workers, and autonomous capability promotion out of the default loop.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "tooling",
+    "tags": ["agent-orchestration", "coding-agents", "task-graphs", "verification", "approval-gates", "local-first", "python"],
+    "techStack": ["Python", "SQLite", "Markdown/JSON", "CLI", "GitHub Actions"],
+    "repoUrl": "https://github.com/Reedtrullz/ClankerOS",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "source-reviewed",
+      "commitSha": "2ee5ec26f04ec06c41f2ff0d25acc1f64dc18226",
+      "note": "GitHub source, CI workflow, operator surface, and approval boundaries were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["AI coding work needs durable state, evidence, and explicit approvals rather than chat-only completion claims."],
+      "currentState": ["Active experimental local harness with CLI, SQLite and Markdown state, a local operator app, bounded delegation, and verifier and evidence flows."],
+      "howItWorks": ["Persists project, goal, task, approval, artifact, and run records; executes safe local work and emits evidence packets and handoff commands."],
+      "nextPriorities": ["Keep the single-worker proof loop reliable before expanding remote workers, broader autonomy, or hosted capabilities."]
+    },
+    "limitations": ["Local-only harness; no hosted service or public runtime health claim.", "Remote execution and autonomous external effects are outside the first milestone.", "Capability proof artifacts do not mean those capabilities are enabled."]
+  },
+  {
+    "slug": "project-dashboard",
+    "name": "Project Dashboard",
+    "outcome": "Surfaces concrete next actions from actual project and Git state before context switching.",
+    "shortDescription": "A self-hosted FastAPI dashboard for project state and Git-aware recommendations.",
+    "longDescription": "Project Dashboard reads configured local checkouts and stores project state in SQLite, then presents explainable recommendations for uncommitted, unpushed, stale, or missing work. The deployed owner route is /proposals; the current public README emphasizes local-only, no-AI recommendations.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "tooling",
+    "tags": ["project-management", "git", "dashboard", "fastapi", "sqlite", "local-first", "operations"],
+    "techStack": ["Python", "FastAPI", "Jinja2", "SQLite", "Ansible"],
+    "repoUrl": "https://github.com/Reedtrullz/hermes-proposals-dashboard",
+    "liveUrl": "https://reidar.tech/proposals",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "source-reviewed",
+      "commitSha": "2b432df949f1c84762ed689486011bbfab0c169c",
+      "note": "GitHub source and deployed route were reviewed; recommendations remain local-state dependent."
+    },
+    "sections": {
+      "whatItSolves": ["Project trackers lose trust when they guess state instead of reading local repositories."],
+      "currentState": ["Deployed owner dashboard at reidar.tech/proposals; source says recommendations come from actual local checkout and Git state."],
+      "howItWorks": ["Server-rendered FastAPI and Jinja2 views query SQLite and inspect configured directories with Git status and log checks."],
+      "nextPriorities": ["Keep auth, local-only boundaries, and deployment evidence current."]
+    },
+    "limitations": ["Recommendations depend on configured local filesystem and Git state.", "The hosted route depends on owner auth and tunnel or deployment plumbing.", "No public service health claim is attached to this project."]
+  },
+  {
+    "slug": "lp-nexus",
+    "name": "LP Nexus",
+    "outcome": "Explores cross-chain liquidity-position tracking and impermanent-loss scenarios.",
+    "shortDescription": "An experimental Next.js and Web3 interface for LP positions, fees, P&L, and impermanent-loss simulation.",
+    "longDescription": "LP Nexus is a Next.js 15 prototype with wallet adapters, position views, fee and P&L calculations, impermanent-loss and Monte Carlo simulation, tax export, and an optional Grok chat surface. The repository README describes broader multi-chain and PWA capabilities, but current runtime and readiness are not established.",
+    "lifecycle": "paused",
+    "maturity": "experimental",
+    "category": "defi",
+    "tags": ["defi", "liquidity-providing", "uniswap", "raydium", "impermanent-loss", "web3", "prototype"],
+    "techStack": ["Next.js 15", "React 19", "TypeScript", "wagmi", "viem", "Solana Wallet Adapter", "Tailwind CSS", "Vitest", "Playwright"],
+    "repoUrl": "https://github.com/Reedtrullz/LPNexus",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "source-reviewed",
+      "commitSha": "c1a2a80e61a6a5eace4f7d80f4c9eeaf585f9b01",
+      "note": "Repository source and runtime checks were reviewed; the linked Render deployment returned 503."
+    },
+    "sections": {
+      "whatItSolves": ["LP users need a single view of positions, fees, P&L, and range risk."],
+      "currentState": ["Paused experimental prototype; latest GitHub push was 2026-02-20 and the linked Render root and health endpoint were unavailable during review."],
+      "howItWorks": ["A Next.js UI combines EVM and Solana wallet adapters, position hooks, LP calculations, charts, and a simulator."],
+      "nextPriorities": ["Re-establish a working deployment and validate chain coverage, data freshness, wallet flows, and safety boundaries before live claims."]
+    },
+    "limitations": ["Multi-chain, AI, and PWA claims are source-described and not independently verified.", "The prototype requires third-party wallet, RPC, and API configuration.", "The linked Render deployment was unavailable with HTTP 503 at review time."]
+  },
+  {
+    "slug": "nytt-trondheim",
+    "name": "Nytt Trondheim",
+    "outcome": "Combines Trondheim news, traffic, and evidence-labelled situation context in a private Bokmål workspace.",
+    "shortDescription": "A provenance-first Trondheim news and situation dashboard with traffic maps, source health, and private planning notes.",
+    "longDescription": "Nytt Trondheim is a private multi-package workspace for Trondheim news, traffic, and situation context. It combines public-source headline metadata with Entur and AtB context, Vegvesen DATEX traffic data, official warnings, maps, and provenance-separated private workspace data.",
+    "lifecycle": "active",
+    "maturity": "stable",
+    "category": "frontend",
+    "tags": ["trondheim", "news", "traffic", "maps", "situation-room", "datex", "entur", "provenance"],
+    "techStack": ["React", "TypeScript", "Vite", "Express", "PostgreSQL", "PostGIS", "Playwright"],
+    "repoUrl": "https://github.com/Reedtrullz/Nytt-Trondheim",
+    "evidence": {
+      "reviewedAt": "2026-08-18T08:44:53Z",
+      "level": "source-reviewed",
+      "commitSha": "5003a497a77bdaf9ecec96b54ddd1776fea6339d",
+      "note": "Repository source, public-versus-private boundary, and data provenance surfaces were reviewed."
+    },
+    "sections": {
+      "whatItSolves": ["Situation work benefits from one evidence-labelled view of local news, traffic, and source health without blending private planning notes into public claims."],
+      "currentState": ["Active multi-package app with Siste nytt, Trafikk, Situasjonsrom, and owner-only Drift surfaces."],
+      "howItWorks": ["Combines public-source headline metadata with Entur and AtB context, Vegvesen DATEX traffic data, official warnings, maps, and provenance-separated private workspace data."],
+      "nextPriorities": ["Continue source freshness, private-boundary, and deployment verification before any public workspace claim."]
+    },
+    "limitations": ["The repository is public but the product and workspace are private.", "Production DATEX collection requires credentials.", "Warnings are context, not emergency confirmation; no live public URL is attached."]
   }
 ]

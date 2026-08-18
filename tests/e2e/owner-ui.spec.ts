@@ -23,8 +23,8 @@ test.describe("owner workspace", () => {
     await expect(page.getByRole("heading", { name: "Content workspace" })).toBeVisible();
     await page.goto("/admin/projects");
     await expect(page.getByRole("heading", { name: "Project content" })).toBeVisible();
-    await page.getByRole("link", { name: /Nytt/ }).click();
-    await expect(page.getByRole("heading", { name: "Nytt" })).toBeVisible();
+    await page.locator('a[href="/admin/projects/nytt"]').click();
+    await expect(page.getByRole("heading", { name: "Nytt", exact: true })).toBeVisible();
     await page.goto("/ansible");
     await expect(page.getByRole("heading", { name: "Frontpage operations" })).toBeVisible();
   });

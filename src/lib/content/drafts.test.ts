@@ -48,7 +48,7 @@ describe("content drafts", () => {
       baseVersion: "abc1234",
       savedAt: "2026-07-09T19:00:00.000Z",
     });
-    expect(bundle.projects?.content).toHaveLength(14);
+    expect(bundle.projects?.content).toHaveLength(23);
     expect(fs.existsSync(path.join(dataDir, "personal.json"))).toBe(false);
     expect(fs.existsSync(path.join(dataDir, "projects.json"))).toBe(false);
     expect(fs.existsSync(path.join(dataDir, "drafts", "personal.json"))).toBe(

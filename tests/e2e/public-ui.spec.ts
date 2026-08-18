@@ -115,11 +115,11 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Published projects" }),
     ).toBeVisible();
-    await expect(page.getByText("14 of 14 projects")).toBeVisible();
+    await expect(page.getByText("23 of 23 projects")).toBeVisible();
 
     await page.getByLabel("Maturity").selectOption("experimental");
     await expect(page).toHaveURL(/maturity=experimental/);
-    await expect(page.getByText("5 of 14 projects")).toBeVisible();
+    await expect(page.getByText("9 of 23 projects")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "THORArb" }),
     ).toBeVisible();
@@ -128,7 +128,7 @@ test.describe("public project experience", () => {
     await expect(page.getByText("Media not published").first()).toBeVisible();
     await page.getByLabel("Health").selectOption("not-monitored");
     await expect(page).toHaveURL(/health=not-monitored/);
-    await expect(page.getByText("8 of 14 projects")).toBeVisible();
+    await expect(page.getByText("17 of 23 projects")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
