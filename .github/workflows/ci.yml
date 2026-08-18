@@ -209,9 +209,9 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USERNAME: ${{ github.actor }}
-          IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
         run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA}"
           printf '%s\n' "$GHCR_TOKEN" | ssh -o StrictHostKeyChecking=yes deploy@198.23.137.16 \
             "sudo docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin >/dev/null"
           ssh -o StrictHostKeyChecking=yes deploy@198.23.137.16 \
-            "sudo docker pull '$IMAGE'"
+            "sudo docker pull '$image'"
