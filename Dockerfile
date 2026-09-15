@@ -18,7 +18,7 @@ RUN set -eux; \
     npm ci --include=optional; \
     case "${TARGETARCH:-$(dpkg --print-architecture)}" in \
       amd64|x64) \
-        npm install --no-save --no-package-lock \
+        npm install --no-save --no-package-lock --legacy-peer-deps \
           lightningcss-linux-x64-gnu@1.32.0 \
           @tailwindcss/oxide-linux-x64-gnu@4.3.2 \
           @rolldown/binding-linux-x64-gnu@1.1.5 \
@@ -27,7 +27,7 @@ RUN set -eux; \
           @img/sharp-libvips-linux-x64@1.3.2 \
         ;; \
       arm64|aarch64) \
-        npm install --no-save --no-package-lock \
+        npm install --no-save --no-package-lock --legacy-peer-deps \
           lightningcss-linux-arm64-gnu@1.32.0 \
           @tailwindcss/oxide-linux-arm64-gnu@4.3.2 \
           @rolldown/binding-linux-arm64-gnu@1.1.5 \
