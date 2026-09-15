@@ -2,7 +2,10 @@ import Link from "next/link";
 import type { ProjectContent } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
 import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
-import { repositoryActivity } from "@/lib/projects/presentation";
+import {
+  repositoryActivity,
+  repositoryStatus,
+} from "@/lib/projects/presentation";
 import { PostureBadge } from "@/components/ui/PostureBadge";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 
@@ -27,6 +30,7 @@ export function ProjectHealthRow({
   now: Date;
 }) {
   const activity = repositoryActivity(stats);
+  const status = repositoryStatus(project, stats);
   return (
     <Link
       href={`/projects/${project.slug}`}
@@ -43,12 +47,16 @@ export function ProjectHealthRow({
         <PostureBadge dimension="health" value={health} />
       </Field>
       <Field label="Repository">
-        {activity?.lastCommitDate ? (
+        {status === "no-repository" ? (
+          <span className="text-sm text-[var(--text-subtle)]">No public repository</span>
+        ) : status === "unavailable" ? (
+          <span className="text-sm text-[var(--text-subtle)]">Activity unavailable</span>
+        ) : activity?.lastCommitDate ? (
           <span className="text-sm text-[var(--text-muted)]">
             Updated <RelativeTime value={activity.lastCommitDate} now={now} />
           </span>
         ) : (
-          <span className="text-sm text-[var(--text-subtle)]">No public activity</span>
+          <span className="text-sm text-[var(--text-subtle)]">No commits reported</span>
         )}
       </Field>
     </Link>

@@ -39,9 +39,23 @@ export function ProjectMedia({
 
 export function ProjectMediaUnavailable({
   projectName,
+  compact = false,
 }: {
   projectName: string;
+  compact?: boolean;
 }) {
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3 px-5 py-3 sm:px-6" role="note">
+        <ImageOff className="h-4 w-4 shrink-0 text-[var(--text-subtle)]" aria-hidden="true" />
+        <p className="text-sm text-[var(--text-muted)]">
+          <span className="font-semibold text-[var(--text)]">No approved media</span>
+          <span className="ml-2">{projectName} details remain available below.</span>
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex aspect-[16/10] flex-col justify-between overflow-hidden bg-[var(--surface-overlay)] p-5 sm:p-6">
       <div className="flex items-center justify-between gap-4">

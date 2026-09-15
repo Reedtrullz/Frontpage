@@ -298,9 +298,9 @@
   {
     "slug": "codex-antigravity-auth",
     "name": "codex-antigravity-auth",
-    "outcome": "Explores Codex and Antigravity authentication integration without calling adapter glue a stable product.",
-    "shortDescription": "An experimental Codex Desktop and Antigravity auth adapter with version-specific integration risk.",
-    "longDescription": "codex-antigravity-auth explores authentication integration between Codex Desktop and Antigravity. Previous shim work showed that app or provider changes can break login and history, so the project remains adapter research.",
+    "outcome": "Provides a local Responses-compatible gateway for Antigravity-backed Claude access in Codex.",
+    "shortDescription": "A released local gateway for Codex CLI/Desktop with Antigravity Claude access, account handling, and optional provider routes.",
+    "longDescription": "codex-antigravity-auth exposes an OpenAI Responses-compatible local endpoint for Antigravity Claude access from Codex CLI or Desktop. The repository also documents Google OAuth and account rotation, optional Gemini and BYOK-compatible providers, conservative setup defaults, and diagnostics for configuration and gateway state.",
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "infra",
@@ -308,15 +308,16 @@
     "techStack": ["Python", "OAuth", "pytest", "GitHub Actions"],
     "repoUrl": "https://github.com/Reedtrullz/codex-antigravity-auth",
     "evidence": {
-      "reviewedAt": "2026-07-09T18:00:00Z",
+      "reviewedAt": "2026-09-15T07:06:38Z",
       "level": "source-reviewed",
-      "note": "Adapter scope, CI posture, and version-specific risk reviewed."
+      "commitSha": "8988222375156ed0bed11010a931746f63576e20",
+      "note": "Current repository README and released local-gateway scope reviewed; no hosted runtime claim is made."
     },
     "sections": {
       "whatItSolves": ["Provider-specific authentication experiments need repeatable adapters and smoke checks."],
-      "currentState": ["Active experimental adapter research."],
-      "howItWorks": ["Applies OAuth and request compatibility layers around exact app and provider versions."],
-      "nextPriorities": ["Prove CI, import smoke checks, and exact-version patch behaviour before stability claims."]
+      "currentState": ["Active released local gateway with conservative setup, optional activation, and provider-specific integration boundaries."],
+      "howItWorks": ["Runs a local Responses-compatible gateway, handles Google OAuth and account routing, and exposes optional Gemini and BYOK-compatible provider paths."],
+      "nextPriorities": ["Keep exact-version provider checks, account recovery, and setup diagnostics current."]
     },
     "limitations": ["Not a stable platform feature.", "Version-specific patching can break Codex authentication and history."]
   },
@@ -402,8 +403,8 @@
     "slug": "keyspilli",
     "name": "Keyspilli",
     "outcome": "Makes learning familiar piano songs more approachable through playable arrangements, visual guidance, and practice feedback.",
-    "shortDescription": "A private browser-based piano-learning app with a color-coded player, four view modes, a roughly 100-song catalogue, MIDI/YouTube input, practice grading, and PDF/MIDI/MusicXML export.",
-    "longDescription": "Keyspilli is a private, single-user piano-learning app for turning familiar songs into playable practice material. It combines a color-coded interactive player, multiple arrangement and view modes, MIDI uploads, optional YouTube-to-MIDI conversion, live practice grading, and free PDF, MIDI, and MusicXML export.",
+    "shortDescription": "A private browser-based piano-learning app with a color-coded player, four view modes, a roughly 167-song catalogue across 444 difficulty variants, MIDI/MusicXML/MXL lesson creation, practice grading, and export.",
+    "longDescription": "Keyspilli is a private, single-user piano-learning app for turning familiar songs into playable practice material. It combines a color-coded interactive player, four view modes, a generated catalogue, user-supplied MIDI/MusicXML/MXL lesson creation, live practice grading, and free PDF, MIDI, and MusicXML export. A separate legacy audio worker remains for explicit operator research and catalog maintenance; it is not the learner product's source authority.",
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "frontend",
@@ -413,19 +414,18 @@
     "repoUrl": "https://github.com/Reedtrullz/Keyspilli",
     "liveUrl": "https://keys.reidar.tech",
     "evidence": {
-      "reviewedAt": "2026-08-18T09:00:11Z",
-      "level": "live-verified",
-      "commitSha": "7d147dcf7618fc8bf92c1ff43c571a9b1e0e7663",
-      "url": "https://keys.reidar.tech/api/health",
-      "note": "Live health returned healthy; source, catalogue posture, and human-review limits were also reviewed."
+      "reviewedAt": "2026-09-15T07:06:38Z",
+      "level": "source-reviewed",
+      "commitSha": "211a4b6198b80ab5ea6839f6bdf113ab00c0c0ed",
+      "note": "Current repository README confirms catalogue size, supported lesson inputs, and operator-only audio boundaries; live runtime was not refreshed."
     },
     "sections": {
       "whatItSolves": ["Song transcriptions are often difficult to learn literally; Keyspilli turns them into visual, practice-oriented piano arrangements."],
-      "currentState": ["Active private single-user app with a public site, catalogue, uploads, YouTube conversion, practice grading, and export paths."],
-      "howItWorks": ["A Next.js and React player reads generated catalogue and SQLite artifacts; an optional Basic Pitch and yt-dlp worker handles audio-derived material."],
+      "currentState": ["Active private single-user app with a public site, catalogue, uploads, practice grading, and export paths."],
+      "howItWorks": ["A Next.js and React player reads generated catalogue and SQLite artifacts; supported lesson creation uses user-supplied MIDI, MusicXML, or MXL files, while a separate legacy worker handles explicit operator research."],
       "nextPriorities": ["Continue human musical review of arrangements and keep the deployed revision aligned with CI and production smoke checks."]
     },
-    "limitations": ["Private single-user product; do not imply a multi-user SaaS offering.", "Audio-derived and generated arrangements can require manual musical review.", "The deployed revision is 7d147dc; release correctness still depends on CI and production smoke checks."]
+    "limitations": ["Private single-user product; do not imply a multi-user SaaS offering.", "Audio-derived and generated arrangements can require manual musical review.", "The public YouTube import endpoint is disabled; the legacy audio worker is not a production source authority or automatic fallback."]
   },
   {
     "slug": "rshelper",

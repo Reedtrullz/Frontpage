@@ -25,6 +25,7 @@ test.describe("application shell", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: /Reidar/i }),
     ).toBeVisible();
+    await expect(page.getByText("No approved media").first()).toBeVisible();
     const primary = page.getByRole("navigation", { name: "Primary" });
     await expect(
       primary.getByRole("link", { name: "Projects", exact: true }),
@@ -126,6 +127,10 @@ test.describe("public project experience", () => {
 
     await page.goto("/projects");
     await expect(page.getByText("Media not published").first()).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Other public repositories" }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(6);
     await page.getByLabel("Health").selectOption("not-monitored");
     await expect(page).toHaveURL(/health=not-monitored/);
     await expect(page.getByText("17 of 23 projects")).toBeVisible();

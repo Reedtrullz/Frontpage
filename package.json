@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "check:repositories": "node scripts/check-repository-coverage.mjs",
     "pretest:e2e": "node tests/e2e/prepare-runtime.mjs",
     "test:e2e": "playwright test"
   },

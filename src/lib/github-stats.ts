@@ -1,6 +1,7 @@
 import { Octokit } from "@octokit/rest";
 
 export interface GitHubStats {
+  status: "available" | "unavailable";
   stars: number;
   language: string;
   lastCommitDate: string | null; // ISO string
@@ -47,7 +48,9 @@ function getOctokit(): Octokit | null {
 
   const token = process.env.GITHUB_TOKEN;
   return new Octokit(
-    token ? { auth: token, log: noopOctokitLog } : { log: noopOctokitLog },
+    token
+      ? { auth: token, log: noopOctokitLog, request: { timeout: 2500 } }
+      : { log: noopOctokitLog, request: { timeout: 2500 } },
   );
 }
 
@@ -117,6 +120,7 @@ export async function fetchRepoStats(
     ]);
 
     const stats: GitHubStats = {
+      status: "available",
       stars: repoData.stargazers_count ?? 0,
       language: repoData.language ?? "—",
       lastCommitDate: commits[0]?.commit?.author?.date ?? null,
@@ -158,6 +162,7 @@ export async function fetchAllRepoStats(
 
 function emptyStats(): GitHubStats {
   return {
+    status: "unavailable",
     stars: 0,
     language: "—",
     lastCommitDate: null,

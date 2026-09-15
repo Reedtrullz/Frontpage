@@ -29,7 +29,7 @@ export function FlagshipProjectCard({
         </div>
       ) : (
         <div className="border-b border-[var(--border)]">
-          <ProjectMediaUnavailable projectName={project.name} />
+          <ProjectMediaUnavailable projectName={project.name} compact />
         </div>
       )}
       <div className="p-5 sm:p-6">

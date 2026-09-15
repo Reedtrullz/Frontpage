@@ -134,6 +134,34 @@ export const projectSchema = z
 
 export const projectsSchema = z.array(projectSchema).min(1).max(128);
 
+export const publicRepositorySchema = z
+  .object({
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a URL-safe slug."),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().min(8).max(360),
+    repoUrl: httpUrlSchema,
+    homepageUrl: httpUrlSchema.optional(),
+    fork: z.boolean(),
+    upstream: z
+      .object({
+        name: z.string().trim().min(1).max(100),
+        repoUrl: httpUrlSchema,
+      })
+      .strict()
+      .optional(),
+    reviewedAt: utcDateTimeSchema,
+  })
+  .strict();
+
+export const publicRepositoriesSchema = z
+  .array(publicRepositorySchema)
+  .max(64);
+
 export const socialLinkSchema = z
   .object({
     label: z.string().trim().min(1).max(40),
@@ -178,6 +206,7 @@ export type ProjectCategory = z.infer<typeof projectCategorySchema>;
 export type ProjectMedia = z.infer<typeof projectMediaSchema>;
 export type ProjectEvidence = z.infer<typeof projectEvidenceSchema>;
 export type ProjectContent = z.infer<typeof projectSchema>;
+export type PublicRepository = z.infer<typeof publicRepositorySchema>;
 export type PersonalContent = z.infer<typeof personalSchema>;
 export type SocialLink = z.infer<typeof socialLinkSchema>;
 export type MaintenanceWindow = z.infer<typeof maintenanceWindowSchema>;
@@ -199,6 +228,23 @@ export function parseProjects(input: unknown): ProjectContent[] {
   }
 
   return projects;
+}
+
+export function parsePublicRepositories(input: unknown): PublicRepository[] {
+  const repositories = publicRepositoriesSchema.parse(input);
+  const slugs = new Set<string>();
+  const refs = new Set<string>();
+  for (const repository of repositories) {
+    if (slugs.has(repository.slug)) {
+      throw new Error(`Duplicate public repository slug: ${repository.slug}`);
+    }
+    if (refs.has(repository.repoUrl.toLowerCase())) {
+      throw new Error(`Duplicate public repository URL: ${repository.repoUrl}`);
+    }
+    slugs.add(repository.slug);
+    refs.add(repository.repoUrl.toLowerCase());
+  }
+  return repositories;
 }
 
 export function parsePersonal(input: unknown): PersonalContent {

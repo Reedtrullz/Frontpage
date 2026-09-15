@@ -11,6 +11,7 @@ import type {
 } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
 import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
+import type { PublicRepository } from "@/lib/content/schema";
 import {
   filterProjects,
   sortProjects,
@@ -74,12 +75,13 @@ function optionValue<T extends string>(
 
 interface ProjectListProps {
   projects: ProjectContent[];
+  publicRepositories: PublicRepository[];
   healthBySlug: Record<string, ProjectRuntimeHealth>;
   statsBySlug: Record<string, GitHubStats>;
   nowIso: string;
 }
 
-export function ProjectList({ projects, healthBySlug, statsBySlug, nowIso }: ProjectListProps) {
+export function ProjectList({ projects, publicRepositories, healthBySlug, statsBySlug, nowIso }: ProjectListProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -240,6 +242,25 @@ export function ProjectList({ projects, healthBySlug, statsBySlug, nowIso }: Pro
           <button type="button" onClick={clearFilters} className="mt-3 min-h-11 text-sm text-[var(--accent)] hover:text-[var(--role-positive)]">Clear filters</button>
         </div>
       )}
+
+      <section id="public-repositories" className="mt-16 border-t border-[var(--border)] pt-10" aria-labelledby="public-repositories-title">
+        <p className="font-mono text-sm text-[var(--accent)]">REPOSITORY COVERAGE</p>
+        <h2 id="public-repositories-title" className="mt-2 text-2xl font-semibold text-[var(--text)]">Other public repositories</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-muted)]">These public repositories do not have a separate project record here. Forks are labelled with their upstream repository so the directory does not imply authorship or deployment ownership.</p>
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {publicRepositories.map((repository) => (
+            <article key={repository.slug} className="border-y border-[var(--border)] px-1 py-4">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-semibold text-[var(--text)]">{repository.name}</h3>
+                <span className="font-mono text-xs uppercase text-[var(--text-subtle)]">{repository.fork ? "Fork" : "Repository"}</span>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[var(--text-muted)]">{repository.description}</p>
+              {repository.upstream ? <p className="mt-2 text-xs text-[var(--text-subtle)]">Upstream: {repository.upstream.name}</p> : null}
+              <a href={repository.repoUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]">View repository</a>
+            </article>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

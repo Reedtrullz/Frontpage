@@ -3,6 +3,7 @@ import { getCanonicalProjects } from "@/lib/content";
 import {
   filterProjects,
   repositoryActivity,
+  repositoryStatus,
   selectFlagships,
   sortProjects,
 } from "./presentation";
@@ -44,10 +45,11 @@ describe("project presentation", () => {
     expect(projects.map((project) => project.slug)).toEqual(before);
   });
 
-  it("represents missing repository activity as null", () => {
+  it("distinguishes unavailable stats from an available repository with no commits", () => {
     expect(repositoryActivity(null)).toBeNull();
     expect(
       repositoryActivity({
+        status: "unavailable",
         stars: 0,
         language: "—",
         lastCommitDate: null,
@@ -56,5 +58,37 @@ describe("project presentation", () => {
         fetchedAt: "2026-07-09T19:00:00Z",
       }),
     ).toBeNull();
+    expect(
+      repositoryActivity({
+        status: "available",
+        stars: 0,
+        language: "—",
+        lastCommitDate: null,
+        lastCommitMessage: null,
+        updatedAt: null,
+        fetchedAt: "2026-07-09T19:00:00Z",
+      }),
+    ).toEqual({
+      stars: 0,
+      language: null,
+      lastCommitDate: null,
+      lastCommitMessage: null,
+    });
+  });
+
+  it("labels missing, unavailable, and available repository activity separately", () => {
+    expect(repositoryStatus({}, null)).toBe("no-repository");
+    expect(
+      repositoryStatus(
+        { repoUrl: "https://github.com/Reedtrullz/example" },
+        { status: "unavailable", stars: 0, language: "—", lastCommitDate: null, lastCommitMessage: null, updatedAt: null, fetchedAt: "2026-07-09T19:00:00Z" },
+      ),
+    ).toBe("unavailable");
+    expect(
+      repositoryStatus(
+        { repoUrl: "https://github.com/Reedtrullz/example" },
+        { status: "available", stars: 0, language: "—", lastCommitDate: null, lastCommitMessage: null, updatedAt: null, fetchedAt: "2026-07-09T19:00:00Z" },
+      ),
+    ).toBe("no-commits");
   });
 });
