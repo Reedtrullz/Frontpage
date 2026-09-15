@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { getCanonicalProjects } from "@/lib/content";
 import {
+  filterPublicRepositories,
   filterProjects,
   repositoryActivity,
   repositoryStatus,
@@ -33,6 +34,48 @@ describe("project presentation", () => {
     expect(filtered.every((project) => project.lifecycle === "active")).toBe(
       true,
     );
+  });
+
+  it("treats current as the active and maintained lifecycle union", () => {
+    const filtered = filterProjects(projects, {
+      query: "",
+      lifecycle: "current",
+      maturity: "all",
+      category: "all",
+    });
+
+    expect(filtered.length).toBeGreaterThan(0);
+    expect(filtered.every((project) => ["active", "maintained"].includes(project.lifecycle))).toBe(true);
+  });
+
+  it("searches repository-only records by name, description, and upstream", () => {
+    const repositories = [
+      {
+        slug: "bunker",
+        name: "Bunkerkartet",
+        description: "A source-backed map",
+        repoUrl: "https://github.com/Reedtrullz/Bunkerkartet",
+        fork: false,
+        reviewedAt: "2026-09-15T00:00:00Z",
+      },
+      {
+        slug: "fork",
+        name: "Forked tool",
+        description: "A tool",
+        repoUrl: "https://github.com/Reedtrullz/fork",
+        fork: true,
+        upstream: {
+          name: "Upstream Tool",
+          repoUrl: "https://github.com/upstream/tool",
+        },
+        reviewedAt: "2026-09-15T00:00:00Z",
+      },
+    ];
+
+    expect(filterPublicRepositories(repositories, "bunker")).toHaveLength(1);
+    expect(filterPublicRepositories(repositories, "upstream tool")).toHaveLength(1);
+    expect(filterPublicRepositories(repositories, "github.com/reedtrullz/fork")).toHaveLength(1);
+    expect(filterPublicRepositories(repositories, "missing")).toHaveLength(0);
   });
 
   it("sorts by the newest evidence without mutating canonical order", () => {

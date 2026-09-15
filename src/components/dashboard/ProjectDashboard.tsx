@@ -31,6 +31,7 @@ export function ProjectDashboard({
     ),
     "featured",
   );
+  const visibleCurrent = current.slice(0, 6);
   const recentEvidence = sortProjects(projects, "evidence").slice(0, 5);
   const now = new Date();
 
@@ -98,13 +99,18 @@ export function ProjectDashboard({
               <p className="font-mono text-sm text-[var(--accent)]">CURRENT POSTURE</p>
               <h2 id="current-work-title" className="mt-2 text-3xl font-semibold text-[var(--text)]">Current work</h2>
             </div>
-            <span className="text-sm text-[var(--text-muted)]">{current.length} projects</span>
+            <div className="flex flex-wrap items-center justify-end gap-4 text-sm text-[var(--text-muted)]">
+              <span>Showing {visibleCurrent.length} of {current.length} projects</span>
+              <Link href="/projects?lifecycle=current" className="inline-flex min-h-11 items-center gap-2 font-semibold text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]">
+                View all current work <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
           </div>
           <div className="mt-7">
             <div className="hidden grid-cols-[minmax(180px,1.4fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)] gap-4 border-y border-[var(--border)] px-3 py-3 text-xs text-[var(--text-subtle)] md:grid">
               <span>Project</span><span>Lifecycle</span><span>Live health</span><span>Repository</span>
             </div>
-            {current.map((project) => (
+            {visibleCurrent.map((project) => (
               <ProjectHealthRow
                 key={project.slug}
                 project={project}

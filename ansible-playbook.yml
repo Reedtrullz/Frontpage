@@ -146,6 +146,11 @@
             | default('VERSION=unknown', true)
             | regex_replace('^VERSION=', '')
           }}
+        previous_observability_v2_enabled: >-
+          {{
+            current_container.exists
+            and 'FRONTPAGE_OBSERVABILITY_V2=1' in (current_container.container.Config.Env | default([]))
+          }}
 
   tasks:
     - name: Ensure docker group exists
@@ -574,43 +579,18 @@
         group: "{{ observer_user }}"
         mode: "0640"
 
-    - name: Find existing shadow projection directories
+    - name: Normalize existing shadow projection ownership in one bounded host pass
       become: true
-      ansible.builtin.find:
-        paths:
-          - "{{ observer_shadow_dir }}/public"
-          - "{{ observer_shadow_dir }}/owner"
-        file_type: directory
-        recurse: true
-      register: shadow_projection_directories
-
-    - name: Normalize existing shadow projection directory ownership
-      become: true
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        owner: "{{ observer_user }}"
-        group: "{{ metrics_user }}"
-        mode: "2750"
-      loop: "{{ shadow_projection_directories.files }}"
-
-    - name: Find existing shadow projection files
-      become: true
-      ansible.builtin.find:
-        paths:
-          - "{{ observer_shadow_dir }}/public"
-          - "{{ observer_shadow_dir }}/owner"
-        file_type: file
-        recurse: true
-      register: existing_shadow_projection_files
-
-    - name: Normalize existing shadow projection file ownership
-      become: true
-      ansible.builtin.file:
-        path: "{{ item.path }}"
-        owner: "{{ observer_user }}"
-        group: "{{ metrics_user }}"
-        mode: "0640"
-      loop: "{{ existing_shadow_projection_files.files }}"
+      ansible.builtin.script:
+        cmd: >-
+          ops/normalize-shadow-projections.py
+          --owner {{ observer_user | quote }}
+          --group {{ metrics_user | quote }}
+          --max-entries 4096
+          {{ (observer_shadow_dir ~ '/public') | quote }}
+          {{ (observer_shadow_dir ~ '/owner') | quote }}
+      register: shadow_projection_normalizer
+      changed_when: (shadow_projection_normalizer.stdout | from_json).changed | int > 0
 
     - name: Run observability collector shadow preflight
       become: true
@@ -835,290 +815,15 @@
         fail_msg: "The requested preloaded image is not present on the VPS."
       when: image_preloaded
 
-    - name: Stop and remove existing container
-      community.docker.docker_container:
-        name: "{{ container_name }}"
-        state: absent
+    - name: Run container deployment preflight before stop
+      ansible.builtin.include_tasks: ops/ansible/container-preflight.yml
 
-    - name: Start new container
-      community.docker.docker_container:
-        name: "{{ container_name }}"
-        image: "{{ docker_image }}"
-        state: started
-        restart_policy: unless-stopped
-        ports:
-          - "127.0.0.1:3002:3000"
-        log_driver: "json-file"
-        log_options:
-          max-size: "10m"
-          max-file: "3"
-        healthcheck:
-          test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))\""]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-        env: >-
-          {{
-            {
-              'NODE_ENV': 'production',
-              'PORT': '3000',
-              'HOSTNAME': '0.0.0.0',
-              'VERSION': deploy_commit_sha,
-              'DATA_DIR': '/data',
-              'AUTH_URL': 'https://reidar.tech',
-              'AUTH_SECRET': vault_auth_secret,
-              'AUTH_GITHUB_ID': vault_auth_github_id,
-              'AUTH_GITHUB_SECRET': vault_auth_github_secret,
-              'OWNER_GITHUB_ID': app_owner_github_id,
-              'GITHUB_TOKEN': vault_github_token,
-              'METRICS_DIR': '/metrics'
-            }
-            | combine(
-                {
-                  'PUBLIC_METRICS_DIR': '/metrics-public',
-                  'OWNER_METRICS_DIR': '/metrics-owner',
-                  'FRONTPAGE_OBSERVABILITY_V2': '1'
-                } if observability_v2_enabled else {}
-              )
-          }}
-        groups:
-          - "{{ metrics_group_id }}"
-        volumes: >-
-          {{
-            [
-              (docker_volume_data | default('frontpage_data')) ~ ':/data',
-              metrics_v1_dir ~ ':/metrics:ro'
-            ]
-            + (
-                [
-                  metrics_dir ~ '/v2/public:/metrics-public:ro',
-                  metrics_dir ~ '/v2/owner:/metrics-owner:ro'
-                ] if observability_v2_enabled else []
-              )
-          }}
+    - name: Initialize deployment rollback state
+      ansible.builtin.set_fact:
+        deployment_rolled_back: false
 
-    - name: Inspect newly active container for runtime binding
-      community.docker.docker_container_info:
-        name: "{{ container_name }}"
-      register: active_container_for_runtime_map
-
-    - name: Recreate observer runtime directory for active binding
-      become: true
-      ansible.builtin.file:
-        path: "{{ observer_run_dir }}"
-        state: directory
-        owner: "{{ observer_user }}"
-        group: "{{ observer_user }}"
-        mode: "0750"
-
-    - name: Write newly active allowlisted container facts
-      become: true
-      ansible.builtin.copy:
-        dest: "{{ observer_run_dir }}/container-facts.json"
-        owner: root
-        group: "{{ observer_user }}"
-        mode: "0640"
-        content: >-
-          {{
-            {
-              'containers': [
-                {
-                  'name': container_name,
-                  'pid': active_container_for_runtime_map.container.State.Pid,
-                  'image_sha': active_container_for_runtime_map.container.Image
-                }
-              ]
-            } | to_nice_json
-          }}
-
-    - name: Regenerate runtime map for newly active container
-      become: true
-      ansible.builtin.command:
-        argv:
-          - /usr/sbin/runuser
-          - --user
-          - "{{ observer_user }}"
-          - --
-          - /usr/local/bin/frontpage-metrics-runtime-map
-          - --allowlist
-          - "{{ metrics_config_dir }}/runtime-allowlist.json"
-          - --facts
-          - "{{ observer_run_dir }}/container-facts.json"
-          - --output
-          - "{{ observer_run_dir }}/runtime-map.json"
-          - --generated-at
-          - "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
-      changed_when: true
-
-    - name: Restore runtime map ownership after active swap
-      become: true
-      ansible.builtin.file:
-        path: "{{ observer_run_dir }}/runtime-map.json"
-        owner: "{{ observer_user }}"
-        group: "{{ observer_user }}"
-        mode: "0640"
-
-    - name: Wait for application to become healthy
-      uri:
-        url: "http://localhost:3002/api/health"
-        return_content: yes
-        timeout: 5
-      register: health_check
-      until:
-        - (health_check.status | default(0)) == 200
-        - (health_check.json.status | default("")) == "healthy"
-      retries: 10
-      delay: 5
-      failed_when: false
-
-    - name: Fail if application is not healthy
-      fail:
-        msg: "Frontpage health check failed: {{ health_check }}"
-      when:
-        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
-        - previous_image == "none"
-
-    - name: Rollback to previous image on failure
-      community.docker.docker_container:
-        name: "{{ container_name }}"
-        image: "{{ previous_image }}"
-        state: started
-        restart_policy: unless-stopped
-        ports:
-          - "127.0.0.1:3002:3000"
-        log_driver: "json-file"
-        log_options:
-          max-size: "10m"
-          max-file: "3"
-        healthcheck:
-          test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))\""]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-        env:
-          NODE_ENV: production
-          PORT: "3000"
-          HOSTNAME: "0.0.0.0"
-          VERSION: "{{ previous_version }}"
-          DATA_DIR: "/data"
-          AUTH_URL: "https://reidar.tech"
-          AUTH_SECRET: "{{ vault_auth_secret }}"
-          AUTH_GITHUB_ID: "{{ vault_auth_github_id }}"
-          AUTH_GITHUB_SECRET: "{{ vault_auth_github_secret }}"
-          OWNER_GITHUB_ID: "{{ app_owner_github_id }}"
-          GITHUB_TOKEN: "{{ vault_github_token }}"
-          METRICS_DIR: "/metrics"
-        groups:
-          - "{{ metrics_group_id }}"
-        volumes:
-          - "{{ docker_volume_data | default('frontpage_data') }}:/data"
-          - "{{ metrics_v1_dir }}:/metrics:ro"
-      when:
-        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
-        - previous_image != "none"
-      register: rollback
-
-    - name: Rebind shadow collector to rollback container
-      when:
-        - rollback is defined
-        - rollback.changed | default(false)
-      block:
-        - name: Stop promoted collector before v1 rollback
-          become: true
-          ansible.builtin.systemd:
-            name: frontpage-metrics-collector-v2.service
-            enabled: false
-            state: stopped
-          when: observability_v2_enabled
-
-        - name: Inspect rollback container for runtime binding
-          community.docker.docker_container_info:
-            name: "{{ container_name }}"
-          register: rollback_container_for_runtime_map
-
-        - name: Write rollback allowlisted container facts
-          become: true
-          ansible.builtin.copy:
-            dest: "{{ observer_run_dir }}/container-facts.json"
-            owner: root
-            group: "{{ observer_user }}"
-            mode: "0640"
-            content: >-
-              {{
-                {
-                  'containers': [
-                    {
-                      'name': container_name,
-                      'pid': rollback_container_for_runtime_map.container.State.Pid,
-                      'image_sha': rollback_container_for_runtime_map.container.Image
-                    }
-                  ]
-                } | to_nice_json
-              }}
-
-        - name: Regenerate runtime map for rollback container
-          become: true
-          ansible.builtin.command:
-            argv:
-              - /usr/sbin/runuser
-              - --user
-              - "{{ observer_user }}"
-              - --
-              - /usr/local/bin/frontpage-metrics-runtime-map
-              - --allowlist
-              - "{{ metrics_config_dir }}/runtime-allowlist.json"
-              - --facts
-              - "{{ observer_run_dir }}/container-facts.json"
-              - --output
-              - "{{ observer_run_dir }}/runtime-map.json"
-              - --generated-at
-              - "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
-          changed_when: true
-
-        - name: Restore rollback runtime map ownership
-          become: true
-          ansible.builtin.file:
-            path: "{{ observer_run_dir }}/runtime-map.json"
-            owner: "{{ observer_user }}"
-            group: "{{ observer_user }}"
-            mode: "0640"
-
-        - name: Ensure shadow collector is active after rollback binding
-          become: true
-          ansible.builtin.systemd:
-            name: frontpage-metrics-collector-v2-shadow.service
-            state: started
-
-    - name: Wait for rollback application to become healthy
-      ansible.builtin.uri:
-        url: "http://localhost:3002/api/health"
-        return_content: yes
-        timeout: 5
-      register: rollback_health_check
-      until:
-        - (rollback_health_check.status | default(0)) == 200
-        - (rollback_health_check.json.status | default("")) == "healthy"
-      retries: 10
-      delay: 5
-      failed_when: false
-      when:
-        - rollback is defined
-        - rollback.changed | default(false)
-
-    - name: Fail if rollback did not restore a healthy application
-      ansible.builtin.fail:
-        msg: "Deployment and rollback failed: {{ rollback_health_check }}"
-      when:
-        - rollback is defined
-        - rollback.changed | default(false)
-        - (rollback_health_check.status | default(0)) != 200 or (rollback_health_check.json.status | default("")) != "healthy"
-
-    - name: Fail with rollback message
-      fail:
-        msg: "Deployment failed, rolled back to {{ previous_image }}"
-      when: rollback is defined and rollback.changed | default(false)
+    - name: Swap container and restore on any post-stop failure
+      ansible.builtin.include_tasks: ops/ansible/container-swap.yml
 
     - name: Verify container is running
       community.docker.docker_container_info:
@@ -1151,7 +856,7 @@
       register: observer_service_states
       changed_when: false
       failed_when: false
-      when: rollback is not defined or not (rollback.changed | default(false))
+      when: not deployment_rolled_back
 
     - name: Assert exactly one observability collector is active
       ansible.builtin.assert:
@@ -1160,7 +865,7 @@
           - observer_service_states.results[0].stdout == ('inactive' if observability_v2_enabled else 'active')
           - observer_service_states.results[1].stdout == ('active' if observability_v2_enabled else 'inactive')
         fail_msg: "The selected observability collector must be active and its opposite inactive."
-      when: rollback is not defined or not (rollback.changed | default(false))
+      when: not deployment_rolled_back
 
     - name: Verify shadow app container can read v1 metrics read-only
       community.docker.docker_container_exec:

@@ -1,11 +1,12 @@
-import type { ProjectContent } from "@/lib/content/schema";
+import type { ProjectContent, PublicRepository } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
 
 export type ProjectSort = "featured" | "evidence" | "name";
+export type ProjectLifecycleFilter = ProjectContent["lifecycle"] | "all" | "current";
 
 export interface ProjectFilters {
   query: string;
-  lifecycle: ProjectContent["lifecycle"] | "all";
+  lifecycle: ProjectLifecycleFilter;
   maturity: ProjectContent["maturity"] | "all";
   category: ProjectContent["category"] | "all";
 }
@@ -32,6 +33,37 @@ function searchableText(project: ProjectContent): string {
     .toLocaleLowerCase("en");
 }
 
+function searchableRepositoryText(repository: {
+  name: string;
+  description: string;
+  repoUrl: string;
+  homepageUrl?: string;
+  upstream?: { name: string; repoUrl: string };
+}): string {
+  return [
+    repository.name,
+    repository.description,
+    repository.repoUrl,
+    repository.homepageUrl,
+    repository.upstream?.name,
+    repository.upstream?.repoUrl,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("en");
+}
+
+export function filterPublicRepositories(
+  repositories: readonly PublicRepository[],
+  query: string,
+): PublicRepository[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase("en");
+  if (!normalizedQuery) return [...repositories];
+  return repositories.filter((repository) =>
+    searchableRepositoryText(repository).includes(normalizedQuery),
+  );
+}
+
 export function selectFlagships(
   projects: readonly ProjectContent[],
 ): ProjectContent[] {
@@ -55,10 +87,11 @@ export function filterProjects(
   const query = filters.query.trim().toLocaleLowerCase("en");
   return projects.filter((project) => {
     if (query && !searchableText(project).includes(query)) return false;
-    if (
-      filters.lifecycle !== "all" &&
-      project.lifecycle !== filters.lifecycle
-    ) {
+    if (filters.lifecycle === "current") {
+      if (project.lifecycle !== "active" && project.lifecycle !== "maintained") {
+        return false;
+      }
+    } else if (filters.lifecycle !== "all" && project.lifecycle !== filters.lifecycle) {
       return false;
     }
     if (filters.maturity !== "all" && project.maturity !== filters.maturity) {

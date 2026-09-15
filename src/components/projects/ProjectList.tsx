@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type {
   ProjectCategory,
   ProjectContent,
-  ProjectLifecycle,
   ProjectMaturity,
 } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
@@ -14,13 +13,16 @@ import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import type { PublicRepository } from "@/lib/content/schema";
 import {
   filterProjects,
+  filterPublicRepositories,
   sortProjects,
+  type ProjectLifecycleFilter,
   type ProjectSort,
 } from "@/lib/projects/presentation";
 import { ProjectCard } from "./ProjectCard";
 
-const lifecycleOptions: Array<{ value: ProjectLifecycle | "all"; label: string }> = [
+const lifecycleOptions: Array<{ value: ProjectLifecycleFilter; label: string }> = [
   { value: "all", label: "All lifecycle" },
+  { value: "current", label: "Current (active + maintained)" },
   { value: "active", label: "Active" },
   { value: "maintained", label: "Maintained" },
   { value: "paused", label: "Paused" },
@@ -134,6 +136,19 @@ export function ProjectList({ projects, publicRepositories, healthBySlug, statsB
     ],
   );
 
+  const projectOnlyFiltersActive =
+    lifecycle !== "all" ||
+    maturity !== "all" ||
+    category !== "all" ||
+    health !== "all";
+  const filteredRepositories = useMemo(
+    () =>
+      projectOnlyFiltersActive
+        ? []
+        : filterPublicRepositories(publicRepositories, query),
+    [publicRepositories, projectOnlyFiltersActive, query],
+  );
+
   const summary = projects.reduce(
     (counts, project) => {
       const projectHealth = healthBySlug[project.slug] ?? "not-monitored";
@@ -218,7 +233,9 @@ export function ProjectList({ projects, publicRepositories, healthBySlug, statsB
       </section>
 
       <div className="mt-5 flex items-center justify-between gap-4 text-sm text-[var(--text-muted)]">
-        <p aria-live="polite">{filtered.length} of {projects.length} projects</p>
+        <p aria-live="polite">
+          {filtered.length} projects · {filteredRepositories.length} repositories
+        </p>
         <p>Published posture</p>
       </div>
 
@@ -236,19 +253,23 @@ export function ProjectList({ projects, publicRepositories, healthBySlug, statsB
           ))}
         </div>
       ) : (
-        <div className="flex min-h-64 flex-col items-center justify-center border-b border-[var(--border)] text-center">
+        filteredRepositories.length === 0 ? <div className="flex min-h-64 flex-col items-center justify-center border-b border-[var(--border)] text-center">
           <SearchX className="h-7 w-7 text-[var(--text-subtle)]" aria-hidden="true" />
-          <h2 className="mt-4 text-lg font-semibold text-[var(--text)]">No matching projects</h2>
+          <h2 className="mt-4 text-lg font-semibold text-[var(--text)]">No matching projects or repositories</h2>
           <button type="button" onClick={clearFilters} className="mt-3 min-h-11 text-sm text-[var(--accent)] hover:text-[var(--role-positive)]">Clear filters</button>
-        </div>
+        </div> : null
       )}
 
       <section id="public-repositories" className="mt-16 border-t border-[var(--border)] pt-10" aria-labelledby="public-repositories-title">
         <p className="font-mono text-sm text-[var(--accent)]">REPOSITORY COVERAGE</p>
         <h2 id="public-repositories-title" className="mt-2 text-2xl font-semibold text-[var(--text)]">Other public repositories</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-muted)]">These public repositories do not have a separate project record here. Forks are labelled with their upstream repository so the directory does not imply authorship or deployment ownership.</p>
-        <div className="mt-5 grid gap-3 lg:grid-cols-2">
-          {publicRepositories.map((repository) => (
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-muted)]">
+          {projectOnlyFiltersActive
+            ? "Repository-only records are hidden while project lifecycle, maturity, category, or health filters are active."
+            : "These public repositories do not have a separate project record here. Forks are labelled with their upstream repository so the directory does not imply authorship or deployment ownership."}
+        </p>
+        {filteredRepositories.length > 0 ? <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          {filteredRepositories.map((repository) => (
             <article key={repository.slug} className="border-y border-[var(--border)] px-1 py-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="font-semibold text-[var(--text)]">{repository.name}</h3>
@@ -259,7 +280,7 @@ export function ProjectList({ projects, publicRepositories, healthBySlug, statsB
               <a href={repository.repoUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]">View repository</a>
             </article>
           ))}
-        </div>
+        </div> : null}
       </section>
     </div>
   );

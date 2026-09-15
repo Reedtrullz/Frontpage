@@ -1,0 +1,264 @@
+- name: Swap Frontpage container with fail-closed rollback
+  block:
+    - name: Stop and remove existing container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+
+    - name: Start new container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "127.0.0.1:3002:3000"
+        log_driver: "json-file"
+        log_options:
+          max-size: "10m"
+          max-file: "3"
+        healthcheck:
+          test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))\""]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 40s
+        env: "{{ frontpage_new_env }}"
+        groups:
+          - "{{ metrics_group_id }}"
+        volumes: "{{ frontpage_new_volumes }}"
+
+    - name: Inspect newly active container for runtime binding
+      community.docker.docker_container_info:
+        name: "{{ container_name }}"
+      register: active_container_for_runtime_map
+
+    - name: Recreate observer runtime directory for active binding
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}"
+        state: directory
+        owner: "{{ observer_user }}"
+        group: "{{ frontpage_observer_group | default(observer_user) }}"
+        mode: "0750"
+
+    - name: Write newly active allowlisted container facts
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.copy:
+        dest: "{{ observer_run_dir }}/container-facts.json"
+        owner: "{{ frontpage_facts_owner | default('root') }}"
+        group: "{{ frontpage_observer_group | default(observer_user) }}"
+        mode: "0640"
+        content: >-
+          {{
+            {
+              'containers': [
+                {
+                  'name': container_name,
+                  'pid': active_container_for_runtime_map.container.State.Pid,
+                  'image_sha': active_container_for_runtime_map.container.Image
+                }
+              ]
+            } | to_nice_json
+          }}
+
+    - name: Regenerate runtime map for newly active container
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.command:
+        argv: >-
+          {{
+            (frontpage_runtime_map_argv_prefix | default(['/usr/sbin/runuser', '--user', observer_user, '--']))
+            + [
+              runtime_map_executable | default('/usr/local/bin/frontpage-metrics-runtime-map'),
+              '--allowlist', metrics_config_dir ~ '/runtime-allowlist.json',
+              '--facts', observer_run_dir ~ '/container-facts.json',
+              '--output', observer_run_dir ~ '/runtime-map.json',
+              '--generated-at', lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')
+            ]
+          }}
+      changed_when: true
+
+    - name: Restore runtime map ownership after active swap
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}/runtime-map.json"
+        owner: "{{ observer_user }}"
+        group: "{{ frontpage_observer_group | default(observer_user) }}"
+        mode: "0640"
+
+    - name: Wait for application to become healthy
+      ansible.builtin.uri:
+        url: "{{ frontpage_health_url | default('http://localhost:3002/api/health') }}"
+        return_content: true
+        timeout: 5
+      register: health_check
+      until:
+        - (health_check.status | default(0)) == 200
+        - (health_check.json.status | default("")) == "healthy"
+      retries: "{{ frontpage_health_retries | default(10) }}"
+      delay: "{{ frontpage_health_delay | default(5) }}"
+      failed_when: false
+
+    - name: Fail if application is not healthy
+      ansible.builtin.fail:
+        msg: "Frontpage health check failed: {{ health_check }}"
+      when:
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
+
+  rescue:
+    - name: Mark deployment as rolled back
+      ansible.builtin.set_fact:
+        deployment_rolled_back: true
+
+    - name: Fail when no executable rollback image exists
+      ansible.builtin.fail:
+        msg: "Deployment failed after container stop and no previous container is available for rollback."
+      when: previous_image == "none"
+
+    - name: Stop collector services before restoring rollback runtime binding
+      become: "{{ frontpage_become | default(true) }}"
+      when: not (frontpage_test_mode | default(false))
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - frontpage-metrics-collector-v2-shadow.service
+        - frontpage-metrics-collector-v2.service
+      failed_when: false
+
+    - name: Mock collector service stop during deployment safety tests
+      ansible.builtin.command:
+        argv:
+          - "{{ frontpage_systemd_mock_executable }}"
+          - stop
+      changed_when: false
+      when: frontpage_test_mode | default(false)
+
+    - name: Restore previous container after post-stop failure
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ previous_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "127.0.0.1:3002:3000"
+        log_driver: "json-file"
+        log_options:
+          max-size: "10m"
+          max-file: "3"
+        healthcheck:
+          test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1))\""]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 40s
+        env: "{{ frontpage_rollback_env }}"
+        groups:
+          - "{{ metrics_group_id }}"
+        volumes: "{{ frontpage_rollback_volumes }}"
+
+    - name: Inspect rollback container for runtime binding
+      community.docker.docker_container_info:
+        name: "{{ container_name }}"
+      register: rollback_container_for_runtime_map
+
+    - name: Write rollback allowlisted container facts
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.copy:
+        dest: "{{ observer_run_dir }}/container-facts.json"
+        owner: "{{ frontpage_facts_owner | default('root') }}"
+        group: "{{ frontpage_observer_group | default(observer_user) }}"
+        mode: "0640"
+        content: >-
+          {{
+            {
+              'containers': [
+                {
+                  'name': container_name,
+                  'pid': rollback_container_for_runtime_map.container.State.Pid,
+                  'image_sha': rollback_container_for_runtime_map.container.Image
+                }
+              ]
+            } | to_nice_json
+          }}
+
+    - name: Regenerate runtime map for rollback container
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.command:
+        argv: >-
+          {{
+            (frontpage_runtime_map_argv_prefix | default(['/usr/sbin/runuser', '--user', observer_user, '--']))
+            + [
+              runtime_map_executable | default('/usr/local/bin/frontpage-metrics-runtime-map'),
+              '--allowlist', metrics_config_dir ~ '/runtime-allowlist.json',
+              '--facts', observer_run_dir ~ '/container-facts.json',
+              '--output', observer_run_dir ~ '/runtime-map.json',
+              '--generated-at', lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')
+            ]
+          }}
+      changed_when: true
+
+    - name: Restore rollback runtime map ownership
+      become: "{{ frontpage_become | default(true) }}"
+      ansible.builtin.file:
+        path: "{{ observer_run_dir }}/runtime-map.json"
+        owner: "{{ observer_user }}"
+        group: "{{ frontpage_observer_group | default(observer_user) }}"
+        mode: "0640"
+
+    - name: Restore prior observability collector mode
+      become: "{{ frontpage_become | default(true) }}"
+      when: not (frontpage_test_mode | default(false))
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2-shadow.service
+        enabled: "{{ not previous_observability_v2_enabled }}"
+        state: "{{ 'started' if not previous_observability_v2_enabled else 'stopped' }}"
+        daemon_reload: true
+
+    - name: Mock prior shadow collector mode during deployment safety tests
+      ansible.builtin.command:
+        argv:
+          - "{{ frontpage_systemd_mock_executable }}"
+          - "shadow-{{ 'started' if not previous_observability_v2_enabled else 'stopped' }}"
+      changed_when: false
+      when: frontpage_test_mode | default(false)
+
+    - name: Restore prior promoted collector mode
+      become: "{{ frontpage_become | default(true) }}"
+      when: not (frontpage_test_mode | default(false))
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2.service
+        enabled: "{{ previous_observability_v2_enabled }}"
+        state: "{{ 'started' if previous_observability_v2_enabled else 'stopped' }}"
+        daemon_reload: true
+
+    - name: Mock prior promoted collector mode during deployment safety tests
+      ansible.builtin.command:
+        argv:
+          - "{{ frontpage_systemd_mock_executable }}"
+          - "promoted-{{ 'started' if previous_observability_v2_enabled else 'stopped' }}"
+      changed_when: false
+      when: frontpage_test_mode | default(false)
+
+    - name: Wait for rollback application to become healthy
+      ansible.builtin.uri:
+        url: "{{ frontpage_health_url | default('http://localhost:3002/api/health') }}"
+        return_content: true
+        timeout: 5
+      register: rollback_health_check
+      until:
+        - (rollback_health_check.status | default(0)) == 200
+        - (rollback_health_check.json.status | default("")) == "healthy"
+      retries: "{{ frontpage_health_retries | default(10) }}"
+      delay: "{{ frontpage_health_delay | default(5) }}"
+      failed_when: false
+
+    - name: Fail if rollback did not restore a healthy application
+      ansible.builtin.fail:
+        msg: "Deployment and rollback failed: {{ rollback_health_check }}"
+      when:
+        - (rollback_health_check.status | default(0)) != 200 or (rollback_health_check.json.status | default("")) != "healthy"
+
+    - name: Fail with rollback message
+      ansible.builtin.fail:
+        msg: "Deployment failed after container stop; restored {{ previous_image }}."

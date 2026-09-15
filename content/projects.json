@@ -640,5 +640,33 @@
       "nextPriorities": ["Continue source freshness, private-boundary, and deployment verification before any public workspace claim."]
     },
     "limitations": ["The repository is public but the product and workspace are private.", "Production DATEX collection requires credentials.", "Warnings are context, not emergency confirmation; no live public URL is attached."]
+  },
+  {
+    "slug": "bunkerkartet",
+    "name": "Bunkerkartet",
+    "outcome": "A source-backed Trondheim map for researching bunkers, tunnels, wartime sites, graves, and memorials.",
+    "shortDescription": "A cautious research and field-planning map for Trondheim war-history traces, with source notes and explicit access uncertainty.",
+    "longDescription": "Bunkerkartet is an administration-protected, source-backed map and catalogue for bunkers, caves, tunnels, wartime camps, graves, memorials, and other war-history traces in and around Trondheim. Its workflow keeps research sources, candidate review, field observations, and trust status explicit rather than presenting an approximate marker as a confirmed entrance or permission to enter.",
+    "lifecycle": "active",
+    "maturity": "experimental",
+    "category": "frontend",
+    "tags": ["trondheim", "war-history", "maps", "research", "fieldwork", "sources"],
+    "techStack": ["Python", "FastAPI", "SQLite", "JavaScript", "OpenRouteService"],
+    "repoUrl": "https://github.com/Reedtrullz/Bunkerkartet",
+    "liveUrl": "https://bunker.reidar.tech",
+    "evidence": {
+      "reviewedAt": "2026-09-15T17:03:17Z",
+      "level": "source-reviewed",
+      "commitSha": "b56e7b347fe72cfbcc559d9861730f506e68264d",
+      "url": "https://github.com/Reedtrullz/Bunkerkartet",
+      "note": "Current public README and repository metadata reviewed; no independent field verification or runtime health claim is made."
+    },
+    "sections": {
+      "whatItSolves": ["War-history research becomes difficult to trust when loose findings, source quality, access, and field certainty are collapsed into one map marker."],
+      "currentState": ["Active experimental source catalogue with an administration-protected map, candidate review workflow, source notes, and field-observation support."],
+      "howItWorks": ["Stores structured places and sources in SQLite, validates idempotent research imports, tracks candidate-to-trusted review status, and exposes cautious search, filters, route planning, and exports."],
+      "nextPriorities": ["Continue source review, field verification, access-safety clarity, and deployment evidence before stronger place or runtime claims."]
+    },
+    "limitations": ["A marker is a research lead, not a confirmed entrance, legal permission, or safety assurance.", "The README describes an administration-protected tool; public map availability does not establish an open editing or public-data workflow.", "No field verification or current service-health check is claimed here."]
   }
 ]

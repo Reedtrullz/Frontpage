@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getCanonicalPublicRepositories } from "@/lib/content";
+import { getCanonicalProject, getCanonicalProjects, getCanonicalPublicRepositories } from "@/lib/content";
 import {
   compareRepositoryCoverage,
+  fetchPublicRepositories,
   normalizeRepositoryRef,
   repositoryAlias,
 } from "../../scripts/check-repository-coverage.mjs";
@@ -42,12 +43,37 @@ describe("repository coverage", () => {
     expect(result.missing).toEqual(["Reedtrullz/missing"]);
   });
 
-  it("keeps the six source-reviewed uncovered repositories in the public directory", () => {
+  it("fails closed on malformed API records", async () => {
+    await expect(
+      fetchPublicRepositories(async () => ({
+        ok: true,
+        json: async () => [{ full_name: "not-a-repository", fork: false }],
+      }) as Response),
+    ).rejects.toThrow("invalid repository record");
+  });
+
+  it("bounds an unexpectedly full paginated response", async () => {
+    const fetchPage = async (): Promise<Response> => ({
+      ok: true,
+      json: async () =>
+        Array.from({ length: 100 }, (_, index) => ({
+          full_name: `Reedtrullz/repository-${index}`,
+          fork: false,
+        })),
+    } as Response);
+    await expect(fetchPublicRepositories(fetchPage)).rejects.toThrow(
+      "exceeded the 10-page repository limit",
+    );
+  });
+
+  it("promotes Bunkerkartet and keeps the five fork records in the public directory", () => {
+    const bunkerkartet = getCanonicalProject("bunkerkartet");
+    expect(bunkerkartet?.liveUrl).toBe("https://bunker.reidar.tech");
+    expect(getCanonicalProjects().filter((project) => project.repoUrl?.endsWith("/Bunkerkartet"))).toHaveLength(1);
     const repositories = getCanonicalPublicRepositories();
-    expect(repositories).toHaveLength(6);
+    expect(repositories).toHaveLength(5);
     expect(repositories.filter((repository) => repository.fork)).toHaveLength(5);
     expect(repositories.map((repository) => repository.slug)).toEqual([
-      "bunkerkartet",
       "flip-smart-runelite-plugin",
       "homebrew-cask",
       "opencodex",

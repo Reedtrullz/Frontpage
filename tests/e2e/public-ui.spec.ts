@@ -25,7 +25,8 @@ test.describe("application shell", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: /Reidar/i }),
     ).toBeVisible();
-    await expect(page.getByText("No approved media").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Current work" })).toBeVisible();
+    await expect(page.getByText("No approved media")).toHaveCount(0);
     const primary = page.getByRole("navigation", { name: "Primary" });
     await expect(
       primary.getByRole("link", { name: "Projects", exact: true }),
@@ -111,29 +112,69 @@ test.describe("application shell", () => {
 });
 
 test.describe("public project experience", () => {
+  test("bounds current work on the homepage and links to the matching catalogue filter", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const currentWork = page.getByRole("region", { name: "Current work" });
+    await expect(currentWork).toBeVisible();
+    await expect(currentWork.getByText("Showing 6 of 21 projects")).toBeVisible();
+    expect(await currentWork.locator('a[href^="/projects/"]').count()).toBe(6);
+    await expect(
+      currentWork.getByRole("link", { name: "View all current work" }),
+    ).toHaveAttribute("href", "/projects?lifecycle=current");
+  });
+
   test("persists catalogue filters in the URL", async ({ page }) => {
     await page.goto("/projects");
     await expect(
       page.getByRole("heading", { name: "Published projects" }),
     ).toBeVisible();
-    await expect(page.getByText("23 of 23 projects")).toBeVisible();
+    await expect(page.getByText("24 projects · 5 repositories")).toBeVisible();
 
     await page.getByLabel("Maturity").selectOption("experimental");
     await expect(page).toHaveURL(/maturity=experimental/);
-    await expect(page.getByText("9 of 23 projects")).toBeVisible();
+    await expect(page.getByText("10 projects · 0 repositories")).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "THORArb" }),
     ).toBeVisible();
 
     await page.goto("/projects");
-    await expect(page.getByText("Media not published").first()).toBeVisible();
+    await expect(page.getByText("Media not published")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Other public repositories" }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(6);
+    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(5);
     await page.getByLabel("Health").selectOption("not-monitored");
     await expect(page).toHaveURL(/health=not-monitored/);
-    await expect(page.getByText("17 of 23 projects")).toBeVisible();
+    await expect(page.getByText("18 projects · 0 repositories")).toBeVisible();
+  });
+
+  test("searches project and repository records together and resets cleanly", async ({
+    page,
+  }) => {
+    await page.goto("/projects?q=homebrew");
+    await expect(page.getByText("0 projects · 1 repositories")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Homebrew Cask" }),
+    ).toBeVisible();
+    await expect(page.getByText("Fork", { exact: true })).toBeVisible();
+    await expect(page.getByText("Upstream: Homebrew/homebrew-cask")).toBeVisible();
+
+    await page.goto("/projects?q=bunker");
+    await expect(page.getByText("1 projects · 0 repositories")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Bunkerkartet" }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(0);
+
+    await page.goto("/projects?q=definitely-not-a-project");
+    await expect(
+      page.getByRole("heading", { name: "No matching projects or repositories" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Clear filters" }).click();
+    await expect(page).toHaveURL("/projects");
+    await expect(page.getByText("24 projects · 5 repositories")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
@@ -175,6 +216,7 @@ test.describe("public project experience", () => {
       page.getByRole("heading", { level: 1, name: "Nytt" }),
     ).toBeVisible();
     await expect(page.getByText(/coverage and certainty depend/i)).toBeVisible();
+    await expect(page.getByText("Media not published")).toHaveCount(0);
 
     await page.goto("/projects/thorchain-wiki");
     await expect(

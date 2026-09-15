@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const owner = process.env.GITHUB_OWNER || "Reedtrullz";
+const MAX_PAGES = 10;
+const FETCH_TIMEOUT_MS = 5000;
 const aliases = new Map([
   ["reedtrullz/reedfs", "rfs"],
   ["reedtrullz/handli", "handleplan"],
@@ -49,10 +51,11 @@ export async function fetchPublicRepositories(
   repositoryOwner = owner,
 ) {
   const repositories = [];
-  for (let page = 1; ; page += 1) {
+  for (let page = 1; page <= MAX_PAGES; page += 1) {
     const url = `https://api.github.com/users/${repositoryOwner}/repos?type=owner&per_page=100&page=${page}`;
     const response = await fetchImpl(url, {
       headers: { accept: "application/vnd.github+json" },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
       throw new Error(`GitHub API HTTP ${response.status}`);
@@ -61,14 +64,26 @@ export async function fetchPublicRepositories(
     if (!Array.isArray(pageRepositories)) {
       throw new Error("GitHub API returned a non-array repository page");
     }
+    if (
+      pageRepositories.some(
+        (repository) =>
+          !repository ||
+          typeof repository.full_name !== "string" ||
+          typeof repository.fork !== "boolean" ||
+          !normalizeRepositoryRef(repository.full_name),
+      )
+    ) {
+      throw new Error("GitHub API returned an invalid repository record");
+    }
     repositories.push(
       ...pageRepositories.map((repository) => ({
         fullName: repository.full_name,
-        fork: repository.fork === true,
+        fork: repository.fork,
       })),
     );
     if (pageRepositories.length < 100) return repositories;
   }
+  throw new Error(`GitHub API exceeded the ${MAX_PAGES}-page repository limit`);
 }
 
 function readKnownRepositoryRefs() {

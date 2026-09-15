@@ -11,7 +11,7 @@ describe("extractRepoPairs", () => {
     const projects = getCanonicalProjects();
     const pairs = extractRepoPairs(projects);
 
-    expect(pairs).toHaveLength(18);
+    expect(pairs).toHaveLength(19);
     expect(pairs.some((pair) => pair.slug === "codex-antigravity-auth")).toBe(true);
   });
 });
