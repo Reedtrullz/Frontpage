@@ -1,14 +1,5 @@
 [
   {
-    "slug": "bunkerkartet",
-    "name": "Bunkerkartet",
-    "description": "A source-backed Trondheim map for bunkers, caves, tunnels, wartime camps, graves, memorials, and other war-history traces.",
-    "repoUrl": "https://github.com/Reedtrullz/Bunkerkartet",
-    "homepageUrl": "https://bunker.reidar.tech",
-    "fork": false,
-    "reviewedAt": "2026-09-15T07:00:00Z"
-  },
-  {
     "slug": "flip-smart-runelite-plugin",
     "name": "FlipSmart RuneLite Plugin",
     "description": "Fork of Flip-Smart's RuneLite plugin for Grand Exchange flipping, with account-backed recommendations and progress tracking described in the upstream README.",

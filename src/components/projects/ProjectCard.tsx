@@ -10,10 +10,7 @@ import type { GitHubStats } from "@/lib/github-stats";
 import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import { repositoryActivity } from "@/lib/projects/presentation";
 import { PostureBadge } from "@/components/ui/PostureBadge";
-import {
-  ProjectMedia,
-  ProjectMediaUnavailable,
-} from "@/components/ui/ProjectMedia";
+import { ProjectMedia } from "@/components/ui/ProjectMedia";
 import { RelativeTime } from "@/components/ui/RelativeTime";
 
 interface ProjectCardProps {
@@ -29,13 +26,11 @@ export function ProjectCard({ project, health, stats, now, priority = false }: P
 
   return (
     <article className="group relative flex min-h-full flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] transition-colors hover:border-[var(--border-strong)]">
-      <div className="border-b border-[var(--border)]">
-        {project.media ? (
+      {project.media ? (
+        <div className="border-b border-[var(--border)]">
           <ProjectMedia media={project.media.cover} priority={priority} sizes="(min-width: 1024px) 40vw, 100vw" />
-        ) : (
-          <ProjectMediaUnavailable projectName={project.name} />
-        )}
-      </div>
+        </div>
+      ) : null}
       <div className="flex flex-1 flex-col p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>

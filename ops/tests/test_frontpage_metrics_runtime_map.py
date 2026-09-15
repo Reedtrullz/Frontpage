@@ -113,32 +113,38 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn("metrics-v2-shadow.sqlite3", production)
 
     def test_ansible_keeps_shadow_v1_only_and_gates_promoted_v2_mounts(self):
-        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
-        self.assertIn('metrics_v1_dir: "{{ metrics_dir }}/v1"', playbook)
-        self.assertIn("metrics_v1_dir ~ ':/metrics:ro'", playbook)
-        self.assertIn('"{{ metrics_v1_dir }}:/metrics:ro"', playbook)
-        self.assertIn("metrics_dir ~ '/v2/public:/metrics-public:ro'", playbook)
-        self.assertIn("metrics_dir ~ '/v2/owner:/metrics-owner:ro'", playbook)
-        self.assertIn("if observability_v2_enabled else []", playbook)
-        self.assertIn("OBSERVABILITY_V2_SHADOW_GATE=approved", playbook)
-        self.assertIn("shadow-evidence-epoch.json", playbook)
-        self.assertIn("Start a new shadow evidence epoch", playbook)
-        self.assertIn("--evidence-epoch", playbook)
-        self.assertIn("observer_package_files:", playbook)
-        self.assertIn("Remove stale observer bytecode", playbook)
-        self.assertIn("Remove stale observability collector source files", playbook)
-        self.assertIn("or observer_stale_package_files_removed.changed", playbook)
-        self.assertIn('src: "ops/frontpage_metrics_v2/{{ item }}"', playbook)
-        self.assertNotIn("src: ops/frontpage_metrics_v2\n", playbook)
+        ansible_root = SCRIPT.parent.parent
+        playbook = (ansible_root / "ansible-playbook.yml").read_text()
+        preflight = (ansible_root / "ops" / "ansible" / "container-preflight.yml").read_text()
+        sources = playbook + preflight
+        self.assertIn('metrics_v1_dir: "{{ metrics_dir }}/v1"', sources)
+        self.assertIn("metrics_v1_dir ~ ':/metrics:ro'", sources)
+        self.assertIn("metrics_dir ~ '/v2/public:/metrics-public:ro'", sources)
+        self.assertIn("metrics_dir ~ '/v2/owner:/metrics-owner:ro'", sources)
+        self.assertIn("if observability_v2_enabled else []", sources)
+        self.assertIn("OBSERVABILITY_V2_SHADOW_GATE=approved", sources)
+        self.assertIn("shadow-evidence-epoch.json", sources)
+        self.assertIn("Start a new shadow evidence epoch", sources)
+        self.assertIn("--evidence-epoch", sources)
+        self.assertIn("observer_package_files:", sources)
+        self.assertIn("Remove stale observer bytecode", sources)
+        self.assertIn("Remove stale observability collector source files", sources)
+        self.assertIn("or observer_stale_package_files_removed.changed", sources)
+        self.assertIn('src: "ops/frontpage_metrics_v2/{{ item }}"', sources)
+        self.assertNotIn("src: ops/frontpage_metrics_v2\n", sources)
         restart_index = playbook.index("Enable observability collector shadow service")
         epoch_index = playbook.index("Start a new shadow evidence epoch")
         self.assertLess(restart_index, epoch_index)
-        self.assertNotIn('"{{ metrics_dir }}:/metrics:ro"', playbook)
-        self.assertNotIn("v2-shadow:/metrics", playbook)
-        self.assertNotIn("/private:/metrics", playbook)
+        self.assertNotIn('"{{ metrics_dir }}:/metrics:ro"', sources)
+        self.assertNotIn("v2-shadow:/metrics", sources)
+        self.assertNotIn("/private:/metrics", sources)
 
     def test_ansible_preserves_promoted_mode_on_ordinary_deployments(self):
-        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
+        ansible_root = SCRIPT.parent.parent
+        playbook = (ansible_root / "ansible-playbook.yml").read_text()
+        preflight = (ansible_root / "ops" / "ansible" / "container-preflight.yml").read_text()
+        swap = (ansible_root / "ops" / "ansible" / "container-swap.yml").read_text()
+        sources = playbook + preflight + swap
         self.assertIn("Gather systemd service state for observability mode", playbook)
         self.assertIn("observability_v2_enabled", playbook)
         self.assertIn("observability_v2_promote\n            or (", playbook)
@@ -146,19 +152,16 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
             "if observability_v2_promote else 'frontpage-metrics-collector-v2-shadow.service'",
             playbook,
         )
-        self.assertNotIn("if observability_v2_promote else []", playbook)
-        self.assertIn(
-            "'FRONTPAGE_OBSERVABILITY_V2': '1'\n"
-            "                } if observability_v2_enabled else {}",
-            playbook,
-        )
+        self.assertIn("if observability_v2_enabled else []", sources)
+        self.assertIn("'FRONTPAGE_OBSERVABILITY_V2': '1'", sources)
+        self.assertIn("} if observability_v2_enabled else {}", sources)
         self.assertIn(
             "- (not observability_v2_enabled) or "
             "('FRONTPAGE_OBSERVABILITY_V2=1' in container_info.container.Config.Env)",
-            playbook,
+            sources,
         )
-        self.assertIn("Read both observability collector service states", playbook)
-        self.assertIn("exactly one observability collector is active", playbook)
+        self.assertIn("Read both observability collector service states", sources)
+        self.assertIn("exactly one observability collector is active", sources)
         self.assertEqual(
             playbook.count(
                 "when: (not observability_v2_enabled) or observability_v2_promote"
@@ -183,28 +186,32 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertEqual(manifest, local_sources)
 
     def test_ansible_runs_collector_preflights_as_the_observer_without_become_user(self):
-        playbook = (SCRIPT.parent.parent / "ansible-playbook.yml").read_text()
+        ansible_root = SCRIPT.parent.parent
+        playbook = (ansible_root / "ansible-playbook.yml").read_text()
+        swap = (ansible_root / "ops" / "ansible" / "container-swap.yml").read_text()
         self.assertNotIn("become_user:", playbook)
-        self.assertEqual(playbook.count("- /usr/sbin/runuser"), 5)
-        self.assertEqual(playbook.count('- "{{ observer_user }}"'), 5)
-        self.assertEqual(
-            playbook.count("- /usr/local/bin/frontpage-metrics-runtime-map"), 3
-        )
+        self.assertEqual(playbook.count("- /usr/sbin/runuser"), 3)
+        self.assertEqual(playbook.count('- "{{ observer_user }}"'), 3)
+        self.assertIn("runtime_map_executable", swap)
+        self.assertEqual(swap.count("runtime_map_executable"), 2)
+        self.assertIn("rescue:", swap)
         self.assertIn("name: acl", playbook)
         self.assertIn("ansible.posix.acl:", playbook)
         self.assertIn('permissions: x', playbook)
         self.assertIn("FRONTPAGE_OBSERVABILITY_RESET_EVIDENCE", playbook)
         self.assertIn("shadow_collector_restart_required", playbook)
         self.assertIn("'restarted' if shadow_collector_restart_required else 'started'", playbook)
-        self.assertIn("Normalize existing shadow projection directory ownership", playbook)
-        self.assertIn("Normalize existing shadow projection file ownership", playbook)
+        self.assertIn(
+            "Normalize existing shadow projection ownership in one bounded host pass",
+            playbook,
+        )
         stop_index = playbook.index("Stop shadow collector before rebuilding runtime state")
         map_index = playbook.index("Generate current allowlisted runtime map")
         start_index = playbook.index("Enable observability collector shadow service")
         self.assertLess(stop_index, map_index)
         self.assertLess(map_index, start_index)
-        rebind_map_index = playbook.index("Regenerate runtime map for newly active container")
-        health_index = playbook.index("Wait for application to become healthy")
+        rebind_map_index = swap.index("Regenerate runtime map for newly active container")
+        health_index = swap.index("Wait for application to become healthy")
         self.assertLess(rebind_map_index, health_index)
         self.assertNotIn("Stop selected collector before active runtime rebinding", playbook)
         self.assertNotIn("Restart selected collector with active runtime binding", playbook)

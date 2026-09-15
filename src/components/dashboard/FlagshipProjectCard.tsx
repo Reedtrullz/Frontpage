@@ -3,10 +3,7 @@ import { ArrowUpRight } from "lucide-react";
 import type { ProjectContent } from "@/lib/content/schema";
 import type { ProjectRuntimeHealth } from "@/lib/metrics/status-page";
 import { PostureBadge } from "@/components/ui/PostureBadge";
-import {
-  ProjectMedia,
-  ProjectMediaUnavailable,
-} from "@/components/ui/ProjectMedia";
+import { ProjectMedia } from "@/components/ui/ProjectMedia";
 
 export function FlagshipProjectCard({
   project,
@@ -27,11 +24,7 @@ export function FlagshipProjectCard({
             sizes="(min-width: 1024px) 48vw, 100vw"
           />
         </div>
-      ) : (
-        <div className="border-b border-[var(--border)]">
-          <ProjectMediaUnavailable projectName={project.name} compact />
-        </div>
-      )}
+      ) : null}
       <div className="p-5 sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
