@@ -14,11 +14,13 @@ import { PublicStatusBand } from "./PublicStatusBand";
 export function ProjectDashboard({
   personal,
   projects,
+  publicRepositoryCount,
   statsBySlug,
   metrics,
 }: {
   personal: PersonalContent;
   projects: ProjectContent[];
+  publicRepositoryCount: number;
   statsBySlug: Record<string, GitHubStats>;
   metrics: PublicMetricsModel;
 }) {
@@ -42,6 +44,7 @@ export function ProjectDashboard({
           <p className="mt-5 max-w-3xl text-base leading-7 text-[var(--text-muted)]">{personal.bio}</p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Link href="/projects" className="primary-command">Browse projects <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+            <Link href="/projects#public-repositories" className="secondary-command">Repository coverage ({publicRepositoryCount})</Link>
             <Link href="/status" className="secondary-command">View status</Link>
           </div>
         </div>

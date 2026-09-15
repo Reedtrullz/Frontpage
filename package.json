@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "check:repositories": "node scripts/check-repository-coverage.mjs",
     "pretest:e2e": "node tests/e2e/prepare-runtime.mjs",
     "test:e2e": "playwright test"
   },
@@ -15,7 +16,7 @@
     "@octokit/rest": "^22.0.1",
     "brace-expansion": "^5.0.9",
     "lucide-react": "^1.24.0",
-    "next": "16.3.1",
+    "next": "16.3.5",
     "next-auth": "^5.0.0-beta.32",
     "react": "19.2.7",
     "react-dom": "19.2.7",

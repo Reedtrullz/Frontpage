@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractRepoPairs,
   shouldCreateGitHubStatsClient,
   summarizeGitHubStatsError,
 } from "./github-stats";
+import { getCanonicalProjects } from "@/lib/content";
+
+describe("extractRepoPairs", () => {
+  it("includes linked nonfeatured projects for homepage activity", () => {
+    const projects = getCanonicalProjects();
+    const pairs = extractRepoPairs(projects);
+
+    expect(pairs).toHaveLength(18);
+    expect(pairs.some((pair) => pair.slug === "codex-antigravity-auth")).toBe(true);
+  });
+});
 
 describe("shouldCreateGitHubStatsClient", () => {
   it("requires a token unless unauthenticated stats are explicitly enabled", () => {

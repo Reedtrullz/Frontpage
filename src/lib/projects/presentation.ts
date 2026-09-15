@@ -17,6 +17,8 @@ export interface RepositoryActivity {
   lastCommitMessage: string | null;
 }
 
+export type RepositoryStatus = "no-repository" | "unavailable" | "no-commits" | "updated";
+
 function searchableText(project: ProjectContent): string {
   return [
     project.name,
@@ -93,12 +95,7 @@ export function sortProjects(
 export function repositoryActivity(
   stats: GitHubStats | null | undefined,
 ): RepositoryActivity | null {
-  if (
-    !stats ||
-    (stats.stars === 0 &&
-      (!stats.language || stats.language === "—") &&
-      !stats.lastCommitDate)
-  ) {
+  if (!stats || stats.status !== "available") {
     return null;
   }
 
@@ -109,4 +106,13 @@ export function repositoryActivity(
     lastCommitDate: stats.lastCommitDate,
     lastCommitMessage: stats.lastCommitMessage,
   };
+}
+
+export function repositoryStatus(
+  project: Pick<ProjectContent, "repoUrl">,
+  stats: GitHubStats | null | undefined,
+): RepositoryStatus {
+  if (!project.repoUrl) return "no-repository";
+  if (!stats || stats.status === "unavailable") return "unavailable";
+  return stats.lastCommitDate ? "updated" : "no-commits";
 }

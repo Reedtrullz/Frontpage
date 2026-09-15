@@ -1,17 +1,21 @@
 import personalJson from "../../../content/personal.json";
 import projectsJson from "../../../content/projects.json";
+import publicRepositoriesJson from "../../../content/repositories.json";
 import maintenanceJson from "../../../content/maintenance.json";
 import {
   parsePersonal,
   parseProjects,
+  parsePublicRepositories,
   parseMaintenanceWindows,
   type MaintenanceWindow,
   type PersonalContent,
   type ProjectContent,
+  type PublicRepository,
 } from "./schema";
 
 const canonicalPersonal = parsePersonal(personalJson);
 const canonicalProjects = parseProjects(projectsJson);
+const canonicalPublicRepositories = parsePublicRepositories(publicRepositoriesJson);
 const canonicalPublicServiceIds = new Set(
   canonicalProjects.flatMap((project) => project.healthServiceIds ?? []),
 );
@@ -31,6 +35,10 @@ export function getCanonicalProjects(): ProjectContent[] {
 export function getCanonicalProject(slug: string): ProjectContent | undefined {
   const project = canonicalProjects.find((item) => item.slug === slug);
   return project ? structuredClone(project) : undefined;
+}
+
+export function getCanonicalPublicRepositories(): PublicRepository[] {
+  return structuredClone(canonicalPublicRepositories);
 }
 
 export function getCanonicalMaintenance(): MaintenanceWindow[] {

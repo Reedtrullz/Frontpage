@@ -1,0 +1,74 @@
+[
+  {
+    "slug": "bunkerkartet",
+    "name": "Bunkerkartet",
+    "description": "A source-backed Trondheim map for bunkers, caves, tunnels, wartime camps, graves, memorials, and other war-history traces.",
+    "repoUrl": "https://github.com/Reedtrullz/Bunkerkartet",
+    "homepageUrl": "https://bunker.reidar.tech",
+    "fork": false,
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "flip-smart-runelite-plugin",
+    "name": "FlipSmart RuneLite Plugin",
+    "description": "Fork of Flip-Smart's RuneLite plugin for Grand Exchange flipping, with account-backed recommendations and progress tracking described in the upstream README.",
+    "repoUrl": "https://github.com/Reedtrullz/flip-smart-runelite-plugin",
+    "fork": true,
+    "upstream": {
+      "name": "Flip-Smart/flip-smart-runelite-plugin",
+      "repoUrl": "https://github.com/Flip-Smart/flip-smart-runelite-plugin"
+    },
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "homebrew-cask",
+    "name": "Homebrew Cask",
+    "description": "Fork of Homebrew Cask, the upstream macOS and Linux workflow for installing and managing prebuilt software artifacts.",
+    "repoUrl": "https://github.com/Reedtrullz/homebrew-cask",
+    "homepageUrl": "https://brew.sh",
+    "fork": true,
+    "upstream": {
+      "name": "Homebrew/homebrew-cask",
+      "repoUrl": "https://github.com/Homebrew/homebrew-cask"
+    },
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "opencodex",
+    "name": "opencodex",
+    "description": "Fork of lidge-jun/opencodex, a provider proxy for Codex, Claude Code, and other LLM clients.",
+    "repoUrl": "https://github.com/Reedtrullz/opencodex",
+    "homepageUrl": "https://opencodex.me",
+    "fork": true,
+    "upstream": {
+      "name": "lidge-jun/opencodex",
+      "repoUrl": "https://github.com/lidge-jun/opencodex"
+    },
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "osrs-fliphub-plugin-public",
+    "name": "OSRS FlipHub Plugin",
+    "description": "Fork of zFallan121's RuneLite plugin for local Grand Exchange flip history, margins, limits, and optional FlipHub sync.",
+    "repoUrl": "https://github.com/Reedtrullz/OSRS-FlipHub-Plugin-Public",
+    "fork": true,
+    "upstream": {
+      "name": "zFallan121/OSRS-FlipHub-Plugin-Public",
+      "repoUrl": "https://github.com/zFallan121/OSRS-FlipHub-Plugin-Public"
+    },
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "tcecosystem-guide",
+    "name": "tcecosystem.guide",
+    "description": "Fork of koitsu/tcecosystem-guide for the tcecosystem.guide website; the upstream repository remains the source of ownership.",
+    "repoUrl": "https://github.com/Reedtrullz/tcecosystem-guide",
+    "homepageUrl": "https://tcecosystem.guide",
+    "fork": true,
+    "upstream": {
+      "name": "koitsu/tcecosystem-guide",
+      "repoUrl": "https://github.com/koitsu/tcecosystem-guide"
+    },
+    "reviewedAt": "2026-09-15T07:00:00Z"
+  }
+]

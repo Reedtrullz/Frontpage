@@ -1,5 +1,9 @@
 import { ProjectDashboard } from "@/components/dashboard/ProjectDashboard";
-import { getCanonicalPersonal, getCanonicalProjects } from "@/lib/content";
+import {
+  getCanonicalPersonal,
+  getCanonicalProjects,
+  getCanonicalPublicRepositories,
+} from "@/lib/content";
 import {
   extractRepoPairs,
   fetchAllRepoStats,
@@ -16,10 +20,8 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const personal = getCanonicalPersonal();
   const projects = getCanonicalProjects();
-  const featuredProjects = projects.filter(
-    (project) => project.featuredRank !== undefined,
-  );
-  const repoPairs = extractRepoPairs(featuredProjects);
+  const publicRepositories = getCanonicalPublicRepositories();
+  const repoPairs = extractRepoPairs(projects);
   const [statsMap, readResult] = await Promise.all([
     fetchAllRepoStats(repoPairs),
     Promise.resolve(readMetricsFromDir(getMetricsDir())),
@@ -37,6 +39,7 @@ export default async function Home() {
     <ProjectDashboard
       personal={personal}
       projects={projects}
+      publicRepositoryCount={repoPairs.length + publicRepositories.length}
       statsBySlug={statsBySlug}
       metrics={derivePublicMetrics(readResult)}
     />

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ProjectList } from "@/components/projects/ProjectList";
-import { getCanonicalProjects } from "@/lib/content";
+import { getCanonicalProjects, getCanonicalPublicRepositories } from "@/lib/content";
 import {
   extractRepoPairs,
   fetchAllRepoStats,
@@ -20,6 +20,7 @@ export const metadata: Metadata = {
 
 export default async function ProjectsPage() {
   const projects = getCanonicalProjects();
+  const publicRepositories = getCanonicalPublicRepositories();
   const repoPairs = extractRepoPairs(projects);
   const [stats, readResult] = await Promise.all([
     fetchAllRepoStats(repoPairs),
@@ -42,6 +43,7 @@ export default async function ProjectsPage() {
   return (
     <ProjectList
       projects={projects}
+      publicRepositories={publicRepositories}
       healthBySlug={healthBySlug}
       statsBySlug={statsBySlug}
       nowIso={new Date().toISOString()}
