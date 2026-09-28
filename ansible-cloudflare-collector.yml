@@ -13,6 +13,12 @@
         fail_msg: "FRONTPAGE_UPLOAD_SECRET must be supplied from 1Password."
       no_log: true
 
+    - name: Require the deployed Worker commit before switching collector topology
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'FRONTPAGE_DEPLOYED_SHA') is match('^[a-f0-9]{40}$')
+      when: mark_primary
+
     - name: Check the active v1 collector snapshots
       ansible.builtin.stat:
         path: "/var/lib/frontpage-metrics/v1/{{ item }}"
@@ -63,6 +69,69 @@
       ansible.builtin.systemd:
         name: frontpage-metrics-upload.service
         state: started
+
+    - name: Switch collector checks from the retired VPS app to the live Worker
+      ansible.builtin.template:
+        src: ops/frontpage-metrics.cloudflare.json.j2
+        dest: "/etc/frontpage-metrics/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      loop:
+        - { source: 'ops/frontpage-metrics.config.json', dest: 'config.json' }
+        - { source: 'ops/frontpage-metrics-v2.config.json', dest: 'config-v2.json' }
+      register: cloudflare_collector_configs
+      when: mark_primary
+
+    - name: Clear retired VPS app runtime allowlist
+      ansible.builtin.copy:
+        content: "[]\n"
+        dest: /etc/frontpage-metrics/runtime-allowlist.json
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      register: cloudflare_runtime_allowlist
+      when: mark_primary
+
+    - name: Clear retired VPS app runtime map
+      ansible.builtin.copy:
+        content: "{{ {'generated_at': now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ'), 'workloads': []} | to_nice_json }}\n"
+        dest: /run/frontpage-metrics/runtime-map.json
+        owner: frontpage-observer
+        group: frontpage-observer
+        mode: '0640'
+      when: mark_primary
+
+    - name: Refresh v1 collector after origin switch
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.service
+        state: started
+      when: mark_primary
+
+    - name: Refresh v2 shadow collector after workload switch
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector-v2-shadow.service
+        state: restarted
+      when: mark_primary
+
+    - name: Start a new shadow comparison epoch after collector topology changes
+      ansible.builtin.copy:
+        content: "{{ {'schema_version': 1, 'started_at': now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ'), 'commit_sha': lookup('env', 'FRONTPAGE_DEPLOYED_SHA'), 'reason': 'collector_or_comparator_change'} | to_nice_json }}\n"
+        dest: /var/lib/frontpage-metrics/shadow-evidence-epoch.json
+        owner: root
+        group: root
+        mode: '0644'
+      when:
+        - mark_primary
+        - (cloudflare_collector_configs.results | selectattr('changed') | list | length > 0) or cloudflare_runtime_allowlist.changed
+
+    - name: Upload the Cloudflare-primary collector snapshot
+      ansible.builtin.systemd:
+        name: frontpage-metrics-upload.service
+        state: started
+      when: mark_primary
 
     - name: Mark Cloudflare as primary after live cutover verification
       ansible.builtin.file:

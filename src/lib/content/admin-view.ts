@@ -53,9 +53,8 @@ export interface RunbookCommand {
 export const RUNBOOK_COMMANDS: RunbookCommand[] = [
   {
     id: "deploy",
-    label: "Deploy current main",
-    command:
-      "ansible-playbook -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass",
+    label: "Inspect latest CI deployment",
+    command: "gh run list --workflow=CI --branch main --limit 1",
   },
   {
     id: "verify-site",

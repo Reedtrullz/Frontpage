@@ -1,0 +1,7 @@
+{% set config = (lookup('file', item.source) | replace('http://127.0.0.1:3002/api/health', 'https://reidar.tech/api/health')) | from_json %}
+{% set services = config.services | rejectattr('id', 'equalto', 'frontpage-internal') | list %}
+{% if config.schema_version == 1 %}
+{{ config | combine({'services': services, 'containers': []}) | to_nice_json }}
+{% else %}
+{{ config | combine({'services': services, 'workloads': config.workloads | rejectattr('id', 'equalto', 'frontpage-app') | list}) | to_nice_json }}
+{% endif %}
