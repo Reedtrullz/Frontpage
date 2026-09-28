@@ -64,7 +64,12 @@ const worker = {
       if (target.protocol !== 'https:' || target.host === url.host) {
         return new Response('Proposals origin misconfigured', { status: 503 });
       }
-      return fetch(new Request(target, request));
+      if (target.hostname === 'proposals-origin.reidar.tech' && !env.PROPOSALS_ORIGIN_TOKEN) {
+        return new Response('Proposals origin token unavailable', { status: 503 });
+      }
+      const upstream = new Request(target, request);
+      if (target.hostname === 'proposals-origin.reidar.tech') upstream.headers.set('X-Frontpage-Origin-Token', env.PROPOSALS_ORIGIN_TOKEN);
+      return fetch(upstream);
     }
     return env.FRONTPAGE.get(env.FRONTPAGE.idFromName('primary')).fetch(request);
   },
