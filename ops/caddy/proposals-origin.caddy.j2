@@ -3,6 +3,10 @@ proposals-origin.reidar.tech {
         header X-Frontpage-Origin-Token {{ proposals_origin_token }}
         path /proposals /proposals/* /api/proposals /api/proposals/* /api/agents /api/agents/*
     }
-    reverse_proxy @frontpage localhost:8089
-    respond 403
+    handle @frontpage {
+        reverse_proxy localhost:8089
+    }
+    handle {
+        respond 403
+    }
 }
