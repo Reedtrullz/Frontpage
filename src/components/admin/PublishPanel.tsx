@@ -58,7 +58,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
         <h2 id="publish-heading" className="text-2xl font-semibold text-[var(--text)]">Review and publish</h2>
       </div>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--text-muted)]">
-        Publishing creates one commit on main containing both canonical content files. It does not deploy the site.
+        Publishing creates one commit on main containing both canonical content files. CI then deploys the Worker after its checks pass; verify the live version afterward.
       </p>
 
       <div className="mt-6 border-y border-[var(--border)] py-4">
@@ -76,7 +76,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
 
       {(state.kind === "conflict" || state.kind === "publish-failed") ? (
         <p role="alert" className="mt-5 border border-[var(--role-failure-border)] bg-[var(--role-failure-soft)] p-4 text-sm text-[var(--role-failure)]">
-          {state.message} The draft is preserved. Deploy current main and save again to rebase, or discard the draft deliberately.
+          {state.message} The draft is preserved. Refresh after the current main deploy and save again to rebase, or discard the draft deliberately.
         </p>
       ) : null}
 
@@ -88,7 +88,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
           disabled={!hasDraft || diff.length === 0}
           className="mt-1 h-4 w-4 accent-[var(--accent)]"
         />
-        <span>I reviewed the diff and understand that publish updates GitHub but does not deploy production.</span>
+        <span>I reviewed the diff and understand that publishing commits to main and starts the production CI deployment.</span>
       </label>
 
       <div className="mt-5 flex flex-wrap items-center gap-4">

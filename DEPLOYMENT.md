@@ -3,51 +3,51 @@
 ## Architecture
 
 ```
-Local push → GitHub → CI workflow (lint, build, publish)
-                              ↓
-                   GHCR: ghcr.io/reedtrullz/frontpage:latest + :sha-<full-commit>
-                              ↓
-                   ansible-playbook from local machine
-                              ↓
-                   VPS pulls image → swaps container → /api/health probe
-                              ↓
-                   Caddy proxy → https://reidar.tech
+Main push → GitHub CI checks → exact-commit Cloudflare Worker deploy
+                                     ↓
+                reidar.tech → forwarding Worker → SQLite Durable Object
+                                     ↑
+          VPS metrics uploader; protected proposals origin
+
+CI also publishes an immutable GHCR image for an intentional VPS rollback.
 ```
 
-Same pattern as Heimdall. The VPS is a target, never a source.
+The VPS remains a collector host, protected proposals origin, and rollback target.
 
 ## Cloudflare Free migration
 
-`npm run build:cloudflare` uses OpenNext. The forwarding Worker serves static assets and sends application requests to a SQLite Durable Object, where SSR and owner draft/receipt storage run. This keeps the forwarding Worker under Free's 10 ms CPU limit; verify actual Worker and Durable Object CPU in tail logs before cutover. The direct OpenNext Worker exceeded that limit. The current candidate is `frontpage-do-preview.reidjoss.workers.dev`.
+`npm run build:cloudflare` uses OpenNext. The forwarding Worker serves static assets and sends application requests to a SQLite Durable Object, where SSR and owner draft/receipt storage run. The direct OpenNext Worker exceeded the Free HTTP CPU limit; verify forwarding Worker and Durable Object CPU separately in observability. The named Worker is `frontpage.reidjoss.workers.dev`.
 
-The production Frontpage container currently reads only the v1 collector feed. The DO stores compressed copies of `latest.json` and `history.json`, uploaded once per minute by the existing VPS collector host. The upload route accepts only those two names, requires `COLLECTOR_UPLOAD_SECRET`, and enforces compressed and expanded size caps. Public/owner metric filtering and schema validation remain in the application. The v2 collector is still in shadow mode; do not promote or delete it as part of this migration.
+The DO stores compressed copies of `latest.json` and `history.json`, uploaded once per minute by the existing VPS collector host. The upload route accepts only those two names, requires `COLLECTOR_UPLOAD_SECRET`, and enforces compressed and expanded size caps. Public/owner metric filtering and schema validation remain in the application. The v2 collector remains in shadow mode; do not promote or delete it as part of this migration.
 
-The forwarding Worker passes `/proposals`, `/api/proposals`, and `/api/agents` to `PROPOSALS_ORIGIN`. The preview uses the current `https://reidar.tech` origin. Before routing the apex Worker, run `ansible-cloudflare-proposals-origin.yml` with `FRONTPAGE_PROPOSALS_ORIGIN_TOKEN` supplied from 1Password, then add a proxied `proposals-origin.reidar.tech` A record to the VPS. The runbook installs a private Caddy snippet with an exact token and path matcher; anonymous direct requests receive 403. Set the same token as the production Worker secret `PROPOSALS_ORIGIN_TOKEN` and verify all three paths. This hostname prevents a loop back to the apex Worker. The VPS reverse SSH tunnel to the local dashboard remains a separate dependency.
+The forwarding Worker passes `/proposals`, `/api/proposals`, and `/api/agents` to `PROPOSALS_ORIGIN` at `proposals-origin.reidar.tech`. `ansible-cloudflare-proposals-origin.yml` installs a private Caddy snippet with an exact token and path matcher; anonymous direct requests receive 403. The VPS reverse SSH tunnel to the local dashboard remains a separate dependency. Rotate the 1Password variable and Worker secret together, then rerun that playbook.
 
-### Release gates and order
+### Production operation
 
-1. Pass CI and verify the exact PR head on the Cloudflare preview: public home, projects, status, service freshness/history, redirects and negative owner access, owner GitHub OAuth, draft save/reload/delete, publication conflict handling, and the three proposal paths. Inspect browser errors and Worker CPU. The owner OAuth and publication gates require production secrets in the preview or a separate configured GitHub OAuth app.
-2. Provision the production Worker secrets from 1Password: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `GITHUB_TOKEN`, `COLLECTOR_UPLOAD_SECRET`, and `PROPOSALS_ORIGIN_TOKEN`; set `OWNER_GITHUB_ID` and `AUTH_URL=https://reidar.tech`. Keep secret values out of logs. Set repository variable `CLOUDFLARE_ACCOUNT_ID`, production environment secret `CLOUDFLARE_API_TOKEN`, and repository variable `FRONTPAGE_CLOUDFLARE_DEPLOY_ENABLED=1` only after preview acceptance. The CI deploy checks `/api/health.version` against the exact commit.
-3. Run `ansible-cloudflare-collector.yml` with `FRONTPAGE_UPLOAD_SECRET` supplied from 1Password. It installs only the uploader and timer, starts one upload, and leaves both collector services and their data in place. Verify the Worker `/status` sample time advances across two cycles. Do not mark Cloudflare primary yet.
-4. Back up the Frontpage Docker volume and Caddy configuration, install and verify the protected proposal origin, and verify the Worker via its workers.dev URL. Route `reidar.tech` through the Worker, then check public and owner flows, health version, proposal paths, metrics freshness, and CPU. Set `FRONTPAGE_VPS_DEPLOY_ENABLED=0` to stop CI preloading the VPS image. Re-run the collector playbook with `FRONTPAGE_MARK_CLOUDFLARE_PRIMARY=1` only after live verification; that marker blocks accidental VPS app deployments.
-5. After a monitored successful cutover, stop and remove only the `frontpage` app container and its obsolete production checkout/files. Preserve the named data volume, tagged rollback image, Caddy proposal handlers, both collector services, backup and staging assets. Record exact bytes reclaimed. For rollback, restore the previous Caddy/DNS route and run the original app playbook with `FRONTPAGE_VPS_ROLLBACK=1` and an immutable image SHA.
+Main CI builds and deploys the named `frontpage` Worker after its checks pass, then verifies `/api/health.version` equals the commit SHA. `reidar.tech` is its Worker custom domain. The repository has `FRONTPAGE_CLOUDFLARE_DEPLOY_ENABLED=1` and `FRONTPAGE_VPS_DEPLOY_ENABLED=0`; the production GitHub environment holds the scoped Cloudflare deployment token. Worker secrets and the collector upload token come from the Cloudflare 1Password Environment. Rotate the repository-scoped GitHub publication token before its 2026-12-28 expiry.
 
-The apex and Wiki remain on the VPS until every relevant gate is evidenced. A passing build or preview alone is not a production cutover.
+After each main release, compare `gh api repos/Reedtrullz/Frontpage/branches/main --jq .commit.sha` with `curl -fsS https://reidar.tech/api/health`, check public and owner routes, proposals forwarding, and fresh `/status` samples. Inspect forwarding Worker and Durable Object CPU separately; short samples do not prove monthly Free quota fit.
+
+`ansible-cloudflare-collector.yml` maintains the VPS uploader and, with `FRONTPAGE_MARK_CLOUDFLARE_PRIMARY=1` and `FRONTPAGE_DEPLOYED_SHA=<live full Worker SHA>`, switches v1/v2 health checks to the Worker, clears the retired app allowlist, starts a new 48-hour shadow comparison epoch when topology changes, and writes `/etc/frontpage/cloudflare-primary`. Both collectors, their data, the protected proposals origin, and the reverse tunnel remain. The former app container and apex Caddy block are retired; `/backups/Caddyfile.pre-frontpage-retire-20260929`, `/backups/frontpage_data.pre-cloudflare-20260928.tar.gz`, the `frontpage_data` volume, and `frontpage:cloudflare-rollback-20260929` remain for rollback.
 
 ## Prerequisites
 
 ### Local (control node)
 - Ansible: `brew install ansible`
-- SSH key at `~/.ssh/id_rsa_racknerd`
+- SSH alias `Racknerd-Deploy` with the dedicated key and `IdentityAgent none`
 - Frontpage vault password file at `.vault_pass` (ignored by git, `0600`)
 
 ### VPS (managed node)
 - Docker
 - GHCR pull credentials — `docker login ghcr.io -u Reedtrullz --password-stdin`
-- Caddy configured with `reidar.tech → localhost:3002`
+- Caddy import for the token-protected `proposals-origin.reidar.tech` vhost
 - UFW + fail2ban (already configured)
 
-## Caddy config (add to existing Caddyfile on VPS)
+## VPS rollback only
+
+The former apex Caddy block is preserved in `/backups/Caddyfile.pre-frontpage-retire-20260929`. Restore that exact block and the prior proxied VPS A record only for an intentional rollback. The protected proposals-origin import must stay in place.
+
+The previous app proxy was:
 
 ```
 reidar.tech {
@@ -55,13 +55,10 @@ reidar.tech {
 }
 ```
 
-After adding, reload: `sudo systemctl reload caddy`
-
-## Deploy
+Validate Caddy before reloading it. Restore the known-good image with a full SHA and the explicit rollback flag:
 
 ```bash
-cd /Users/reidar/Projectos/Frontpage
-git pull origin main
+FRONTPAGE_VPS_ROLLBACK=1 GITHUB_SHA=948b3e7567ba1d53bb1ecab1f2ad604d1605a222 \
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
   --vault-password-file .vault_pass
 ```
@@ -73,7 +70,7 @@ verify it can decrypt `group_vars/all/vault.yml`:
 ansible-vault view group_vars/all/vault.yml --vault-password-file ~/.vault_pass.txt >/dev/null
 ```
 
-The playbook:
+The VPS rollback playbook:
 1. Records the currently-running image (for rollback)
 2. Resolves a full commit SHA and pulls `ghcr.io/reedtrullz/frontpage:sha-<full-sha>`
 3. Stops + removes old container
@@ -81,24 +78,13 @@ The playbook:
 5. Polls `/api/health` until healthy (or rolls back)
 6. Verifies the running image tag and `VERSION` both match the requested full SHA
 
-### Deploy a specific full SHA
-```bash
-GITHUB_SHA=<full-40-character-sha> \
-ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
-  --vault-password-file .vault_pass
-```
-
-## Verify
+## Verify production
 
 ```bash
-# Container status, image identity, and VERSION
-ssh deploy@198.23.137.16 "docker inspect --format '{{.State.Status}} {{.Config.Image}} {{range .Config.Env}}{{println .}}{{end}}' frontpage"
-
-# Health endpoint
-curl -s https://reidar.tech/api/health | jq
-
-# Homepage
-curl -s -o /dev/null -w "%{http_code}\n" https://reidar.tech
+curl -fsS https://reidar.tech/api/health | jq
+curl -fsS -o /dev/null -w '%{http_code}\n' https://reidar.tech/
+curl -fsS -o /dev/null -w '%{http_code}\n' https://reidar.tech/api/proposals
+ssh Racknerd-Deploy 'systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-upload.timer frontpage-metrics-collector-v2-shadow.service'
 ```
 
 ## VPS metrics collector
@@ -113,10 +99,10 @@ Frontpage v1 ships a host collector installed by Ansible:
 - `frontpage-metrics-collector.timer`
 
 The collector service runs as `frontpage-metrics` with supplementary `docker`
-group access so it can inspect the static allowlist. The Frontpage app
-container does not receive Docker socket access; it only reads
-`/metrics/latest.json` and `/metrics/history.json` through the dedicated v1
-directory mounted read-only.
+group access for its remaining host inventory. The Cloudflare-primary config
+checks `https://reidar.tech/api/health`, has no Frontpage internal service or
+app container entry, and uploads snapshots to the Worker. The site has no
+Docker socket or host filesystem mount.
 
 ### Optional service response checks
 
@@ -148,10 +134,9 @@ response body, target URL, exception text, parser details, or diagnostics.
 Verify on the VPS:
 
 ```bash
-ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer"
-ssh deploy@198.23.137.16 "sudo systemctl start frontpage-metrics-collector.service && sudo test -s /var/lib/frontpage-metrics/v1/latest.json"
-ssh deploy@198.23.137.16 "docker exec frontpage test -r /metrics/latest.json"
-ssh deploy@198.23.137.16 "docker exec frontpage sh -lc '! touch /metrics/write-test'"
+ssh Racknerd-Deploy 'systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-upload.timer'
+ssh Racknerd-Deploy 'sudo -n test -s /var/lib/frontpage-metrics/v1/latest.json && sudo -n test -s /var/lib/frontpage-metrics/v1/history.json'
+curl -fsS https://reidar.tech/status
 ```
 
 Non-claim: `/api/health` remains app-health only; host status is surfaced by
@@ -177,14 +162,15 @@ files created by `frontpage-observer` inherit the read-only
 Projection files are `0640`. The private directory is
 `frontpage-observer:frontpage-observer` and `0700`.
 
-During shadow operation the app receives only the dedicated v1 directory:
+During an intentional VPS rollback, the app receives only the dedicated v1 directory:
 
 ```text
 /var/lib/frontpage-metrics/v1 -> /metrics:ro
 ```
 
 Neither `v2-shadow`, `private`, nor the SQLite database is mounted into the
-container. Promotion is a separate deployment after the 48-hour comparison
+rollback container. The Cloudflare Worker receives v1 snapshots through the
+authenticated uploader. VPS app promotion is a separate rollback-era deployment after the 48-hour comparison
 gate. It switches the collector to `/var/lib/frontpage-metrics/v2`, mounts
 only `v2/public` at `/metrics-public:ro` and `v2/owner` at
 `/metrics-owner:ro`, and sets `PUBLIC_METRICS_DIR` and `OWNER_METRICS_DIR`.
@@ -192,11 +178,9 @@ only `v2/public` at `/metrics-public:ro` and `v2/owner` at
 Verify shadow mode on the VPS:
 
 ```bash
-ssh deploy@198.23.137.16 "systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-collector-v2-shadow.service"
-ssh deploy@198.23.137.16 "id -nG frontpage-observer"
-ssh deploy@198.23.137.16 "stat -c '%a %U %G %n' /var/lib/frontpage-metrics/v2-shadow/public /var/lib/frontpage-metrics/v2-shadow/public/latest.v2.json /var/lib/frontpage-metrics/private"
-ssh deploy@198.23.137.16 "docker inspect --format '{{range .Mounts}}{{println .Source \"->\" .Destination}}{{end}}' frontpage"
-ssh deploy@198.23.137.16 "docker exec frontpage node -e \"const fs=require('fs'); if(fs.existsSync('/metrics/private')||fs.existsSync('/metrics/v2-shadow'))process.exit(1)\""
+ssh Racknerd-Deploy 'systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-collector-v2-shadow.service'
+ssh Racknerd-Deploy 'id -nG frontpage-observer'
+ssh Racknerd-Deploy "sudo -n stat -c '%a %U %G %n' /var/lib/frontpage-metrics/v2-shadow/public /var/lib/frontpage-metrics/v2-shadow/public/latest.v2.json /var/lib/frontpage-metrics/private"
 ```
 
 Expected evidence:
@@ -204,18 +188,17 @@ Expected evidence:
 - Both v1 timer and v2 shadow service are `active`.
 - `id -nG frontpage-observer` does not include `docker` or `frontpage-metrics`.
 - Projection directories report `2750`; projection files report `640` and group `frontpage-metrics`; private reports `700`.
-- Container mounts list only the v1 directory at `/metrics`. Directory mounting
-  is required so atomic collector replacements become visible without pinning
-  stale file inodes.
-- The runtime map is atomically rewritten as `frontpage-observer` after both a
-  successful container swap and rollback. Web-image deploys do not restart the
-  shadow collector; collector code, config, executable, or unit changes do.
+- The runtime allowlist and current runtime map contain no retired Frontpage
+  app entry. The Cloudflare-primary collector playbook backs up the old configs.
 
 Shadow operation is not promotion. A running v2 service does not prove the
 48-hour divergence gate, owner UI activation, public redaction, or production
 v2 mounts.
 
-### Shadow comparison and promotion
+### Host-only shadow comparison and VPS rollback promotion
+
+The comparison may continue on the host. Its VPS application promotion steps
+below require an intentional rollback and do not promote the Cloudflare Worker.
 
 The v1 collector keeps its app-facing `history.json` capped at 1,440 samples
 and writes a separate host-only `comparison-history.json` capped at 4,320
@@ -260,6 +243,7 @@ artifact and an explicit operator acknowledgment:
 GITHUB_SHA=<full-40-character-sha> \
 FRONTPAGE_OBSERVABILITY_V2_PROMOTE=1 \
 OBSERVABILITY_V2_SHADOW_GATE=approved \
+FRONTPAGE_VPS_ROLLBACK=1 \
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
   --vault-password-file .vault_pass
 ```
@@ -300,6 +284,7 @@ health checks remain identical to a normal deployment. Use the full commit SHA
 of the last known-good image; short SHA tags are not published:
 ```bash
 GITHUB_SHA=<previous-full-40-character-sha> \
+FRONTPAGE_VPS_ROLLBACK=1 \
 ansible-playbook -i inventory/hosts.yml ansible-playbook.yml \
   --vault-password-file .vault_pass
 ```

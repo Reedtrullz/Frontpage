@@ -93,6 +93,8 @@ describe("runbook commands", () => {
   it("uses inventory aliases and contains no raw host or key paths", () => {
     const commands = RUNBOOK_COMMANDS.map((item) => item.command).join("\n");
 
+    expect(RUNBOOK_COMMANDS[0].command).toContain("gh run list");
+    expect(RUNBOOK_COMMANDS[0].command).not.toContain("ansible-playbook");
     expect(commands).toContain("inventory/hosts.yml");
     expect(commands).toContain(" vps ");
     expect(commands).not.toMatch(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
