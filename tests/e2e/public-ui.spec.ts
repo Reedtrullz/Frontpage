@@ -130,7 +130,7 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Published projects" }),
     ).toBeVisible();
-    await expect(page.getByText("24 projects · 5 repositories")).toBeVisible();
+    await expect(page.getByText("24 projects · 6 repositories")).toBeVisible();
 
     await page.getByLabel("Maturity").selectOption("experimental");
     await expect(page).toHaveURL(/maturity=experimental/);
@@ -144,7 +144,7 @@ test.describe("public project experience", () => {
     await expect(
       page.getByRole("heading", { name: "Other public repositories" }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(5);
+    await expect(page.getByRole("link", { name: "View repository" })).toHaveCount(6);
     await page.getByLabel("Health").selectOption("not-monitored");
     await expect(page).toHaveURL(/health=not-monitored/);
     await expect(page.getByText("18 projects · 0 repositories")).toBeVisible();
@@ -174,7 +174,7 @@ test.describe("public project experience", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Clear filters" }).click();
     await expect(page).toHaveURL("/projects");
-    await expect(page.getByText("24 projects · 5 repositories")).toBeVisible();
+    await expect(page.getByText("24 projects · 6 repositories")).toBeVisible();
   });
 
   test("shows real media, media-less evidence, and structured limits", async ({
