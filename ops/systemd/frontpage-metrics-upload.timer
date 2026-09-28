@@ -1,0 +1,11 @@
+[Unit]
+Description=Upload Frontpage metrics to Cloudflare every minute
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=frontpage-metrics-upload.service
+
+[Install]
+WantedBy=timers.target

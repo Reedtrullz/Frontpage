@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readCloudflareMetric } from "./cloudflare-store";
 import {
   MetricsValidationError,
   parseMetricsHistory,
@@ -94,6 +95,9 @@ export function getMetricsDir(): string | undefined {
 }
 
 function readJsonFile(filePath: string): unknown {
+  if (process.env.FRONTPAGE_CLOUDFLARE === "1") {
+    return readCloudflareMetric(path.basename(filePath));
+  }
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 

@@ -10,10 +10,13 @@
     "test": "vitest run",
     "check:repositories": "node scripts/check-repository-coverage.mjs",
     "pretest:e2e": "node tests/e2e/prepare-runtime.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:cloudflare": "opennextjs-cloudflare build && cp cloudflare/do-entry.mjs .open-next/do-entry.mjs",
+    "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
+    "@opennextjs/cloudflare": "^1.20.6",
     "brace-expansion": "^5.0.9",
     "lucide-react": "^1.24.0",
     "next": "16.3.5",
@@ -34,7 +37,8 @@
     "eslint-config-next": "16.3.1",
     "tailwindcss": "^4.3.2",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.142.0"
   },
   "overrides": {
     "postcss": "8.5.26"

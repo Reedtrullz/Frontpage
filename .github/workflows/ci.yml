@@ -56,6 +56,14 @@ jobs:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
+      - name: Build Cloudflare Durable Object candidate
+        run: npm run build:cloudflare
+        env:
+          CI: true
+          AUTH_SECRET: frontpage-ci-build-secret
+          VERSION: ci-${{ github.sha }}
+      - name: Validate Cloudflare upload bundle
+        run: npx wrangler deploy --config wrangler.jsonc --dry-run
 
   browser:
     name: Public browser & accessibility
@@ -192,7 +200,7 @@ jobs:
   preload:
     name: Preload deploy image on VPS
     needs: [publish]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.FRONTPAGE_VPS_DEPLOY_ENABLED != '0'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -217,3 +225,32 @@ jobs:
             "sudo docker login ghcr.io --username '$GHCR_USERNAME' --password-stdin >/dev/null"
           ssh -o StrictHostKeyChecking=yes deploy@198.23.137.16 \
             "sudo docker pull '$image'"
+
+  deploy-cloudflare:
+    name: Deploy to Cloudflare
+    needs: [test, browser, docker-check, publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.FRONTPAGE_CLOUDFLARE_DEPLOY_ENABLED == '1'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci --include=optional
+      - name: Build exact commit for Cloudflare
+        run: npm run build:cloudflare
+        env:
+          CI: true
+          AUTH_SECRET: frontpage-ci-build-secret
+          VERSION: ${{ github.sha }}
+      - name: Deploy production Worker
+        run: npx wrangler deploy --config wrangler.jsonc --name frontpage --var VERSION:${{ github.sha }} --var PROPOSALS_ORIGIN:https://proposals-origin.reidar.tech
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify Worker commit
+        run: |
+          curl --fail --silent --show-error https://frontpage.reidjoss.workers.dev/api/health \
+            | jq -e --arg commit "$GITHUB_SHA" '.status == "healthy" and .version == $commit'

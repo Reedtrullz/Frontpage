@@ -63,3 +63,7 @@ public/data/
 .vault_pass.txt
 group_vars/
 .vault_pass
+
+# Cloudflare build output
+/.open-next/
+/.wrangler/
