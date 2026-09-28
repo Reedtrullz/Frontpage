@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { z } from "zod";
 import {
   parsePersonal,
@@ -107,7 +108,28 @@ function resolveDataDir(dataDir?: string): string {
   return dataDir || getRuntimeDataDir();
 }
 
-function atomicWriteJson(filePath: string, value: unknown): void {
+type SqlStore = {
+  exec(query: string, ...bindings: string[]): { toArray(): Record<string, unknown>[] };
+};
+
+function cloudflareSql(dataDir?: string): SqlStore | null {
+  if (dataDir || process.env.FRONTPAGE_CLOUDFLARE !== "1") return null;
+  const sql = (getCloudflareContext().env as { FRONTPAGE_SQL?: SqlStore }).FRONTPAGE_SQL;
+  if (!sql) throw new Error("Frontpage Durable Object storage is unavailable.");
+  sql.exec("CREATE TABLE IF NOT EXISTS owner_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  return sql;
+}
+
+function atomicWriteJson(filePath: string, value: unknown, dataDir?: string): void {
+  const sql = cloudflareSql(dataDir);
+  if (sql) {
+    sql.exec(
+      "INSERT INTO owner_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      path.relative(getRuntimeDataDir(), filePath),
+      JSON.stringify(value),
+    );
+    return;
+  }
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
   const temporaryPath = path.join(
@@ -129,7 +151,16 @@ function atomicWriteJson(filePath: string, value: unknown): void {
 function readJson<T>(
   filePath: string,
   schema: z.ZodType<T>,
+  dataDir?: string,
 ): T | null {
+  const sql = cloudflareSql(dataDir);
+  if (sql) {
+    const row = sql.exec(
+      "SELECT value FROM owner_state WHERE key = ?",
+      path.relative(getRuntimeDataDir(), filePath),
+    ).toArray()[0];
+    return row ? schema.parse(JSON.parse(String(row.value))) : null;
+  }
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     return schema.parse(JSON.parse(raw));
@@ -143,6 +174,15 @@ function readJson<T>(
       return null;
     }
     throw error;
+  }
+}
+
+function removeJson(filePath: string, dataDir?: string): void {
+  const sql = cloudflareSql(dataDir);
+  if (sql) {
+    sql.exec("DELETE FROM owner_state WHERE key = ?", path.relative(getRuntimeDataDir(), filePath));
+  } else {
+    fs.rmSync(filePath, { force: true });
   }
 }
 
@@ -164,7 +204,7 @@ export function savePersonalDraft(
 ): DraftEnvelope<PersonalContent> {
   const envelope = makeEnvelope(parsePersonal(input), options);
   const filePath = path.join(resolveDataDir(options.dataDir), "drafts", "personal.json");
-  atomicWriteJson(filePath, personalDraftSchema.parse(envelope));
+  atomicWriteJson(filePath, personalDraftSchema.parse(envelope), options.dataDir);
   return envelope;
 }
 
@@ -174,7 +214,7 @@ export function saveProjectsDraft(
 ): DraftEnvelope<ProjectContent[]> {
   const envelope = makeEnvelope(parseProjects(input), options);
   const filePath = path.join(resolveDataDir(options.dataDir), "drafts", "projects.json");
-  atomicWriteJson(filePath, projectsDraftSchema.parse(envelope));
+  atomicWriteJson(filePath, projectsDraftSchema.parse(envelope), options.dataDir);
   return envelope;
 }
 
@@ -184,14 +224,17 @@ export function readDraftBundle(dataDir?: string): DraftBundle {
     personal: readJson(
       path.join(root, "drafts", "personal.json"),
       personalDraftSchema,
+      dataDir,
     ),
     projects: readJson(
       path.join(root, "drafts", "projects.json"),
       projectsDraftSchema,
+      dataDir,
     ),
     receipt: readJson(
       path.join(root, "receipts", "publication.json"),
       publishReceiptSchema,
+      dataDir,
     ),
   };
 }
@@ -204,28 +247,23 @@ export function savePublishReceipt(
   atomicWriteJson(
     path.join(resolveDataDir(dataDir), "receipts", "publication.json"),
     parsed,
+    dataDir,
   );
   return parsed;
 }
 
 export function clearDrafts(dataDir?: string): void {
   const directory = path.join(resolveDataDir(dataDir), "drafts");
-  fs.rmSync(path.join(directory, "personal.json"), { force: true });
-  fs.rmSync(path.join(directory, "projects.json"), { force: true });
+  removeJson(path.join(directory, "personal.json"), dataDir);
+  removeJson(path.join(directory, "projects.json"), dataDir);
 }
 
 export function discardPersonalDraft(dataDir?: string): void {
-  fs.rmSync(
-    path.join(resolveDataDir(dataDir), "drafts", "personal.json"),
-    { force: true },
-  );
+  removeJson(path.join(resolveDataDir(dataDir), "drafts", "personal.json"), dataDir);
 }
 
 export function discardProjectsDraft(dataDir?: string): void {
-  fs.rmSync(
-    path.join(resolveDataDir(dataDir), "drafts", "projects.json"),
-    { force: true },
-  );
+  removeJson(path.join(resolveDataDir(dataDir), "drafts", "projects.json"), dataDir);
 }
 
 function commitToken(value: string): string | null {

@@ -1,5 +1,13 @@
 [
   {
+    "slug": "navigator",
+    "name": "NAV Kunnskapssenter",
+    "description": "A limited Norwegian reference base for NAV services, benefits, and measures, sourced from official nav.no information.",
+    "repoUrl": "https://github.com/Reedtrullz/NAVigator",
+    "fork": false,
+    "reviewedAt": "2026-09-28T14:45:00Z"
+  },
+  {
     "slug": "flip-smart-runelite-plugin",
     "name": "FlipSmart RuneLite Plugin",
     "description": "Fork of Flip-Smart's RuneLite plugin for Grand Exchange flipping, with account-backed recommendations and progress tracking described in the upstream README.",

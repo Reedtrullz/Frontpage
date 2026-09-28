@@ -1,0 +1,83 @@
+- name: Keep the Frontpage metrics collector publishing after Cloudflare cutover
+  hosts: vps
+  gather_facts: false
+  become: true
+  vars:
+    upload_secret: "{{ lookup('env', 'FRONTPAGE_UPLOAD_SECRET') }}"
+    mark_primary: "{{ lookup('env', 'FRONTPAGE_MARK_CLOUDFLARE_PRIMARY') == '1' }}"
+  tasks:
+    - name: Require a collector upload secret
+      ansible.builtin.assert:
+        that:
+          - upload_secret | length >= 32
+        fail_msg: "FRONTPAGE_UPLOAD_SECRET must be supplied from 1Password."
+      no_log: true
+
+    - name: Check the active v1 collector snapshots
+      ansible.builtin.stat:
+        path: "/var/lib/frontpage-metrics/v1/{{ item }}"
+      loop: [latest.json, history.json]
+      register: snapshots
+
+    - name: Require both active snapshots
+      ansible.builtin.assert:
+        that:
+          - snapshots.results | map(attribute='stat.exists') | min
+
+    - name: Install uploader
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics-upload.py
+        dest: /usr/local/bin/frontpage-metrics-upload
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install collector upload secret
+      ansible.builtin.copy:
+        content: "{{ upload_secret }}"
+        dest: /etc/frontpage-metrics/cloudflare-upload-secret
+        owner: root
+        group: frontpage-metrics
+        mode: '0640'
+      no_log: true
+
+    - name: Install upload units
+      ansible.builtin.copy:
+        src: "ops/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - frontpage-metrics-upload.service
+        - frontpage-metrics-upload.timer
+
+    - name: Enable upload timer
+      ansible.builtin.systemd:
+        name: frontpage-metrics-upload.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Upload the first snapshots
+      ansible.builtin.systemd:
+        name: frontpage-metrics-upload.service
+        state: started
+
+    - name: Mark Cloudflare as primary after live cutover verification
+      ansible.builtin.file:
+        path: /etc/frontpage
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: mark_primary
+
+    - name: Record Cloudflare as primary after live cutover verification
+      ansible.builtin.copy:
+        content: "Cloudflare is the Frontpage production origin; use FRONTPAGE_VPS_ROLLBACK=1 for intentional VPS restore.\n"
+        dest: /etc/frontpage/cloudflare-primary
+        owner: root
+        group: root
+        mode: '0644'
+      when: mark_primary

@@ -42,6 +42,18 @@
     observability_v2_shadow_gate: "{{ lookup('env', 'OBSERVABILITY_V2_SHADOW_GATE') | default('', true) }}"
 
   pre_tasks:
+    - name: Check whether Cloudflare is the production origin
+      become: true
+      ansible.builtin.stat:
+        path: /etc/frontpage/cloudflare-primary
+      register: cloudflare_primary_marker
+
+    - name: Require explicit rollback to restore the VPS app
+      ansible.builtin.assert:
+        that:
+          - not cloudflare_primary_marker.stat.exists or lookup('env', 'FRONTPAGE_VPS_ROLLBACK') == '1'
+        fail_msg: "Cloudflare is primary. Set FRONTPAGE_VPS_ROLLBACK=1 for an intentional VPS rollback."
+
     - name: Validate requested deployment commit
       ansible.builtin.assert:
         that:

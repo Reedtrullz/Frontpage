@@ -16,6 +16,24 @@ Local push → GitHub → CI workflow (lint, build, publish)
 
 Same pattern as Heimdall. The VPS is a target, never a source.
 
+## Cloudflare Free migration
+
+`npm run build:cloudflare` uses OpenNext. The forwarding Worker serves static assets and sends application requests to a SQLite Durable Object, where SSR and owner draft/receipt storage run. This keeps the forwarding Worker under Free's 10 ms CPU limit; verify actual Worker and Durable Object CPU in tail logs before cutover. The direct OpenNext Worker exceeded that limit. The current candidate is `frontpage-do-preview.reidjoss.workers.dev`.
+
+The production Frontpage container currently reads only the v1 collector feed. The DO stores compressed copies of `latest.json` and `history.json`, uploaded once per minute by the existing VPS collector host. The upload route accepts only those two names, requires `COLLECTOR_UPLOAD_SECRET`, and enforces compressed and expanded size caps. Public/owner metric filtering and schema validation remain in the application. The v2 collector is still in shadow mode; do not promote or delete it as part of this migration.
+
+The forwarding Worker passes `/proposals`, `/api/proposals`, and `/api/agents` to `PROPOSALS_ORIGIN`. The preview uses the current `https://reidar.tech` origin. Before routing the apex Worker, run `ansible-cloudflare-proposals-origin.yml` with `FRONTPAGE_PROPOSALS_ORIGIN_TOKEN` supplied from 1Password, then add a proxied `proposals-origin.reidar.tech` A record to the VPS. The runbook installs a private Caddy snippet with an exact token and path matcher; anonymous direct requests receive 403. Set the same token as the production Worker secret `PROPOSALS_ORIGIN_TOKEN` and verify all three paths. This hostname prevents a loop back to the apex Worker. The VPS reverse SSH tunnel to the local dashboard remains a separate dependency.
+
+### Release gates and order
+
+1. Pass CI and verify the exact PR head on the Cloudflare preview: public home, projects, status, service freshness/history, redirects and negative owner access, owner GitHub OAuth, draft save/reload/delete, publication conflict handling, and the three proposal paths. Inspect browser errors and Worker CPU. The owner OAuth and publication gates require production secrets in the preview or a separate configured GitHub OAuth app.
+2. Provision the production Worker secrets from 1Password: `AUTH_SECRET`, `AUTH_GITHUB_ID`, `AUTH_GITHUB_SECRET`, `GITHUB_TOKEN`, `COLLECTOR_UPLOAD_SECRET`, and `PROPOSALS_ORIGIN_TOKEN`; set `OWNER_GITHUB_ID` and `AUTH_URL=https://reidar.tech`. Keep secret values out of logs. Set repository variable `CLOUDFLARE_ACCOUNT_ID`, production environment secret `CLOUDFLARE_API_TOKEN`, and repository variable `FRONTPAGE_CLOUDFLARE_DEPLOY_ENABLED=1` only after preview acceptance. The CI deploy checks `/api/health.version` against the exact commit.
+3. Run `ansible-cloudflare-collector.yml` with `FRONTPAGE_UPLOAD_SECRET` supplied from 1Password. It installs only the uploader and timer, starts one upload, and leaves both collector services and their data in place. Verify the Worker `/status` sample time advances across two cycles. Do not mark Cloudflare primary yet.
+4. Back up the Frontpage Docker volume and Caddy configuration, install and verify the protected proposal origin, and verify the Worker via its workers.dev URL. Route `reidar.tech` through the Worker, then check public and owner flows, health version, proposal paths, metrics freshness, and CPU. Set `FRONTPAGE_VPS_DEPLOY_ENABLED=0` to stop CI preloading the VPS image. Re-run the collector playbook with `FRONTPAGE_MARK_CLOUDFLARE_PRIMARY=1` only after live verification; that marker blocks accidental VPS app deployments.
+5. After a monitored successful cutover, stop and remove only the `frontpage` app container and its obsolete production checkout/files. Preserve the named data volume, tagged rollback image, Caddy proposal handlers, both collector services, backup and staging assets. Record exact bytes reclaimed. For rollback, restore the previous Caddy/DNS route and run the original app playbook with `FRONTPAGE_VPS_ROLLBACK=1` and an immutable image SHA.
+
+The apex and Wiki remain on the VPS until every relevant gate is evidenced. A passing build or preview alone is not a production cutover.
+
 ## Prerequisites
 
 ### Local (control node)

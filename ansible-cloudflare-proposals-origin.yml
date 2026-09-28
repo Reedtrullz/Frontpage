@@ -1,0 +1,43 @@
+- name: Add a protected origin for the existing proposals tunnel
+  hosts: vps
+  gather_facts: false
+  become: true
+  vars:
+    proposals_origin_token: "{{ lookup('env', 'FRONTPAGE_PROPOSALS_ORIGIN_TOKEN') }}"
+  tasks:
+    - name: Require a strong origin token from 1Password
+      ansible.builtin.assert:
+        that:
+          - proposals_origin_token is match('^[A-Za-z0-9_-]{32,}$')
+        fail_msg: "FRONTPAGE_PROPOSALS_ORIGIN_TOKEN must be supplied from 1Password."
+      no_log: true
+
+    - name: Install private origin vhost
+      ansible.builtin.template:
+        src: ops/caddy/proposals-origin.caddy.j2
+        dest: /etc/caddy/proposals-origin.caddy
+        owner: root
+        group: caddy
+        mode: '0640'
+        backup: true
+      register: origin_vhost
+      no_log: true
+
+    - name: Import the origin vhost
+      ansible.builtin.blockinfile:
+        path: /etc/caddy/Caddyfile
+        marker: "# {mark} Frontpage Cloudflare proposals origin"
+        block: "import /etc/caddy/proposals-origin.caddy"
+        backup: true
+      register: origin_import
+
+    - name: Validate Caddy configuration
+      ansible.builtin.command: caddy validate --config /etc/caddy/Caddyfile
+      changed_when: false
+      no_log: true
+
+    - name: Reload Caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: reloaded
+      when: origin_vhost.changed or origin_import.changed
