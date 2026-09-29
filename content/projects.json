@@ -8,23 +8,49 @@
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "frontend",
-    "tags": ["transport", "trondheim", "maps", "alerts", "provenance", "situation-room"],
-    "techStack": ["Next.js", "TypeScript", "Python", "PostgreSQL", "GIS"],
+    "tags": [
+      "transport",
+      "trondheim",
+      "maps",
+      "alerts",
+      "provenance",
+      "situation-room"
+    ],
+    "techStack": [
+      "Next.js",
+      "TypeScript",
+      "Python",
+      "PostgreSQL",
+      "GIS"
+    ],
     "featuredRank": 1,
     "liveUrl": "https://nytt.reidar.tech",
-    "healthServiceIds": ["nytt-public"],
+    "healthServiceIds": [
+      "nytt-public"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Source, product posture, and operational boundaries reviewed."
     },
     "sections": {
-      "whatItSolves": ["Transport alerts are often technically correct but difficult to translate into a traveller decision."],
-      "currentState": ["Active flagship with disruption mapping, source freshness, line and stop context, and Situation Room explanations."],
-      "howItWorks": ["Combines Entur service alerts with DATEX traffic context and preserves source provenance through ingestion and presentation."],
-      "nextPriorities": ["Continue improving evidence quality, incident explanation, and restore rehearsal proof."]
+      "whatItSolves": [
+        "Transport alerts are often technically correct but difficult to translate into a traveller decision."
+      ],
+      "currentState": [
+        "Active flagship with disruption mapping, source freshness, line and stop context, and Situation Room explanations."
+      ],
+      "howItWorks": [
+        "Combines Entur service alerts with DATEX traffic context and preserves source provenance through ingestion and presentation."
+      ],
+      "nextPriorities": [
+        "Continue improving evidence quality, incident explanation, and restore rehearsal proof."
+      ]
     },
-    "limitations": ["Coverage and certainty depend on upstream transport sources.", "Source freshness is evidence, not a guarantee that every disruption is represented."]
+    "limitations": [
+      "Coverage and certainty depend on upstream transport sources.",
+      "Source freshness is evidence, not a guarantee that every disruption is represented."
+    ]
   },
   {
     "slug": "rfs",
@@ -35,8 +61,20 @@
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "tooling",
-    "tags": ["aviation", "flight-sim", "physics", "autopilot", "webgl"],
-    "techStack": ["React", "TypeScript", "Vite", "Three.js", "Zustand"],
+    "tags": [
+      "aviation",
+      "flight-sim",
+      "physics",
+      "autopilot",
+      "webgl"
+    ],
+    "techStack": [
+      "React",
+      "TypeScript",
+      "Vite",
+      "Three.js",
+      "Zustand"
+    ],
     "featuredRank": 2,
     "repoUrl": "https://github.com/Reedtrullz/ReedFS",
     "liveUrl": "https://fly.reidar.tech",
@@ -49,19 +87,32 @@
         "caption": "Live simulator at Trondheim Vaernes, captured July 2026."
       }
     },
-    "healthServiceIds": ["rfs-public"],
+    "healthServiceIds": [
+      "rfs-public"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Current technical posture and validation limits reviewed in source."
     },
     "sections": {
-      "whatItSolves": ["Browser flight simulators often look convincing without making aircraft behaviour or cockpit feedback credible."],
-      "currentState": ["Active technical flagship with playable flight, cockpit instrumentation, and validation in progress."],
-      "howItWorks": ["Uses an explicit flight model, state store, Three.js scene, and cockpit displays with bounded unsupported-mode behaviour."],
-      "nextPriorities": ["Expand data-backed flight-dynamics validation and training-route coverage."]
+      "whatItSolves": [
+        "Browser flight simulators often look convincing without making aircraft behaviour or cockpit feedback credible."
+      ],
+      "currentState": [
+        "Active technical flagship with playable flight, cockpit instrumentation, and validation in progress."
+      ],
+      "howItWorks": [
+        "Uses an explicit flight model, state store, Three.js scene, and cockpit displays with bounded unsupported-mode behaviour."
+      ],
+      "nextPriorities": [
+        "Expand data-backed flight-dynamics validation and training-route coverage."
+      ]
     },
-    "limitations": ["Physics validation remains in progress.", "It is a technical simulator, not certified training software."]
+    "limitations": [
+      "Physics validation remains in progress.",
+      "It is a technical simulator, not certified training software."
+    ]
   },
   {
     "slug": "rfmc",
@@ -72,8 +123,22 @@
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "tooling",
-    "tags": ["aviation", "fmc", "boeing", "airbus", "training", "pwa"],
-    "techStack": ["React 18", "TypeScript", "Vite", "Zustand", "Node.js", "WebSocket"],
+    "tags": [
+      "aviation",
+      "fmc",
+      "boeing",
+      "airbus",
+      "training",
+      "pwa"
+    ],
+    "techStack": [
+      "React 18",
+      "TypeScript",
+      "Vite",
+      "Zustand",
+      "Node.js",
+      "WebSocket"
+    ],
     "featuredRank": 3,
     "repoUrl": "https://github.com/Reedtrullz/RFMC",
     "liveUrl": "https://fmc.reidar.tech",
@@ -86,19 +151,32 @@
         "caption": "Live VirtualCDU mission workspace, captured July 2026."
       }
     },
-    "healthServiceIds": ["rfmc-public"],
+    "healthServiceIds": [
+      "rfmc-public"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Trainer scope and unsupported-versus-real behaviour reviewed in source."
     },
     "sections": {
-      "whatItSolves": ["Learners need repeatable avionics procedure practice without requiring a full simulator setup."],
-      "currentState": ["Active technical flagship with CDU, MCDU, PFD, navigation display, and task-oriented practice surfaces."],
-      "howItWorks": ["Runs as an offline-capable PWA with hardware-style panels, instrument presentations, and optional simulator bridging."],
-      "nextPriorities": ["Continue validation of LOC, glide-slope, and autoflight boundaries."]
+      "whatItSolves": [
+        "Learners need repeatable avionics procedure practice without requiring a full simulator setup."
+      ],
+      "currentState": [
+        "Active technical flagship with CDU, MCDU, PFD, navigation display, and task-oriented practice surfaces."
+      ],
+      "howItWorks": [
+        "Runs as an offline-capable PWA with hardware-style panels, instrument presentations, and optional simulator bridging."
+      ],
+      "nextPriorities": [
+        "Continue validation of LOC, glide-slope, and autoflight boundaries."
+      ]
     },
-    "limitations": ["Not certified training software.", "Some autoflight and approach modes are intentionally unsupported or still being validated."]
+    "limitations": [
+      "Not certified training software.",
+      "Some autoflight and approach modes are intentionally unsupported or still being validated."
+    ]
   },
   {
     "slug": "heimdall",
@@ -109,8 +187,20 @@
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "defi",
-    "tags": ["thorchain", "dashboard", "defi", "monitoring", "bonds"],
-    "techStack": ["Next.js 16", "TypeScript", "Tailwind CSS 4", "Vitest", "Playwright"],
+    "tags": [
+      "thorchain",
+      "dashboard",
+      "defi",
+      "monitoring",
+      "bonds"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "TypeScript",
+      "Tailwind CSS 4",
+      "Vitest",
+      "Playwright"
+    ],
     "featuredRank": 4,
     "repoUrl": "https://github.com/Reedtrullz/Heimdall",
     "liveUrl": "https://bond.thorchain.no",
@@ -123,19 +213,32 @@
         "caption": "Live read-only operations console, captured July 2026."
       }
     },
-    "healthServiceIds": ["heimdall-public"],
+    "healthServiceIds": [
+      "heimdall-public"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Provider-centred posture, source trust, and risk framing reviewed."
     },
     "sections": {
-      "whatItSolves": ["Bond providers need a provider-centred view of rewards and slash exposure rather than a generic node score."],
-      "currentState": ["Active flagship for THORChain intelligence with conservative source and risk framing."],
-      "howItWorks": ["Combines THORNode and market data into provider positions, APY context, node state, and risk explanations."],
-      "nextPriorities": ["Keep provider alerts, source freshness, and decision guidance explicit."]
+      "whatItSolves": [
+        "Bond providers need a provider-centred view of rewards and slash exposure rather than a generic node score."
+      ],
+      "currentState": [
+        "Active flagship for THORChain intelligence with conservative source and risk framing."
+      ],
+      "howItWorks": [
+        "Combines THORNode and market data into provider positions, APY context, node state, and risk explanations."
+      ],
+      "nextPriorities": [
+        "Keep provider alerts, source freshness, and decision guidance explicit."
+      ]
     },
-    "limitations": ["Third-party and protocol data can be delayed or incomplete.", "The dashboard supports decisions but does not replace protocol or operator verification."]
+    "limitations": [
+      "Third-party and protocol data can be delayed or incomplete.",
+      "The dashboard supports decisions but does not replace protocol or operator verification."
+    ]
   },
   {
     "slug": "thorchain-wiki",
@@ -146,8 +249,21 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "wiki",
-    "tags": ["thorchain", "wiki", "documentation", "charts", "data"],
-    "techStack": ["Next.js 16", "React 19", "Recharts", "lunr", "SWR", "date-fns"],
+    "tags": [
+      "thorchain",
+      "wiki",
+      "documentation",
+      "charts",
+      "data"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "React 19",
+      "Recharts",
+      "lunr",
+      "SWR",
+      "date-fns"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/tcwiki",
     "liveUrl": "https://wiki.thorchain.no/",
     "media": {
@@ -159,19 +275,32 @@
         "caption": "Live source-backed THORChain Wiki homepage, captured July 2026."
       }
     },
-    "healthServiceIds": ["tcwiki-public"],
+    "healthServiceIds": [
+      "tcwiki-public"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Knowledge, search, and live-data trust surfaces reviewed."
     },
     "sections": {
-      "whatItSolves": ["Protocol information is difficult to use when static explanation and current data are separated."],
-      "currentState": ["Active knowledge and data workspace with broad trust-first remediation underway."],
-      "howItWorks": ["Combines structured documentation, search, guided answers, charts, and source-labelled live data."],
-      "nextPriorities": ["Continue source review, freshness labelling, and decision-journey polish."]
+      "whatItSolves": [
+        "Protocol information is difficult to use when static explanation and current data are separated."
+      ],
+      "currentState": [
+        "Active knowledge and data workspace with broad trust-first remediation underway."
+      ],
+      "howItWorks": [
+        "Combines structured documentation, search, guided answers, charts, and source-labelled live data."
+      ],
+      "nextPriorities": [
+        "Continue source review, freshness labelling, and decision-journey polish."
+      ]
     },
-    "limitations": ["Live protocol data changes independently of the written explanations.", "Readers should verify high-stakes protocol actions at primary sources."]
+    "limitations": [
+      "Live protocol data changes independently of the written explanations.",
+      "Readers should verify high-stakes protocol actions at primary sources."
+    ]
   },
   {
     "slug": "thorarb",
@@ -182,20 +311,45 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "bot",
-    "tags": ["thorchain", "arbitrage", "defi", "trading", "experimental", "safety"],
-    "techStack": ["TypeScript", "Node.js", "ethers.js", "Jest", "GitHub Actions"],
+    "tags": [
+      "thorchain",
+      "arbitrage",
+      "defi",
+      "trading",
+      "experimental",
+      "safety"
+    ],
+    "techStack": [
+      "TypeScript",
+      "Node.js",
+      "ethers.js",
+      "Jest",
+      "GitHub Actions"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Execution guards and unsupported trading paths reviewed in source."
     },
     "sections": {
-      "whatItSolves": ["Cross-venue pricing differences are hard to inspect with realistic gas, slippage, and liquidity constraints."],
-      "currentState": ["Experimental monitor with real execution disabled by default."],
-      "howItWorks": ["Collects venue quotes, models candidate routes, and applies explicit safety gates before any supported execution path."],
-      "nextPriorities": ["Complete quote and execution safety review before any production claim."]
+      "whatItSolves": [
+        "Cross-venue pricing differences are hard to inspect with realistic gas, slippage, and liquidity constraints."
+      ],
+      "currentState": [
+        "Experimental monitor with real execution disabled by default."
+      ],
+      "howItWorks": [
+        "Collects venue quotes, models candidate routes, and applies explicit safety gates before any supported execution path."
+      ],
+      "nextPriorities": [
+        "Complete quote and execution safety review before any production claim."
+      ]
     },
-    "limitations": ["Not production-safe trading infrastructure.", "Some venues are quote-only or explicitly refused.", "Real trading requires deliberate opt-in and further review."]
+    "limitations": [
+      "Not production-safe trading infrastructure.",
+      "Some venues are quote-only or explicitly refused.",
+      "Real trading requires deliberate opt-in and further review."
+    ]
   },
   {
     "slug": "thor-maya-swap",
@@ -206,20 +360,44 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "frontend",
-    "tags": ["thorchain", "maya", "swap", "frontend", "quotes-only", "experimental"],
-    "techStack": ["Next.js 15", "React 19", "Zustand", "Vitest", "Tailwind"],
+    "tags": [
+      "thorchain",
+      "maya",
+      "swap",
+      "frontend",
+      "quotes-only",
+      "experimental"
+    ],
+    "techStack": [
+      "Next.js 15",
+      "React 19",
+      "Zustand",
+      "Vitest",
+      "Tailwind"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Quotes-only boundary and no-execution safeguards reviewed."
     },
     "sections": {
-      "whatItSolves": ["Users need to compare cross-chain quote paths without being misled into unsafe execution."],
-      "currentState": ["Experimental quotes-only interface."],
-      "howItWorks": ["Builds validated quote requests and presents provider responses while transaction execution stays out of scope."],
-      "nextPriorities": ["Complete min-out, signing, wallet, and security design before execution."]
+      "whatItSolves": [
+        "Users need to compare cross-chain quote paths without being misled into unsafe execution."
+      ],
+      "currentState": [
+        "Experimental quotes-only interface."
+      ],
+      "howItWorks": [
+        "Builds validated quote requests and presents provider responses while transaction execution stays out of scope."
+      ],
+      "nextPriorities": [
+        "Complete min-out, signing, wallet, and security design before execution."
+      ]
     },
-    "limitations": ["No wallet signing or real swap execution.", "Quotes are not a guarantee of settlement."]
+    "limitations": [
+      "No wallet signing or real swap execution.",
+      "Quotes are not a guarantee of settlement."
+    ]
   },
   {
     "slug": "harmony-sync",
@@ -230,20 +408,44 @@
     "lifecycle": "paused",
     "maturity": "experimental",
     "category": "tooling",
-    "tags": ["mobile", "music", "machine-learning", "expo", "prototype", "experimental"],
-    "techStack": ["Expo", "React Native", "Python", "FastAPI", "yt-dlp"],
+    "tags": [
+      "mobile",
+      "music",
+      "machine-learning",
+      "expo",
+      "prototype",
+      "experimental"
+    ],
+    "techStack": [
+      "Expo",
+      "React Native",
+      "Python",
+      "FastAPI",
+      "yt-dlp"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Prototype boundaries and planned backend hardening reviewed."
     },
     "sections": {
-      "whatItSolves": ["Music analysis prototypes often blur the line between a queued workflow and a reliable model result."],
-      "currentState": ["Paused experimental prototype."],
-      "howItWorks": ["A mobile client submits work to a FastAPI backend that coordinates media processing and analysis jobs."],
-      "nextPriorities": ["Add durable jobs, cleanup, authentication, rate limits, and explicit model-result semantics."]
+      "whatItSolves": [
+        "Music analysis prototypes often blur the line between a queued workflow and a reliable model result."
+      ],
+      "currentState": [
+        "Paused experimental prototype."
+      ],
+      "howItWorks": [
+        "A mobile client submits work to a FastAPI backend that coordinates media processing and analysis jobs."
+      ],
+      "nextPriorities": [
+        "Add durable jobs, cleanup, authentication, rate limits, and explicit model-result semantics."
+      ]
     },
-    "limitations": ["Not a durable production service.", "Chord and lyric outputs are not represented as validated model results."]
+    "limitations": [
+      "Not a durable production service.",
+      "Chord and lyric outputs are not represented as validated model results."
+    ]
   },
   {
     "slug": "vifty",
@@ -254,8 +456,21 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "tooling",
-    "tags": ["macos", "fan-control", "swift", "menu-bar", "utility", "xpc"],
-    "techStack": ["Swift 6", "SwiftUI", "XPC", "IOKit", "SMC"],
+    "tags": [
+      "macos",
+      "fan-control",
+      "swift",
+      "menu-bar",
+      "utility",
+      "xpc"
+    ],
+    "techStack": [
+      "Swift 6",
+      "SwiftUI",
+      "XPC",
+      "IOKit",
+      "SMC"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Vifty",
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
@@ -263,12 +478,23 @@
       "note": "Current native architecture and privileged safety boundaries reviewed."
     },
     "sections": {
-      "whatItSolves": ["Mac users need thermal visibility and predictable fan controls without hiding privileged risk."],
-      "currentState": ["Active local and signed-distribution utility with ongoing trust and usability work."],
-      "howItWorks": ["A SwiftUI app reads telemetry and communicates with a validated privileged XPC helper for bounded fan operations."],
-      "nextPriorities": ["Continue release readiness, UI decomposition, signing, and notarization work."]
+      "whatItSolves": [
+        "Mac users need thermal visibility and predictable fan controls without hiding privileged risk."
+      ],
+      "currentState": [
+        "Active local and signed-distribution utility with ongoing trust and usability work."
+      ],
+      "howItWorks": [
+        "A SwiftUI app reads telemetry and communicates with a validated privileged XPC helper for bounded fan operations."
+      ],
+      "nextPriorities": [
+        "Continue release readiness, UI decomposition, signing, and notarization work."
+      ]
     },
-    "limitations": ["Broad consumer distribution is not yet claimed.", "Fan writes require a trusted privileged helper and explicit safeguards."]
+    "limitations": [
+      "Broad consumer distribution is not yet claimed.",
+      "Fan writes require a trusted privileged helper and explicit safeguards."
+    ]
   },
   {
     "slug": "hermes-antigravity-auth",
@@ -279,8 +505,22 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "infra",
-    "tags": ["hermes", "oauth", "claude", "gemini", "plugin", "antigravity", "high-risk"],
-    "techStack": ["Python", "httpx", "PKCE OAuth", "YAML", "pytest"],
+    "tags": [
+      "hermes",
+      "oauth",
+      "claude",
+      "gemini",
+      "plugin",
+      "antigravity",
+      "high-risk"
+    ],
+    "techStack": [
+      "Python",
+      "httpx",
+      "PKCE OAuth",
+      "YAML",
+      "pytest"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/hermes-antigravity-auth",
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
@@ -288,12 +528,23 @@
       "note": "OAuth, request adaptation, and provider-risk boundaries reviewed."
     },
     "sections": {
-      "whatItSolves": ["Hermes integrations need an explicit adapter for provider-specific OAuth and request formats."],
-      "currentState": ["Active experimental infrastructure with high external-provider risk."],
-      "howItWorks": ["Performs PKCE OAuth, token/session handling, request transformation, and account routing around external provider behaviour."],
-      "nextPriorities": ["Keep exact-version smoke tests and provider-policy awareness current."]
+      "whatItSolves": [
+        "Hermes integrations need an explicit adapter for provider-specific OAuth and request formats."
+      ],
+      "currentState": [
+        "Active experimental infrastructure with high external-provider risk."
+      ],
+      "howItWorks": [
+        "Performs PKCE OAuth, token/session handling, request transformation, and account routing around external provider behaviour."
+      ],
+      "nextPriorities": [
+        "Keep exact-version smoke tests and provider-policy awareness current."
+      ]
     },
-    "limitations": ["Unofficial integration with external Terms-of-Service and provider-change risk.", "Runtime patching can disrupt authentication when upstream assumptions change."]
+    "limitations": [
+      "Unofficial integration with external Terms-of-Service and provider-change risk.",
+      "Runtime patching can disrupt authentication when upstream assumptions change."
+    ]
   },
   {
     "slug": "codex-antigravity-auth",
@@ -304,8 +555,20 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "infra",
-    "tags": ["codex", "antigravity", "auth", "adapter", "experimental", "infra"],
-    "techStack": ["Python", "OAuth", "pytest", "GitHub Actions"],
+    "tags": [
+      "codex",
+      "antigravity",
+      "auth",
+      "adapter",
+      "experimental",
+      "infra"
+    ],
+    "techStack": [
+      "Python",
+      "OAuth",
+      "pytest",
+      "GitHub Actions"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/codex-antigravity-auth",
     "evidence": {
       "reviewedAt": "2026-09-15T07:06:38Z",
@@ -314,12 +577,23 @@
       "note": "Current repository README and released local-gateway scope reviewed; no hosted runtime claim is made."
     },
     "sections": {
-      "whatItSolves": ["Provider-specific authentication experiments need repeatable adapters and smoke checks."],
-      "currentState": ["Active released local gateway with conservative setup, optional activation, and provider-specific integration boundaries."],
-      "howItWorks": ["Runs a local Responses-compatible gateway, handles Google OAuth and account routing, and exposes optional Gemini and BYOK-compatible provider paths."],
-      "nextPriorities": ["Keep exact-version provider checks, account recovery, and setup diagnostics current."]
+      "whatItSolves": [
+        "Provider-specific authentication experiments need repeatable adapters and smoke checks."
+      ],
+      "currentState": [
+        "Active released local gateway with conservative setup, optional activation, and provider-specific integration boundaries."
+      ],
+      "howItWorks": [
+        "Runs a local Responses-compatible gateway, handles Google OAuth and account routing, and exposes optional Gemini and BYOK-compatible provider paths."
+      ],
+      "nextPriorities": [
+        "Keep exact-version provider checks, account recovery, and setup diagnostics current."
+      ]
     },
-    "limitations": ["Not a stable platform feature.", "Version-specific patching can break Codex authentication and history."]
+    "limitations": [
+      "Not a stable platform feature.",
+      "Version-specific patching can break Codex authentication and history."
+    ]
   },
   {
     "slug": "inebotten",
@@ -330,8 +604,22 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "bot",
-    "tags": ["discord", "selfbot", "ai", "calendar", "norwegian", "automation", "python"],
-    "techStack": ["Python 3.12+", "LM Studio", "OpenRouter", "Google Calendar", "Docker"],
+    "tags": [
+      "discord",
+      "selfbot",
+      "ai",
+      "calendar",
+      "norwegian",
+      "automation",
+      "python"
+    ],
+    "techStack": [
+      "Python 3.12+",
+      "LM Studio",
+      "OpenRouter",
+      "Google Calendar",
+      "Docker"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/inebotten-discord",
     "evidence": {
       "reviewedAt": "2026-08-18T08:44:53Z",
@@ -340,12 +628,24 @@
       "note": "Repository source, release posture, routing boundaries, and selfbot risk reviewed."
     },
     "sections": {
-      "whatItSolves": ["Community workflows need repeatable reminders, calendar actions, utility commands, and information access."],
-      "currentState": ["Active Python application with intent routing, calendar workflows, utility and social commands, a web console, and desktop/VPS launchers."],
-      "howItWorks": ["Routes explicit commands and Norwegian natural language through a conservative intent router, with LM Studio or OpenRouter as the AI fallback."],
-      "nextPriorities": ["Continue modular extraction and keep provider, account, and Discord policy boundaries explicit."]
+      "whatItSolves": [
+        "Community workflows need repeatable reminders, calendar actions, utility commands, and information access."
+      ],
+      "currentState": [
+        "Active Python application with intent routing, calendar workflows, utility and social commands, a web console, and desktop/VPS launchers."
+      ],
+      "howItWorks": [
+        "Routes explicit commands and Norwegian natural language through a conservative intent router, with LM Studio or OpenRouter as the AI fallback."
+      ],
+      "nextPriorities": [
+        "Continue modular extraction and keep provider, account, and Discord policy boundaries explicit."
+      ]
     },
-    "limitations": ["Discord selfbots violate Discord's Terms of Service; use a dedicated test account at your own risk.", "Behaviour depends on Discord and external APIs.", "No public runtime health proof is attached to this project."]
+    "limitations": [
+      "Discord selfbots violate Discord's Terms of Service; use a dedicated test account at your own risk.",
+      "Behaviour depends on Discord and external APIs.",
+      "No public runtime health proof is attached to this project."
+    ]
   },
   {
     "slug": "thornode-watcher",
@@ -356,19 +656,37 @@
     "lifecycle": "archived",
     "maturity": "reference",
     "category": "tooling",
-    "tags": ["thorchain", "monitoring", "puppeteer", "nodes", "automation"],
-    "techStack": ["JavaScript", "Puppeteer", "Node.js"],
+    "tags": [
+      "thorchain",
+      "monitoring",
+      "puppeteer",
+      "nodes",
+      "automation"
+    ],
+    "techStack": [
+      "JavaScript",
+      "Puppeteer",
+      "Node.js"
+    ],
     "evidence": {
       "reviewedAt": "2026-07-09T18:00:00Z",
       "level": "source-reviewed",
       "note": "Historical role and replacement by current intelligence surfaces reviewed."
     },
     "sections": {
-      "whatItSolves": ["Historical bond-provider workflows needed scheduled node and bond snapshots."],
-      "currentState": ["Archived reference replaced by newer intelligence surfaces."],
-      "howItWorks": ["Used headless browser automation to collect and log node information." ]
+      "whatItSolves": [
+        "Historical bond-provider workflows needed scheduled node and bond snapshots."
+      ],
+      "currentState": [
+        "Archived reference replaced by newer intelligence surfaces."
+      ],
+      "howItWorks": [
+        "Used headless browser automation to collect and log node information."
+      ]
     },
-    "limitations": ["Not maintained as the current THORChain intelligence source."]
+    "limitations": [
+      "Not maintained as the current THORChain intelligence source."
+    ]
   },
   {
     "slug": "frontpage",
@@ -379,25 +697,51 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "frontend",
-    "tags": ["portfolio", "nextjs", "tailwind", "personal-site", "projects", "status"],
-    "techStack": ["Next.js 16", "TypeScript", "Tailwind CSS 4", "Auth.js", "Ansible"],
+    "tags": [
+      "portfolio",
+      "nextjs",
+      "tailwind",
+      "personal-site",
+      "projects",
+      "status"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "TypeScript",
+      "Tailwind CSS 4",
+      "Auth.js",
+      "Ansible"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Frontpage",
     "liveUrl": "https://reidar.tech",
-    "healthServiceIds": ["frontpage-public"],
+    "healthServiceIds": [
+      "frontpage-public"
+    ],
     "evidence": {
-      "reviewedAt": "2026-07-09T20:04:00Z",
+      "reviewedAt": "2026-09-29T10:56:00Z",
       "level": "live-verified",
-      "commitSha": "6e4feb3",
+      "commitSha": "cebdf8ff3b7fe44543bd049439df120421fe4a96",
       "url": "https://reidar.tech/api/health",
-      "note": "Main CI, image publish, Ansible deploy, public routes, and collector health verified."
+      "note": "Main CI 36500482734 deployed the exact Cloudflare Worker commit; live health, public routes, owner metrics, and proposals forwarding were verified."
     },
     "sections": {
-      "whatItSolves": ["A project portfolio is not useful when status, maturity, and evidence are mixed into vague marketing claims."],
-      "currentState": ["Active trust-first portfolio and operations surface."],
-      "howItWorks": ["Combines canonical project content, GitHub metadata, public-safe collector output, and owner-gated exact metrics."],
-      "nextPriorities": ["Complete the trust-first UI, canonical content migration, and owner draft/publish workflow."]
+      "whatItSolves": [
+        "A project portfolio is not useful when status, maturity, and evidence are mixed into vague marketing claims."
+      ],
+      "currentState": [
+        "Production runs on the Cloudflare Free Worker at reidar.tech; public status and owner-gated metrics remain live."
+      ],
+      "howItWorks": [
+        "Combines canonical project content, GitHub metadata, public-safe collector output, and owner-gated exact metrics."
+      ],
+      "nextPriorities": [
+        "Monitor shared Workers Free usage and upstream checks; review the v2 collector comparison before any promotion."
+      ]
     },
-    "limitations": ["Only configured public services receive runtime health.", "Deployment remains a deliberate external Ansible action."]
+    "limitations": [
+      "Only configured public services receive runtime health.",
+      "The VPS still hosts the protected proposals origin and metrics collectors; the v2 collector is in shadow mode."
+    ]
   },
   {
     "slug": "keyspilli",
@@ -408,8 +752,30 @@
     "lifecycle": "active",
     "maturity": "flagship",
     "category": "frontend",
-    "tags": ["piano", "music-learning", "midi", "musicxml", "practice", "transcription", "audio", "private", "frontend"],
-    "techStack": ["Next.js 15", "React 19", "TypeScript", "Tailwind CSS 4", "Vitest", "Playwright", "SQLite", "Basic Pitch", "yt-dlp", "MIDI", "MusicXML"],
+    "tags": [
+      "piano",
+      "music-learning",
+      "midi",
+      "musicxml",
+      "practice",
+      "transcription",
+      "audio",
+      "private",
+      "frontend"
+    ],
+    "techStack": [
+      "Next.js 15",
+      "React 19",
+      "TypeScript",
+      "Tailwind CSS 4",
+      "Vitest",
+      "Playwright",
+      "SQLite",
+      "Basic Pitch",
+      "yt-dlp",
+      "MIDI",
+      "MusicXML"
+    ],
     "featuredRank": 5,
     "repoUrl": "https://github.com/Reedtrullz/Keyspilli",
     "liveUrl": "https://keys.reidar.tech",
@@ -420,12 +786,24 @@
       "note": "Current repository README confirms catalogue size, supported lesson inputs, and operator-only audio boundaries; live runtime was not refreshed."
     },
     "sections": {
-      "whatItSolves": ["Song transcriptions are often difficult to learn literally; Keyspilli turns them into visual, practice-oriented piano arrangements."],
-      "currentState": ["Active private single-user app with a public site, catalogue, uploads, practice grading, and export paths."],
-      "howItWorks": ["A Next.js and React player reads generated catalogue and SQLite artifacts; supported lesson creation uses user-supplied MIDI, MusicXML, or MXL files, while a separate legacy worker handles explicit operator research."],
-      "nextPriorities": ["Continue human musical review of arrangements and keep the deployed revision aligned with CI and production smoke checks."]
+      "whatItSolves": [
+        "Song transcriptions are often difficult to learn literally; Keyspilli turns them into visual, practice-oriented piano arrangements."
+      ],
+      "currentState": [
+        "Active private single-user app with a public site, catalogue, uploads, practice grading, and export paths."
+      ],
+      "howItWorks": [
+        "A Next.js and React player reads generated catalogue and SQLite artifacts; supported lesson creation uses user-supplied MIDI, MusicXML, or MXL files, while a separate legacy worker handles explicit operator research."
+      ],
+      "nextPriorities": [
+        "Continue human musical review of arrangements and keep the deployed revision aligned with CI and production smoke checks."
+      ]
     },
-    "limitations": ["Private single-user product; do not imply a multi-user SaaS offering.", "Audio-derived and generated arrangements can require manual musical review.", "The public YouTube import endpoint is disabled; the legacy audio worker is not a production source authority or automatic fallback."]
+    "limitations": [
+      "Private single-user product; do not imply a multi-user SaaS offering.",
+      "Audio-derived and generated arrangements can require manual musical review.",
+      "The public YouTube import endpoint is disabled; the legacy audio worker is not a production source authority or automatic fallback."
+    ]
   },
   {
     "slug": "rshelper",
@@ -436,8 +814,28 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "tooling",
-    "tags": ["osrs", "grand-exchange", "market-analysis", "paper-trading", "trading-journal", "python", "dashboard", "monitoring", "stdlib"],
-    "techStack": ["Python 3.11+", "Python standard library", "HTML/CSS", "Jinja", "Docker", "Ansible", "Caddy", "GitHub Actions", "Server-Sent Events"],
+    "tags": [
+      "osrs",
+      "grand-exchange",
+      "market-analysis",
+      "paper-trading",
+      "trading-journal",
+      "python",
+      "dashboard",
+      "monitoring",
+      "stdlib"
+    ],
+    "techStack": [
+      "Python 3.11+",
+      "Python standard library",
+      "HTML/CSS",
+      "Jinja",
+      "Docker",
+      "Ansible",
+      "Caddy",
+      "GitHub Actions",
+      "Server-Sent Events"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/RSHelper",
     "liveUrl": "https://rs.reidar.tech",
     "evidence": {
@@ -448,12 +846,24 @@
       "note": "Live health returned healthy; repository source, tax boundaries, and paper-trading posture were reviewed."
     },
     "sections": {
-      "whatItSolves": ["OSRS market data is difficult to turn into risk-aware, trackable decisions rather than one-off price lookups."],
-      "currentState": ["Active stable personal tool with a public dashboard, CLI scans, paper-trading journal, alerts, monitoring, and GE/Bank surfaces."],
-      "howItWorks": ["A dependency-free Python CLI and web server consume OSRS market sources, apply tax and margin logic, persist local state, and deploy behind Caddy using immutable images."],
-      "nextPriorities": ["Keep source freshness and fallback behavior visible, and deploy the current main state-sync revision when the normal deployment path is intended."]
+      "whatItSolves": [
+        "OSRS market data is difficult to turn into risk-aware, trackable decisions rather than one-off price lookups."
+      ],
+      "currentState": [
+        "Active stable personal tool with a public dashboard, CLI scans, paper-trading journal, alerts, monitoring, and GE/Bank surfaces."
+      ],
+      "howItWorks": [
+        "A dependency-free Python CLI and web server consume OSRS market sources, apply tax and margin logic, persist local state, and deploy behind Caddy using immutable images."
+      ],
+      "nextPriorities": [
+        "Keep source freshness and fallback behavior visible, and deploy the current main state-sync revision when the normal deployment path is intended."
+      ]
     },
-    "limitations": ["Paper trading and analysis only; it does not execute real Grand Exchange orders or provide financial advice.", "The OSRS Wiki API can be unavailable from datacenter IPs, so production falls back to GE Tracker for some data; real volume time series remain source-limited.", "Live health reports 4ac013c while current main is 3b35568; the latest successful workflow was state sync rather than a deployment."]
+    "limitations": [
+      "Paper trading and analysis only; it does not execute real Grand Exchange orders or provide financial advice.",
+      "The OSRS Wiki API can be unavailable from datacenter IPs, so production falls back to GE Tracker for some data; real volume time series remain source-limited.",
+      "Live health reports 4ac013c while current main is 3b35568; the latest successful workflow was state sync rather than a deployment."
+    ]
   },
   {
     "slug": "handleplan",
@@ -464,8 +874,31 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "frontend",
-    "tags": ["grocery", "price-comparison", "norway", "kassalapp", "basket-planning", "provenance", "privacy", "postgresql", "protected-alpha"],
-    "techStack": ["Next.js 16", "React 19", "TypeScript", "pnpm", "PostgreSQL", "Zod", "Vitest", "Playwright", "Docker", "Caddy", "Ansible", "Cloudflare Access"],
+    "tags": [
+      "grocery",
+      "price-comparison",
+      "norway",
+      "kassalapp",
+      "basket-planning",
+      "provenance",
+      "privacy",
+      "postgresql",
+      "protected-alpha"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "React 19",
+      "TypeScript",
+      "pnpm",
+      "PostgreSQL",
+      "Zod",
+      "Vitest",
+      "Playwright",
+      "Docker",
+      "Caddy",
+      "Ansible",
+      "Cloudflare Access"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Handli",
     "liveUrl": "https://handle.reidar.tech",
     "evidence": {
@@ -475,12 +908,25 @@
       "note": "Repository contract, protected-alpha boundaries, deployment policy, and monitor mismatch were reviewed."
     },
     "sections": {
-      "whatItSolves": ["Grocery comparison tools can overstate coverage and certainty; Handleplan makes eligible prices, source type, and unknown coverage explicit."],
-      "currentState": ["Protected-alpha implementation with separate public, review, operations, worker, and database boundaries; not a public shopping service."],
-      "howItWorks": ["A Next.js web app and worker use PostgreSQL, source-labelled ingestion, reviewed product-family matching, and local browser basket state behind least-privilege runtime roles."],
-      "nextPriorities": ["Resolve the external monitor revision mismatch and complete the documented v1 rights, coverage, ingestion, privacy, accessibility, backup, and monitoring gates."]
+      "whatItSolves": [
+        "Grocery comparison tools can overstate coverage and certainty; Handleplan makes eligible prices, source type, and unknown coverage explicit."
+      ],
+      "currentState": [
+        "Protected-alpha implementation with separate public, review, operations, worker, and database boundaries; not a public shopping service."
+      ],
+      "howItWorks": [
+        "A Next.js web app and worker use PostgreSQL, source-labelled ingestion, reviewed product-family matching, and local browser basket state behind least-privilege runtime roles."
+      ],
+      "nextPriorities": [
+        "Resolve the external monitor revision mismatch and complete the documented v1 rights, coverage, ingestion, privacy, accessibility, backup, and monitoring gates."
+      ]
     },
-    "limitations": ["Do not present this as a public live demo: the hostname is Cloudflare Access-protected and unauthenticated probes redirect to sign-in.", "The README explicitly describes protected alpha and says public-release gates are not complete.", "Current external monitor runs fail with REVISION_MISMATCH; no claim should be made that the protected runtime matches current main.", "Coverage is limited to eligible, verifiable prices and at most three intended chains; it does not claim a universally cheapest basket."]
+    "limitations": [
+      "Do not present this as a public live demo: the hostname is Cloudflare Access-protected and unauthenticated probes redirect to sign-in.",
+      "The README explicitly describes protected alpha and says public-release gates are not complete.",
+      "Current external monitor runs fail with REVISION_MISMATCH; no claim should be made that the protected runtime matches current main.",
+      "Coverage is limited to eligible, verifiable prices and at most three intended chains; it does not claim a universally cheapest basket."
+    ]
   },
   {
     "slug": "innsats-appen",
@@ -491,8 +937,35 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "frontend",
-    "tags": ["offline-first", "civil-defense", "sivilforsvaret", "field-operations", "incident-response", "checklists", "field-logging", "pwa", "maplibre", "pmtiles", "privacy-first", "norwegian"],
-    "techStack": ["Next.js 16", "React 19", "TypeScript", "PWA", "Service Worker", "IndexedDB", "MapLibre GL", "PMTiles", "Vitest", "Playwright", "Docker", "Ansible", "Obsidian"],
+    "tags": [
+      "offline-first",
+      "civil-defense",
+      "sivilforsvaret",
+      "field-operations",
+      "incident-response",
+      "checklists",
+      "field-logging",
+      "pwa",
+      "maplibre",
+      "pmtiles",
+      "privacy-first",
+      "norwegian"
+    ],
+    "techStack": [
+      "Next.js 16",
+      "React 19",
+      "TypeScript",
+      "PWA",
+      "Service Worker",
+      "IndexedDB",
+      "MapLibre GL",
+      "PMTiles",
+      "Vitest",
+      "Playwright",
+      "Docker",
+      "Ansible",
+      "Obsidian"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Innsats-appen",
     "liveUrl": "https://innsats.reidar.tech",
     "evidence": {
@@ -503,12 +976,25 @@
       "note": "Live health returned healthy; source, privacy boundaries, and decision-support limits were reviewed."
     },
     "sections": {
-      "whatItSolves": ["Field teams need source-backed guidance and local operational notes that remain useful when connectivity is poor."],
-      "currentState": ["Public production PWA with quick cards, search, local missions, checklist progress, map and log workflow, exports, and an offline shell."],
-      "howItWorks": ["Generated content is compiled from a curated knowledge bank into a Next.js PWA with service-worker caching, local browser storage, optional MapLibre and PMTiles assets, and sanitized exports."],
-      "nextPriorities": ["Repair the current main CI installation failure, redeploy and verify the exact SHA, and keep real-device, staging, rollback, and pilot evidence separate from automated checks."]
+      "whatItSolves": [
+        "Field teams need source-backed guidance and local operational notes that remain useful when connectivity is poor."
+      ],
+      "currentState": [
+        "Public production PWA with quick cards, search, local missions, checklist progress, map and log workflow, exports, and an offline shell."
+      ],
+      "howItWorks": [
+        "Generated content is compiled from a curated knowledge bank into a Next.js PWA with service-worker caching, local browser storage, optional MapLibre and PMTiles assets, and sanitized exports."
+      ],
+      "nextPriorities": [
+        "Repair the current main CI installation failure, redeploy and verify the exact SHA, and keep real-device, staging, rollback, and pilot evidence separate from automated checks."
+      ]
     },
-    "limitations": ["Decision support only; not an official command, order, journal, tracking, alerting, archive, or incident system.", "No login, backend mission sync, live tracking, push notifications, patient or person-data workflow, or official command-system integration.", "Pilot readiness and real-device evidence remain separate open gates.", "Live health reports 78e4d while current main is 81a89f; the latest main CI and deploy run failed during native-package installation."]
+    "limitations": [
+      "Decision support only; not an official command, order, journal, tracking, alerting, archive, or incident system.",
+      "No login, backend mission sync, live tracking, push notifications, patient or person-data workflow, or official command-system integration.",
+      "Pilot readiness and real-device evidence remain separate open gates.",
+      "Live health reports 78e4d while current main is 81a89f; the latest main CI and deploy run failed during native-package installation."
+    ]
   },
   {
     "slug": "ryddi",
@@ -519,8 +1005,22 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "tooling",
-    "tags": ["macos", "disk-cleanup", "storage", "privacy", "swift", "swiftui", "docker", "xcode"],
-    "techStack": ["Swift 6", "SwiftUI", "Finder Trash", "Xcode"],
+    "tags": [
+      "macos",
+      "disk-cleanup",
+      "storage",
+      "privacy",
+      "swift",
+      "swiftui",
+      "docker",
+      "xcode"
+    ],
+    "techStack": [
+      "Swift 6",
+      "SwiftUI",
+      "Finder Trash",
+      "Xcode"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Ryddi",
     "evidence": {
       "reviewedAt": "2026-08-18T08:44:53Z",
@@ -529,12 +1029,24 @@
       "note": "Repository source, v0.8.2 release posture, and cleanup safety boundaries were reviewed."
     },
     "sections": {
-      "whatItSolves": ["Developer machines accumulate large caches and artifacts, but cleanup tools can be opaque or irreversible."],
-      "currentState": ["Active macOS utility with a public v0.8.2 release and a safety model that keeps uncertain operations review-only."],
-      "howItWorks": ["Scans known storage roots, groups findings by safety, revalidates containment and filesystem state before Trash, and never deletes Offload originals."],
-      "nextPriorities": ["Continue signed and notarized release work, filesystem edge-case coverage, and user-facing audit clarity."]
+      "whatItSolves": [
+        "Developer machines accumulate large caches and artifacts, but cleanup tools can be opaque or irreversible."
+      ],
+      "currentState": [
+        "Active macOS utility with a public v0.8.2 release and a safety model that keeps uncertain operations review-only."
+      ],
+      "howItWorks": [
+        "Scans known storage roots, groups findings by safety, revalidates containment and filesystem state before Trash, and never deletes Offload originals."
+      ],
+      "nextPriorities": [
+        "Continue signed and notarized release work, filesystem edge-case coverage, and user-facing audit clarity."
+      ]
     },
-    "limitations": ["macOS 14+ only.", "Source builds do not establish signed or notarized release trust.", "Offload does not claim cloud-upload completion."]
+    "limitations": [
+      "macOS 14+ only.",
+      "Source builds do not establish signed or notarized release trust.",
+      "Offload does not claim cloud-upload completion."
+    ]
   },
   {
     "slug": "clankeros",
@@ -545,8 +1057,22 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "tooling",
-    "tags": ["agent-orchestration", "coding-agents", "task-graphs", "verification", "approval-gates", "local-first", "python"],
-    "techStack": ["Python", "SQLite", "Markdown/JSON", "CLI", "GitHub Actions"],
+    "tags": [
+      "agent-orchestration",
+      "coding-agents",
+      "task-graphs",
+      "verification",
+      "approval-gates",
+      "local-first",
+      "python"
+    ],
+    "techStack": [
+      "Python",
+      "SQLite",
+      "Markdown/JSON",
+      "CLI",
+      "GitHub Actions"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/ClankerOS",
     "evidence": {
       "reviewedAt": "2026-08-18T08:44:53Z",
@@ -555,12 +1081,24 @@
       "note": "GitHub source, CI workflow, operator surface, and approval boundaries were reviewed."
     },
     "sections": {
-      "whatItSolves": ["AI coding work needs durable state, evidence, and explicit approvals rather than chat-only completion claims."],
-      "currentState": ["Active experimental local harness with CLI, SQLite and Markdown state, a local operator app, bounded delegation, and verifier and evidence flows."],
-      "howItWorks": ["Persists project, goal, task, approval, artifact, and run records; executes safe local work and emits evidence packets and handoff commands."],
-      "nextPriorities": ["Keep the single-worker proof loop reliable before expanding remote workers, broader autonomy, or hosted capabilities."]
+      "whatItSolves": [
+        "AI coding work needs durable state, evidence, and explicit approvals rather than chat-only completion claims."
+      ],
+      "currentState": [
+        "Active experimental local harness with CLI, SQLite and Markdown state, a local operator app, bounded delegation, and verifier and evidence flows."
+      ],
+      "howItWorks": [
+        "Persists project, goal, task, approval, artifact, and run records; executes safe local work and emits evidence packets and handoff commands."
+      ],
+      "nextPriorities": [
+        "Keep the single-worker proof loop reliable before expanding remote workers, broader autonomy, or hosted capabilities."
+      ]
     },
-    "limitations": ["Local-only harness; no hosted service or public runtime health claim.", "Remote execution and autonomous external effects are outside the first milestone.", "Capability proof artifacts do not mean those capabilities are enabled."]
+    "limitations": [
+      "Local-only harness; no hosted service or public runtime health claim.",
+      "Remote execution and autonomous external effects are outside the first milestone.",
+      "Capability proof artifacts do not mean those capabilities are enabled."
+    ]
   },
   {
     "slug": "project-dashboard",
@@ -571,8 +1109,22 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "tooling",
-    "tags": ["project-management", "git", "dashboard", "fastapi", "sqlite", "local-first", "operations"],
-    "techStack": ["Python", "FastAPI", "Jinja2", "SQLite", "Ansible"],
+    "tags": [
+      "project-management",
+      "git",
+      "dashboard",
+      "fastapi",
+      "sqlite",
+      "local-first",
+      "operations"
+    ],
+    "techStack": [
+      "Python",
+      "FastAPI",
+      "Jinja2",
+      "SQLite",
+      "Ansible"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/hermes-proposals-dashboard",
     "liveUrl": "https://reidar.tech/proposals",
     "evidence": {
@@ -582,12 +1134,24 @@
       "note": "GitHub source and deployed route were reviewed; recommendations remain local-state dependent."
     },
     "sections": {
-      "whatItSolves": ["Project trackers lose trust when they guess state instead of reading local repositories."],
-      "currentState": ["Deployed owner dashboard at reidar.tech/proposals; source says recommendations come from actual local checkout and Git state."],
-      "howItWorks": ["Server-rendered FastAPI and Jinja2 views query SQLite and inspect configured directories with Git status and log checks."],
-      "nextPriorities": ["Keep auth, local-only boundaries, and deployment evidence current."]
+      "whatItSolves": [
+        "Project trackers lose trust when they guess state instead of reading local repositories."
+      ],
+      "currentState": [
+        "Deployed owner dashboard at reidar.tech/proposals; source says recommendations come from actual local checkout and Git state."
+      ],
+      "howItWorks": [
+        "Server-rendered FastAPI and Jinja2 views query SQLite and inspect configured directories with Git status and log checks."
+      ],
+      "nextPriorities": [
+        "Keep auth, local-only boundaries, and deployment evidence current."
+      ]
     },
-    "limitations": ["Recommendations depend on configured local filesystem and Git state.", "The hosted route depends on owner auth and tunnel or deployment plumbing.", "No public service health claim is attached to this project."]
+    "limitations": [
+      "Recommendations depend on configured local filesystem and Git state.",
+      "The hosted route depends on owner auth and tunnel or deployment plumbing.",
+      "No public service health claim is attached to this project."
+    ]
   },
   {
     "slug": "lp-nexus",
@@ -598,8 +1162,26 @@
     "lifecycle": "paused",
     "maturity": "experimental",
     "category": "defi",
-    "tags": ["defi", "liquidity-providing", "uniswap", "raydium", "impermanent-loss", "web3", "prototype"],
-    "techStack": ["Next.js 15", "React 19", "TypeScript", "wagmi", "viem", "Solana Wallet Adapter", "Tailwind CSS", "Vitest", "Playwright"],
+    "tags": [
+      "defi",
+      "liquidity-providing",
+      "uniswap",
+      "raydium",
+      "impermanent-loss",
+      "web3",
+      "prototype"
+    ],
+    "techStack": [
+      "Next.js 15",
+      "React 19",
+      "TypeScript",
+      "wagmi",
+      "viem",
+      "Solana Wallet Adapter",
+      "Tailwind CSS",
+      "Vitest",
+      "Playwright"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/LPNexus",
     "evidence": {
       "reviewedAt": "2026-08-18T08:44:53Z",
@@ -608,12 +1190,24 @@
       "note": "Repository source and runtime checks were reviewed; the linked Render deployment returned 503."
     },
     "sections": {
-      "whatItSolves": ["LP users need a single view of positions, fees, P&L, and range risk."],
-      "currentState": ["Paused experimental prototype; latest GitHub push was 2026-02-20 and the linked Render root and health endpoint were unavailable during review."],
-      "howItWorks": ["A Next.js UI combines EVM and Solana wallet adapters, position hooks, LP calculations, charts, and a simulator."],
-      "nextPriorities": ["Re-establish a working deployment and validate chain coverage, data freshness, wallet flows, and safety boundaries before live claims."]
+      "whatItSolves": [
+        "LP users need a single view of positions, fees, P&L, and range risk."
+      ],
+      "currentState": [
+        "Paused experimental prototype; latest GitHub push was 2026-02-20 and the linked Render root and health endpoint were unavailable during review."
+      ],
+      "howItWorks": [
+        "A Next.js UI combines EVM and Solana wallet adapters, position hooks, LP calculations, charts, and a simulator."
+      ],
+      "nextPriorities": [
+        "Re-establish a working deployment and validate chain coverage, data freshness, wallet flows, and safety boundaries before live claims."
+      ]
     },
-    "limitations": ["Multi-chain, AI, and PWA claims are source-described and not independently verified.", "The prototype requires third-party wallet, RPC, and API configuration.", "The linked Render deployment was unavailable with HTTP 503 at review time."]
+    "limitations": [
+      "Multi-chain, AI, and PWA claims are source-described and not independently verified.",
+      "The prototype requires third-party wallet, RPC, and API configuration.",
+      "The linked Render deployment was unavailable with HTTP 503 at review time."
+    ]
   },
   {
     "slug": "nytt-trondheim",
@@ -624,8 +1218,25 @@
     "lifecycle": "active",
     "maturity": "stable",
     "category": "frontend",
-    "tags": ["trondheim", "news", "traffic", "maps", "situation-room", "datex", "entur", "provenance"],
-    "techStack": ["React", "TypeScript", "Vite", "Express", "PostgreSQL", "PostGIS", "Playwright"],
+    "tags": [
+      "trondheim",
+      "news",
+      "traffic",
+      "maps",
+      "situation-room",
+      "datex",
+      "entur",
+      "provenance"
+    ],
+    "techStack": [
+      "React",
+      "TypeScript",
+      "Vite",
+      "Express",
+      "PostgreSQL",
+      "PostGIS",
+      "Playwright"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Nytt-Trondheim",
     "evidence": {
       "reviewedAt": "2026-08-18T08:44:53Z",
@@ -634,12 +1245,24 @@
       "note": "Repository source, public-versus-private boundary, and data provenance surfaces were reviewed."
     },
     "sections": {
-      "whatItSolves": ["Situation work benefits from one evidence-labelled view of local news, traffic, and source health without blending private planning notes into public claims."],
-      "currentState": ["Active multi-package app with Siste nytt, Trafikk, Situasjonsrom, and owner-only Drift surfaces."],
-      "howItWorks": ["Combines public-source headline metadata with Entur and AtB context, Vegvesen DATEX traffic data, official warnings, maps, and provenance-separated private workspace data."],
-      "nextPriorities": ["Continue source freshness, private-boundary, and deployment verification before any public workspace claim."]
+      "whatItSolves": [
+        "Situation work benefits from one evidence-labelled view of local news, traffic, and source health without blending private planning notes into public claims."
+      ],
+      "currentState": [
+        "Active multi-package app with Siste nytt, Trafikk, Situasjonsrom, and owner-only Drift surfaces."
+      ],
+      "howItWorks": [
+        "Combines public-source headline metadata with Entur and AtB context, Vegvesen DATEX traffic data, official warnings, maps, and provenance-separated private workspace data."
+      ],
+      "nextPriorities": [
+        "Continue source freshness, private-boundary, and deployment verification before any public workspace claim."
+      ]
     },
-    "limitations": ["The repository is public but the product and workspace are private.", "Production DATEX collection requires credentials.", "Warnings are context, not emergency confirmation; no live public URL is attached."]
+    "limitations": [
+      "The repository is public but the product and workspace are private.",
+      "Production DATEX collection requires credentials.",
+      "Warnings are context, not emergency confirmation; no live public URL is attached."
+    ]
   },
   {
     "slug": "bunkerkartet",
@@ -650,8 +1273,21 @@
     "lifecycle": "active",
     "maturity": "experimental",
     "category": "frontend",
-    "tags": ["trondheim", "war-history", "maps", "research", "fieldwork", "sources"],
-    "techStack": ["Python", "FastAPI", "SQLite", "JavaScript", "OpenRouteService"],
+    "tags": [
+      "trondheim",
+      "war-history",
+      "maps",
+      "research",
+      "fieldwork",
+      "sources"
+    ],
+    "techStack": [
+      "Python",
+      "FastAPI",
+      "SQLite",
+      "JavaScript",
+      "OpenRouteService"
+    ],
     "repoUrl": "https://github.com/Reedtrullz/Bunkerkartet",
     "liveUrl": "https://bunker.reidar.tech",
     "evidence": {
@@ -662,11 +1298,23 @@
       "note": "Current public README and repository metadata reviewed; no independent field verification or runtime health claim is made."
     },
     "sections": {
-      "whatItSolves": ["War-history research becomes difficult to trust when loose findings, source quality, access, and field certainty are collapsed into one map marker."],
-      "currentState": ["Active experimental source catalogue with an administration-protected map, candidate review workflow, source notes, and field-observation support."],
-      "howItWorks": ["Stores structured places and sources in SQLite, validates idempotent research imports, tracks candidate-to-trusted review status, and exposes cautious search, filters, route planning, and exports."],
-      "nextPriorities": ["Continue source review, field verification, access-safety clarity, and deployment evidence before stronger place or runtime claims."]
+      "whatItSolves": [
+        "War-history research becomes difficult to trust when loose findings, source quality, access, and field certainty are collapsed into one map marker."
+      ],
+      "currentState": [
+        "Active experimental source catalogue with an administration-protected map, candidate review workflow, source notes, and field-observation support."
+      ],
+      "howItWorks": [
+        "Stores structured places and sources in SQLite, validates idempotent research imports, tracks candidate-to-trusted review status, and exposes cautious search, filters, route planning, and exports."
+      ],
+      "nextPriorities": [
+        "Continue source review, field verification, access-safety clarity, and deployment evidence before stronger place or runtime claims."
+      ]
     },
-    "limitations": ["A marker is a research lead, not a confirmed entrance, legal permission, or safety assurance.", "The README describes an administration-protected tool; public map availability does not establish an open editing or public-data workflow.", "No field verification or current service-health check is claimed here."]
+    "limitations": [
+      "A marker is a research lead, not a confirmed entrance, legal permission, or safety assurance.",
+      "The README describes an administration-protected tool; public map availability does not establish an open editing or public-data workflow.",
+      "No field verification or current service-health check is claimed here."
+    ]
   }
 ]
