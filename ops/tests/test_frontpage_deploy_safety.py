@@ -5,6 +5,7 @@ import pwd
 import subprocess
 import tempfile
 import threading
+import textwrap
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -147,6 +148,50 @@ def run_ansible(playbook: Path, variables: dict[str, object], environment: dict[
 
 
 class FrontpageDeploySafetyTests(unittest.TestCase):
+    def test_actual_shadow_maintenance_guard_and_missing_epoch_recovery(self):
+        source = (ROOT / "ansible-cloudflare-collector.yml").read_text()
+        names = (
+            "Inspect promoted collector before shadow maintenance",
+            "Refuse shadow maintenance of an already promoted collector",
+            "Inspect the required shadow evidence marker",
+            "Recover missing evidence markers on unchanged maintenance",
+        )
+        for active, marker_exists in ((True, True), (False, True), (False, False)):
+            with self.subTest(active=active, marker_exists=marker_exists), tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                marker = temp / "epoch.json"
+                if marker_exists:
+                    marker.write_text("{}")
+                tasks = []
+                for name in names:
+                    start = source.index("    - name: " + name)
+                    end = source.find("    - name: ", start + 1)
+                    tasks.append(textwrap.dedent(source[start:end if end >= 0 else len(source)]))
+                fragment = temp / "maintenance.yml"
+                fragment.write_text("\n".join(tasks).replace("/var/lib/frontpage-metrics/shadow-evidence-epoch.json", str(marker)) +
+                                    "\n- ansible.builtin.assert:\n    that:\n      - evidence_reset_required == expected_reset\n")
+                bin_dir = temp / "bin"
+                bin_dir.mkdir()
+                write_executable(bin_dir / "systemctl", """#!/usr/bin/env python3
+import os, sys
+if sys.argv[1] == 'is-enabled':
+    print('disabled')
+    sys.exit(1)
+active = os.environ['MOCK_PROMOTED_ACTIVE'] == '1'
+print('active' if active else 'inactive')
+sys.exit(0 if active else 3)
+""")
+                result = run_ansible(fragment, {
+                    "maintain_collectors": True, "mark_primary": False,
+                    "comparison_changed": False, "expected_reset": not marker_exists,
+                }, {"PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                    "MOCK_PROMOTED_ACTIVE": "1" if active else "0"}, temp)
+                if active:
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("Shadow maintenance cannot restart a second writer", result.stdout)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def _write_mock_collection(self, temp: Path) -> Path:
         collection_root = temp / "collections"
         module_root = collection_root / "ansible_collections" / "community" / "docker" / "plugins" / "modules"

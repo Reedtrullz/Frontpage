@@ -491,6 +491,13 @@
         name: frontpage-metrics-collector.service
         state: started
 
+    - name: Wait for daemon bootstrap snapshots before app swap
+      become: true
+      ansible.builtin.wait_for:
+        path: "{{ metrics_v1_dir }}/{{ item }}"
+        timeout: 150
+      loop: [latest.json, history.json]
+
     - name: Verify metrics latest file exists
       become: true
       ansible.builtin.stat:
