@@ -218,6 +218,9 @@ remain failed evidence. A changed source/config/unit starts a new host-clock
 epoch after a 60-second warmup; an unchanged maintenance run preserves it.
 Archive the previous epoch, gate, histories and a consistent SQLite backup
 before deploying a collection repair. Do not delete the live database.
+V1 keeps one HTTP/container check per minute, now on the `:45` host sample
+that matches v2's last service observation; it does not increase public probe
+volume to collect the four host readings.
 
 The comparison may continue on the host. Its VPS application promotion steps
 below require an intentional rollback and do not promote the Cloudflare Worker.

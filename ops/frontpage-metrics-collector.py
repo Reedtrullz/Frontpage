@@ -323,7 +323,8 @@ def run_daemon(config, metrics_dir, stop_event, wall_clock_ms=lambda: int(time.t
         # A late wakeup is unavailable evidence, not a relabelled on-time sample.
         if now_ms % 15_000 >= 1000:
             host["cpu_percent"] = None
-        samples.append(collect_snapshot(config, host, timestamp))
+        sample_config = config if now_ms % 60_000 >= 45_000 else {**config, "services": [], "containers": []}
+        samples.append(collect_snapshot(sample_config, host, timestamp))
         if now_ms % 60_000 >= 45_000:
             publish_minute(metrics_dir, samples)
             samples = []
