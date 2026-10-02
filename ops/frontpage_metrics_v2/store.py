@@ -441,7 +441,10 @@ class MetricsStore:
             ]
             services = [
                 {"tier": row["tier"], "ts_ms": row["ts_ms"], "service_id": row["service_id"], "payload": json.loads(row["payload_json"])}
-                for row in reader.execute("SELECT * FROM service_points ORDER BY ts_ms,service_id")
+                for row in reader.execute(
+                    "SELECT * FROM service_points WHERE tier='15s' AND ts_ms="
+                    "(SELECT max(ts_ms) FROM host_points WHERE tier='15s') ORDER BY service_id"
+                )
             ]
             capabilities = [dict(row) for row in reader.execute("SELECT * FROM capabilities ORDER BY key")]
             incidents = [

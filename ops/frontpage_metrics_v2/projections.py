@@ -184,11 +184,10 @@ def _series_files(host_rows, workload_rows):
     for tier, range_name, resolution, destination in tiers:
         tier_host = [row for row in host_rows if row["tier"] == tier]
         tier_workloads = [row for row in workload_rows if row["tier"] == tier]
-        groups = {None: tier_host} if tier == "15s" else {
-            day: [row for row in tier_host if _day(row["ts_ms"]) == day]
-            for day in sorted({_day(row["ts_ms"]) for row in tier_host})
-        }
-        for day, grouped_host in groups.items():
+        groups = defaultdict(list)
+        for row in tier_host:
+            groups[None if tier == "15s" else _day(row["ts_ms"])].append(row)
+        for day, grouped_host in sorted(groups.items()):
             if not grouped_host:
                 continue
             suffix = destination if day is None else f"{destination}/{day}.v2.json"
