@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import sys
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -62,7 +64,9 @@ class CollectorDaemon:
         self.active_incidents = tuple(active.values())
 
     def run_once(self) -> DaemonCycleResult:
+        started = self.monotonic()
         cycle = self.collector.collect_cycle(self.wall_clock_ms())
+        collected = self.monotonic()
         checkpoint = self.incident_engine.checkpoint()
         try:
             status, transitions, snapshot = self.store.commit_cycle(
@@ -74,7 +78,20 @@ class CollectorDaemon:
             self.incident_engine.restore(checkpoint)
             raise
         self._apply_transitions(transitions)
-        self.publisher.publish(self.projection_builder(snapshot))
+        read = self.monotonic()
+        projection = self.projection_builder(snapshot)
+        built = self.monotonic()
+        self.publisher.publish(projection)
+        published = self.monotonic()
+        if published - started >= self.interval_seconds or status.skip_next_cycle:
+            print(json.dumps({
+                "event": "frontpage_metrics_cycle_slow", "ts_ms": cycle["ts_ms"],
+                "collection_seconds": collected - started,
+                "database_seconds": status.duration_seconds,
+                "projection_read_seconds": max(0, read - collected - status.duration_seconds),
+                "build_seconds": built - read, "publish_seconds": published - built,
+                "total_seconds": published - started, "database_backpressure": status.skip_next_cycle,
+            }), file=sys.stderr, flush=True)
         return DaemonCycleResult(status.duration_seconds, status.skip_next_cycle)
 
     def run_forever(self, stop_event) -> None:

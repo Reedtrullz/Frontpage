@@ -2,6 +2,7 @@ import dataclasses
 import json
 import shutil
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -226,6 +227,39 @@ class RuntimeMapTests(unittest.TestCase):
 
 
 class ServiceSourceTests(unittest.TestCase):
+    def test_service_checks_overlap_with_bounded_concurrency_and_keep_order(self):
+        services = tuple({"id": str(i), "visibility": "public", "url": f"https://example.com/{i}"} for i in range(9))
+        barrier = threading.Barrier(8, timeout=1)
+        lock = threading.Lock()
+        active = peak = 0
+
+        class Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+        def opener(request, **_kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            try:
+                if int(request.full_url.rsplit("/", 1)[1]) < 8:
+                    barrier.wait()
+                return Response()
+            finally:
+                with lock:
+                    active -= 1
+
+        result = collect_services(services, now_ms=1000, opener=opener)
+        self.assertEqual(peak, 8)
+        self.assertEqual([row.id for row in result.value], [str(i) for i in range(9)])
+        self.assertTrue(all(row.status == "up" and row.checked_at_ms == 1000 for row in result.value))
+
     def test_service_errors_are_redacted_and_partial_failure_survives(self):
         services = (
             {"id": "up", "label": "Up", "visibility": "public", "url": "https://example.com/", "expected_status": 200, "timeout_ms": 1000},

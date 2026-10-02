@@ -1,5 +1,6 @@
 import threading
 import json
+import io
 import tempfile
 import unittest
 from dataclasses import replace
@@ -88,6 +89,25 @@ class FakeStopEvent:
 
 
 class CollectorDaemonTests(unittest.TestCase):
+    def test_full_cycle_overrun_logs_phase_times_without_hiding_gap_or_relaxing_database_guard(self):
+        clock = iter((0.0, 9.0, 15.0, 16.0, 17.0))
+        daemon = CollectorDaemon(FakeCollector(), FakeStore([CycleWriteStatus(0.1, False)]),
+                                 FakeEngine(), FakePublisher(), monotonic=lambda: next(clock),
+                                 wall_clock_ms=lambda: 15000)
+        output = io.StringIO()
+        with mock.patch("sys.stderr", output):
+            result = daemon.run_once()
+        self.assertTrue(output.getvalue(), "Full-cycle overrun needs a timing receipt")
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["ts_ms"], 15000)
+        self.assertEqual(receipt["collection_seconds"], 9.0)
+        self.assertAlmostEqual(receipt["database_seconds"], 0.1)
+        self.assertAlmostEqual(receipt["projection_read_seconds"], 5.9)
+        self.assertEqual(receipt["build_seconds"], 1.0)
+        self.assertEqual(receipt["publish_seconds"], 1.0)
+        self.assertEqual(receipt["total_seconds"], 17.0)
+        self.assertFalse(result.skip_next_cycle)
+
     def test_run_once_preserves_required_order_and_publishes_partial_cycle(self):
         collector = FakeCollector()
         store = FakeStore()
@@ -123,7 +143,8 @@ class CollectorDaemonTests(unittest.TestCase):
             FakeEngine(), FakePublisher(),
             wall_clock_ms=lambda: next(ticks),
         )
-        daemon.run_forever(stop)
+        with mock.patch("sys.stderr", io.StringIO()):
+            daemon.run_forever(stop)
         self.assertEqual(stop.waits, [14.0, 14.0, 15.0])
         self.assertEqual(collector.calls, 2)
 
