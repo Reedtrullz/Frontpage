@@ -143,6 +143,25 @@ class MetricsStoreTests(unittest.TestCase):
         self.assertNotIn("summary_json", snapshot["incidents"][0])
         self.assertNotIn("evidence_json", snapshot["incidents"][0])
 
+    def test_projection_reads_current_services_without_deleting_history(self):
+        self.store.write_cycle(cycle(NOW - 15_000))
+        current = cycle()
+        current["services"][0]["status"] = "down"
+        self.store.write_cycle(current)
+        self.store.executemany(
+            "INSERT INTO service_points(tier,ts_ms,service_id,payload_json) VALUES(?,?,?,?)",
+            [("1m", NOW, "frontpage-public", '{"status":"up"}')],
+        )
+        services = self.store.read_projection_snapshot()["services"]
+        self.assertEqual(len(services), 1)
+        self.assertEqual(services[0]["ts_ms"], NOW)
+        self.assertEqual(services[0]["payload"]["status"], "down")
+        self.assertEqual(self.store.count("service_points"), 3)
+        missing = cycle(NOW + 15_000)
+        missing["services"] = []
+        self.store.write_cycle(missing)
+        self.assertEqual(self.store.read_projection_snapshot()["services"], [])
+
     def test_incident_json_strings_must_decode_to_objects(self):
         with self.assertRaisesRegex(ValueError, "JSON object"):
             self.store.upsert_incident(
