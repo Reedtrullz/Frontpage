@@ -7,6 +7,19 @@ from typing import Callable
 from .incidents import IncidentRecord
 
 
+def run_aligned(collect, stop_event, interval_seconds=15, wall_clock_ms=lambda: int(time.time() * 1000)):
+    """Use UTC slots; overruns leave gaps instead of shifting the cadence."""
+    interval_ms = int(interval_seconds * 1000)
+    while not stop_event.is_set():
+        now = wall_clock_ms()
+        deadline = (now // interval_ms + 1) * interval_ms
+        if stop_event.wait(max(0, (deadline - now) / 1000)):
+            return
+        skip = collect()
+        if skip:
+            stop_event.wait(max(0, (deadline + interval_ms - wall_clock_ms()) / 1000))
+
+
 @dataclass(frozen=True)
 class DaemonCycleResult:
     duration_seconds: float
@@ -67,11 +80,7 @@ class CollectorDaemon:
     def run_forever(self, stop_event) -> None:
         if stop_event.is_set():
             return
-        deadline = self.monotonic()
-        while not stop_event.is_set():
-            result = self.run_once()
-            deadline += self.interval_seconds * (2 if result.skip_next_cycle else 1)
-            now = self.monotonic()
-            if now > deadline:
-                deadline = now + self.interval_seconds
-            stop_event.wait(max(0.0, deadline - now))
+        # Prime counters without publishing a partial boot sample.
+        self.collector.collect_cycle(self.wall_clock_ms())
+        run_aligned(lambda: self.run_once().skip_next_cycle, stop_event,
+                    self.interval_seconds, self.wall_clock_ms)

@@ -189,6 +189,26 @@ class MetricsStoreTests(unittest.TestCase):
             100.0,
         )
 
+    def test_complete_minute_requires_four_valid_aligned_cpu_intervals(self):
+        transitions = SimpleNamespace(opened=(), updated=(), recovered=())
+        base = NOW // 60_000 * 60_000
+        for minute, failure in enumerate((None, "missing-cpu", "duplicate-slot", "late-slot")):
+            for index in range(4):
+                timestamp = base + minute * 60_000 + index * 15_000
+                if failure == "duplicate-slot" and index == 1:
+                    timestamp -= 14_000
+                if failure == "late-slot" and index == 1:
+                    timestamp += 1000
+                sample = cycle(timestamp)
+                sample["host"].update(memory_used_bytes=50, disk_used_percent=60)
+                if failure == "missing-cpu" and index == 0:
+                    sample["host"]["cpu_percent"] = None
+                self.store.commit_cycle(sample, lambda _cycle: transitions, timestamp)
+            payload = json.loads(self.store.scalar("SELECT payload_json FROM host_points WHERE tier='1m' AND ts_ms=?", (base + minute * 60_000,)))
+            self.assertEqual(payload["comparison_complete"], failure is None)
+            if failure == "missing-cpu":
+                self.assertEqual(payload["cpu_percent"], 25)  # A plausible mean cannot hide the gap.
+
 
 if __name__ == "__main__":
     unittest.main()

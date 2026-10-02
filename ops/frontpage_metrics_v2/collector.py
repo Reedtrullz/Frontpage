@@ -69,6 +69,12 @@ class LinuxCycleCollector:
             ),
             now_ms,
         )
+        if host_result.value is not None and (
+            self.previous_host is None
+            or not 14_000 <= now_ms - self.previous_host.observed_at_ms <= 16_000
+            or now_ms % 15_000 >= 1000
+        ):
+            host_result = replace(host_result, value=replace(host_result.value, cpu_percent=None))
         resolved_workloads, runtime_workload_ids = self._resolved_workloads()
         workloads_result = collect_workloads(
             resolved_workloads,

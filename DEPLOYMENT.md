@@ -197,6 +197,31 @@ v2 mounts.
 
 ### Host-only shadow comparison and VPS rollback promotion
 
+For Cloudflare-primary collector maintenance, use the existing clean worktree
+at the exact reviewed commit. This updates collector sources, the comparator,
+Cloudflare health-check configs and aligned units without restoring the VPS app
+or replacing the installed upload secret:
+
+```bash
+FRONTPAGE_COLLECTOR_MAINTENANCE=1 \
+FRONTPAGE_DEPLOYED_SHA=$(git rev-parse HEAD) \
+ansible-playbook -i inventory/hosts.yml ansible-cloudflare-collector.yml \
+  --vault-password-file ~/.vault_pass.txt
+```
+
+Both collectors acquire independent samples on UTC `:00/:15/:30/:45` slots.
+V1 runs continuously, supervised by its retained timer, and publishes a minute
+mean for CPU, RAM and disk with the last service state, matching v2's minute
+projection. The one-shot v1 command remains a preflight snapshot and cannot
+contribute acceptance evidence. Partial, late, duplicate and warmup samples
+remain failed evidence. A changed source/config/unit starts a new host-clock
+epoch after a 60-second warmup; an unchanged maintenance run preserves it.
+Archive the previous epoch, gate, histories and a consistent SQLite backup
+before deploying a collection repair. Do not delete the live database.
+V1 keeps one HTTP/container check per minute, now on the `:45` host sample
+that matches v2's last service observation; it does not increase public probe
+volume to collect the four host readings.
+
 The comparison may continue on the host. Its VPS application promotion steps
 below require an intentional rollback and do not promote the Cloudflare Worker.
 
@@ -227,7 +252,7 @@ host files by deploying once with
 restarting an otherwise healthy collector. Evidence reset and promotion are
 mutually exclusive in one deployment.
 
-The resulting gate artifact uses schema version 2. Approval requires 48
+The resulting gate artifact uses schema version 3. Approval requires 48
 continuous hours, evidence no older than 120 seconds, no
 paired-sample gap above 120 seconds, zero missed or incomplete host minutes,
 p99 relative divergence below 2% for CPU, RAM, and disk capacity, and zero
@@ -235,6 +260,9 @@ mismatches or missing entries across public service states. The artifact also
 records the epoch, window bounds, evidence age, paired and missed minutes,
 database size, and projection size. A valid but non-approved comparison exits
 with status 2; malformed inputs still fail operationally.
+The comparator excludes the still-open UTC minute, requires four valid CPU
+intervals and host readings in each closed minute, rejects duplicate v1 minute
+records, and treats matching unknown service states as unavailable evidence.
 
 Promotion is a separate exact-SHA invocation and requires both the generated
 artifact and an explicit operator acknowledgment:

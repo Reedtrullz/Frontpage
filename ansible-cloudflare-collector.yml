@@ -5,13 +5,50 @@
   vars:
     upload_secret: "{{ lookup('env', 'FRONTPAGE_UPLOAD_SECRET') }}"
     mark_primary: "{{ lookup('env', 'FRONTPAGE_MARK_CLOUDFLARE_PRIMARY') == '1' }}"
+    maintain_collectors: "{{ lookup('env', 'FRONTPAGE_COLLECTOR_MAINTENANCE') == '1' }}"
+    collector_package_files: "{{ (lookup('file', 'ansible-playbook.yml') | from_yaml)[0].vars.observer_package_files }}"
   tasks:
+    - name: Check Cloudflare-primary maintenance boundary
+      ansible.builtin.stat:
+        path: /etc/frontpage/cloudflare-primary
+      register: primary_marker
+
+    - name: Require a verified primary and exact local source for maintenance
+      ansible.builtin.assert:
+        that:
+          - primary_marker.stat.exists
+          - lookup('env', 'FRONTPAGE_DEPLOYED_SHA') is match('^[a-f0-9]{40}$')
+          - lookup('env', 'FRONTPAGE_DEPLOYED_SHA') == lookup('pipe', 'git rev-parse HEAD')
+          - lookup('pipe', 'git status --porcelain') == ''
+          - lookup('env', 'FRONTPAGE_OBSERVABILITY_V2_PROMOTE') != '1'
+        fail_msg: "Collector maintenance requires Cloudflare primary and the exact checked-out SHA; it cannot promote v2."
+      when: maintain_collectors
+
+    - name: Inspect promoted collector before shadow maintenance
+      ansible.builtin.command:
+        argv: [systemctl, "{{ item }}", frontpage-metrics-collector-v2.service]
+      loop: [is-enabled, is-active]
+      register: promoted_collector
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      when: maintain_collectors
+
+    - name: Refuse shadow maintenance of an already promoted collector
+      ansible.builtin.assert:
+        that:
+          - promoted_collector.results[0].stdout not in ['enabled', 'enabled-runtime']
+          - promoted_collector.results[1].stdout in ['inactive', 'failed', 'unknown']
+        fail_msg: "Shadow maintenance cannot restart a second writer beside the promoted collector."
+      when: maintain_collectors
+
     - name: Require a collector upload secret
       ansible.builtin.assert:
         that:
           - upload_secret | length >= 32
         fail_msg: "FRONTPAGE_UPLOAD_SECRET must be supplied from 1Password."
       no_log: true
+      when: not maintain_collectors
 
     - name: Require the deployed Worker commit before switching collector topology
       ansible.builtin.assert:
@@ -46,6 +83,7 @@
         group: frontpage-metrics
         mode: '0640'
       no_log: true
+      when: not maintain_collectors
 
     - name: Install upload units
       ansible.builtin.copy:
@@ -82,7 +120,58 @@
         - { source: 'ops/frontpage-metrics.config.json', dest: 'config.json' }
         - { source: 'ops/frontpage-metrics-v2.config.json', dest: 'config-v2.json' }
       register: cloudflare_collector_configs
-      when: mark_primary
+      when: mark_primary or maintain_collectors
+
+    - name: Install collector and comparator maintenance executables
+      ansible.builtin.copy:
+        src: "ops/{{ item.source }}"
+        dest: "/usr/local/bin/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+      loop:
+        - { source: 'frontpage-metrics-collector.py', dest: 'frontpage-metrics-collector' }
+        - { source: 'frontpage-metrics-collector-v2.py', dest: 'frontpage-metrics-collector-v2' }
+        - { source: 'frontpage-metrics-shadow-compare.py', dest: 'frontpage-metrics-shadow-compare' }
+      register: collector_executables
+      when: maintain_collectors
+
+    - name: Install tracked collector package sources for maintenance
+      ansible.builtin.copy:
+        src: "ops/frontpage_metrics_v2/{{ item }}"
+        dest: "/usr/local/lib/frontpage/ops/frontpage_metrics_v2/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      loop: "{{ collector_package_files }}"
+      register: collector_package
+      when: maintain_collectors
+
+    - name: Install aligned collector units for maintenance
+      ansible.builtin.copy:
+        src: "ops/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      loop:
+        - frontpage-metrics-collector.service
+        - frontpage-metrics-collector.timer
+        - frontpage-metrics-collector-v2-shadow.service
+      register: collector_units
+      when: maintain_collectors
+
+    - name: Determine whether collector comparison semantics changed
+      ansible.builtin.set_fact:
+        comparison_changed: >-
+          {{ cloudflare_collector_configs.changed
+             or (collector_executables.changed | default(false))
+             or (collector_package.changed | default(false))
+             or (collector_units.changed | default(false)) }}
+      when: mark_primary or maintain_collectors
 
     - name: Clear retired VPS app runtime allowlist
       ansible.builtin.copy:
@@ -104,28 +193,62 @@
         mode: '0640'
       when: mark_primary
 
+    - name: Include runtime allowlist changes in the evidence boundary
+      ansible.builtin.set_fact:
+        comparison_changed: "{{ comparison_changed or (cloudflare_runtime_allowlist.changed | default(false)) }}"
+      when: mark_primary or maintain_collectors
+
     - name: Refresh v1 collector after origin switch
       ansible.builtin.systemd:
         name: frontpage-metrics-collector.service
-        state: started
-      when: mark_primary
+        state: restarted
+        daemon_reload: true
+      when: (mark_primary or maintain_collectors) and comparison_changed
+
+    - name: Keep the aligned v1 timer enabled
+      ansible.builtin.systemd:
+        name: frontpage-metrics-collector.timer
+        state: restarted
+        enabled: true
+        daemon_reload: true
+      when: maintain_collectors and collector_units.changed
 
     - name: Refresh v2 shadow collector after workload switch
       ansible.builtin.systemd:
         name: frontpage-metrics-collector-v2-shadow.service
         state: restarted
-      when: mark_primary
+      when: (mark_primary or maintain_collectors) and comparison_changed
+
+    - name: Inspect the required shadow evidence marker
+      ansible.builtin.stat:
+        path: /var/lib/frontpage-metrics/shadow-evidence-epoch.json
+      register: evidence_marker
+      when: mark_primary or maintain_collectors
+
+    - name: Recover missing evidence markers on unchanged maintenance
+      ansible.builtin.set_fact:
+        evidence_reset_required: "{{ comparison_changed or not evidence_marker.stat.exists }}"
+      when: mark_primary or maintain_collectors
+
+    - name: Read host clock after repaired collectors start
+      ansible.builtin.command:
+        argv: [date, -u, -d, '+60 seconds', '+%Y-%m-%dT%H:%M:%SZ']
+      register: evidence_clock
+      check_mode: false
+      changed_when: false
+      when: (mark_primary or maintain_collectors) and evidence_reset_required
 
     - name: Start a new shadow comparison epoch after collector topology changes
       ansible.builtin.copy:
-        content: "{{ {'schema_version': 1, 'started_at': now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ'), 'commit_sha': lookup('env', 'FRONTPAGE_DEPLOYED_SHA'), 'reason': 'collector_or_comparator_change'} | to_nice_json }}\n"
+        content: "{{ {'schema_version': 1, 'started_at': evidence_clock.stdout, 'commit_sha': lookup('env', 'FRONTPAGE_DEPLOYED_SHA'), 'reason': ('collector_or_comparator_change' if comparison_changed else 'evidence_marker_missing')} | to_nice_json }}\n"
         dest: /var/lib/frontpage-metrics/shadow-evidence-epoch.json
         owner: root
         group: root
-        mode: '0644'
+        mode: '0600'
+        backup: true
       when:
-        - mark_primary
-        - (cloudflare_collector_configs.results | selectattr('changed') | list | length > 0) or cloudflare_runtime_allowlist.changed
+        - mark_primary or maintain_collectors
+        - evidence_reset_required
 
     - name: Upload the Cloudflare-primary collector snapshot
       ansible.builtin.systemd:

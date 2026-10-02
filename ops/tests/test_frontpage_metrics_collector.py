@@ -17,6 +17,55 @@ SPEC.loader.exec_module(collector)
 
 
 class CollectorTests(unittest.TestCase):
+    def test_daemon_uses_interval_cpu_and_one_minute_end_probe(self):
+        base = int(__import__("datetime").datetime.fromisoformat("2026-10-02T12:00:00+00:00").timestamp() * 1000)
+        ticks = iter(base + offset for offset in (-15000, 0, 15000, 30000, 45000))
+        read_text = Path.read_text
+
+        def source_text(path, *args, **kwargs):
+            return "boot" if str(path) == "/proc/sys/kernel/random/boot_id" else read_text(path, *args, **kwargs)
+
+        def aligned(callback, *_args, **_kwargs):
+            for _ in range(4):
+                callback()
+
+        config = {"services": [{"id": "test", "label": "Test", "visibility": "public"}], "containers": []}
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(Path, "read_text", source_text), \
+             mock.patch.object(collector, "read_cpu_times", side_effect=[(index * 10, 100 + index * 100) for index in range(5)]), \
+             mock.patch.object(collector, "collect_host_metrics", side_effect=lambda cpu: {"cpu_percent": cpu, "ram_used_bytes": 50, "disk_used_bytes": 60, "disk_total_bytes": 100}), \
+             mock.patch.object(collector, "service_result", return_value={"id": "test", "visibility": "public", "status": "up"}) as probe, \
+             mock.patch.object(collector, "run_aligned", side_effect=aligned):
+            root = Path(directory)
+            collector.run_daemon(config, root, threading.Event(), wall_clock_ms=lambda: next(ticks))
+            self.assertEqual(probe.call_count, 1)
+            evidence = collector.load_history(root / "comparison-history.json")
+            self.assertTrue(evidence[0]["comparison_complete"])
+            self.assertEqual(evidence[0]["host"]["cpu_percent"], 90)
+            self.assertEqual(evidence[0]["services"][0]["status"], "up")
+
+    def test_minute_averages_all_four_intervals_and_preserves_last_service_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            samples = [{
+                "schema_version": 1, "collected_at": f"2026-10-02T12:00:{second:02d}Z",
+                "host": {"cpu_percent": cpu, "ram_used_bytes": cpu * 100, "disk_used_bytes": 60, "disk_total_bytes": 100},
+                "services": [{"id": "test", "visibility": "public", "status": "down" if second == 45 else "up"}],
+                "containers": [],
+            } for second, cpu in zip((0, 15, 30, 45), (10, 20, 30, 40))]
+            collector.publish_minute(root, samples)
+            latest = json.loads((root / "latest.json").read_text())
+            self.assertEqual(latest["host"]["cpu_percent"], 25)
+            self.assertEqual(latest["host"]["ram_used_bytes"], 2500)
+            self.assertEqual(latest["services"][0]["status"], "down")
+            self.assertNotIn("comparison_complete", latest)
+            evidence = collector.load_history(root / "comparison-history.json")
+            self.assertTrue(evidence[0]["comparison_complete"])
+            collector.publish_minute(root, samples[:3])
+            evidence = collector.load_history(root / "comparison-history.json")
+            self.assertFalse(evidence[-1]["comparison_complete"])
+            self.assertEqual(json.loads((root / "latest.json").read_text()), latest)
+
     def test_clamp_timeout_ms(self):
         self.assertEqual(collector.clamp_timeout_ms(50), 1000)
         self.assertEqual(collector.clamp_timeout_ms(5000), 5000)

@@ -491,6 +491,13 @@
         name: frontpage-metrics-collector.service
         state: started
 
+    - name: Wait for daemon bootstrap snapshots before app swap
+      become: true
+      ansible.builtin.wait_for:
+        path: "{{ metrics_v1_dir }}/{{ item }}"
+        timeout: 150
+      loop: [latest.json, history.json]
+
     - name: Verify metrics latest file exists
       become: true
       ansible.builtin.stat:
@@ -744,7 +751,7 @@
       ansible.builtin.assert:
         that:
           - shadow_comparison.rc == 0
-          - shadow_gate_evidence.schema_version | int == 2
+          - shadow_gate_evidence.schema_version | int == 3
           - shadow_gate_evidence.approved | bool
           - shadow_gate_evidence.duration_hours | float >= 48
           - shadow_gate_evidence.missed_minutes | int == 0
