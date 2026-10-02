@@ -1,0 +1,77 @@
+- name: Install the disabled Cloudflare v2 uploader without changing collectors or evidence
+  hosts: vps
+  gather_facts: false
+  become: true
+  vars:
+    enable_v2_upload: "{{ lookup('env', 'FRONTPAGE_V2_UPLOAD_ENABLE') == '1' }}"
+  tasks:
+    - name: Require exact clean reviewed source
+      ansible.builtin.assert:
+        that:
+          - lookup('env', 'FRONTPAGE_DEPLOYED_SHA') is match('^[a-f0-9]{40}$')
+          - lookup('env', 'FRONTPAGE_DEPLOYED_SHA') == lookup('pipe', 'git rev-parse HEAD')
+          - lookup('pipe', 'git status --porcelain') == ''
+          - lookup('env', 'FRONTPAGE_VPS_ROLLBACK') != '1'
+
+    - name: Require the Cloudflare-primary marker
+      ansible.builtin.stat:
+        path: /etc/frontpage/cloudflare-primary
+      register: primary_marker
+
+    - name: Verify production topology
+      ansible.builtin.assert:
+        that: primary_marker.stat.exists
+
+    - name: Regenerate acceptance before enabling uploads
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/frontpage-metrics-shadow-compare
+          - --v1-history
+          - /var/lib/frontpage-metrics/v1/comparison-history.json
+          - --v2-database
+          - /var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3
+          - --projection-root
+          - /var/lib/frontpage-metrics/v2-shadow
+          - --evidence-epoch
+          - /var/lib/frontpage-metrics/shadow-evidence-epoch.json
+      register: fresh_gate
+      check_mode: false
+      changed_when: false
+      when: enable_v2_upload
+
+    - name: Require fresh schema-3 approval
+      ansible.builtin.assert:
+        that:
+          - (fresh_gate.stdout | from_json).schema_version == 3
+          - (fresh_gate.stdout | from_json).approved
+      when: enable_v2_upload
+
+    - name: Install compatible v1 and v2 uploader
+      ansible.builtin.copy:
+        src: ops/frontpage-metrics-upload.py
+        dest: /usr/local/bin/frontpage-metrics-upload
+        owner: root
+        group: root
+        mode: '0755'
+        backup: true
+
+    - name: Install v2 upload units without enabling them
+      ansible.builtin.copy:
+        src: "ops/systemd/{{ item }}"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      loop: [frontpage-metrics-upload-v2.service, frontpage-metrics-upload-v2.timer]
+
+    - name: Reload units without restarting collectors
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable v2 uploads only after actual acceptance
+      ansible.builtin.systemd:
+        name: frontpage-metrics-upload-v2.timer
+        enabled: true
+        state: started
+      when: enable_v2_upload

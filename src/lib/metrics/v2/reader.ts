@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getCloudflareMetricsRootV2, readCloudflareProjectionV2 } from "../cloudflare-store";
+import { MANIFEST_PATH_PATTERN } from "./paths";
 import {
   parseIncidentListV2,
   parseOwnerLatestV2,
@@ -27,7 +29,6 @@ const RANGE_MS = {
   "7d": 7 * 24 * 60 * 60_000,
   "30d": 30 * 24 * 60 * 60_000,
 } as const;
-const MANIFEST_PATH_PATTERN = /^(?:latest|incidents)\.v2\.json$|^host\/1h\.v2\.json$|^host\/(?:minute|quarter-hour)\/\d{4}-\d{2}-\d{2}\.v2\.json$|^workloads\/(?:cpu|ram|disk_io|network)\/1h\.v2\.json$|^workloads\/(?:cpu|ram|disk_io|network)\/(?:minute|quarter-hour)\/\d{4}-\d{2}-\d{2}\.v2\.json$/;
 
 export type ProjectionAvailability = "available" | "unavailable" | "invalid";
 export type ProjectionReadErrorCode = "unavailable" | "invalid" | "too_large";
@@ -54,11 +55,13 @@ interface OwnerManifestV2 {
 }
 
 export function getPublicMetricsRootV2(): string | undefined {
-  return process.env.PUBLIC_METRICS_DIR;
+  return process.env.FRONTPAGE_CLOUDFLARE === "1"
+    ? getCloudflareMetricsRootV2("public") : process.env.PUBLIC_METRICS_DIR;
 }
 
 export function getOwnerMetricsRootV2(): string | undefined {
-  return process.env.OWNER_METRICS_DIR;
+  return process.env.FRONTPAGE_CLOUDFLARE === "1"
+    ? getCloudflareMetricsRootV2("owner") : process.env.OWNER_METRICS_DIR;
 }
 
 function unavailable<T>(diagnostic: string): ProjectionReadResult<T> {
@@ -80,6 +83,16 @@ function resolveInside(root: string, relative: string): string {
 
 function readCappedJson(root: string, relative: string, cap: number): unknown {
   const filePath = resolveInside(root, relative);
+  if (process.env.FRONTPAGE_CLOUDFLARE === "1") {
+    try {
+      return readCloudflareProjectionV2(root, relative, cap);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new ProjectionReadError("unavailable", "Projection file is unavailable.");
+      }
+      throw new ProjectionReadError("invalid", "Cloudflare projection could not be read.");
+    }
+  }
   let descriptor: number | undefined;
   let bytes: Buffer;
   try {
