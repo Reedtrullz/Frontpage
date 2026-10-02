@@ -744,7 +744,7 @@
       ansible.builtin.assert:
         that:
           - shadow_comparison.rc == 0
-          - shadow_gate_evidence.schema_version | int == 2
+          - shadow_gate_evidence.schema_version | int == 3
           - shadow_gate_evidence.approved | bool
           - shadow_gate_evidence.duration_hours | float >= 48
           - shadow_gate_evidence.missed_minutes | int == 0

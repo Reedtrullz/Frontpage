@@ -4,11 +4,13 @@ Wants=network-online.target
 After=network-online.target docker.service
 
 [Service]
-Type=oneshot
+Type=simple
 User=frontpage-metrics
 Group=frontpage-metrics
 SupplementaryGroups=docker
-ExecStart=/usr/local/bin/frontpage-metrics-collector --config /etc/frontpage-metrics/config.json --metrics-dir /var/lib/frontpage-metrics/v1
+ExecStart=/usr/local/bin/frontpage-metrics-collector --config /etc/frontpage-metrics/config.json --metrics-dir /var/lib/frontpage-metrics/v1 --daemon
+Restart=on-failure
+RestartSec=5s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

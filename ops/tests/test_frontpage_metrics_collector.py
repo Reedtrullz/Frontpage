@@ -17,6 +17,28 @@ SPEC.loader.exec_module(collector)
 
 
 class CollectorTests(unittest.TestCase):
+    def test_minute_averages_all_four_intervals_and_preserves_last_service_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            samples = [{
+                "schema_version": 1, "collected_at": f"2026-10-02T12:00:{second:02d}Z",
+                "host": {"cpu_percent": cpu, "ram_used_bytes": cpu * 100, "disk_used_bytes": 60, "disk_total_bytes": 100},
+                "services": [{"id": "test", "visibility": "public", "status": "down" if second == 45 else "up"}],
+                "containers": [],
+            } for second, cpu in zip((0, 15, 30, 45), (10, 20, 30, 40))]
+            collector.publish_minute(root, samples)
+            latest = json.loads((root / "latest.json").read_text())
+            self.assertEqual(latest["host"]["cpu_percent"], 25)
+            self.assertEqual(latest["host"]["ram_used_bytes"], 2500)
+            self.assertEqual(latest["services"][0]["status"], "down")
+            self.assertNotIn("comparison_complete", latest)
+            evidence = collector.load_history(root / "comparison-history.json")
+            self.assertTrue(evidence[0]["comparison_complete"])
+            collector.publish_minute(root, samples[:3])
+            evidence = collector.load_history(root / "comparison-history.json")
+            self.assertFalse(evidence[-1]["comparison_complete"])
+            self.assertEqual(json.loads((root / "latest.json").read_text()), latest)
+
     def test_clamp_timeout_ms(self):
         self.assertEqual(collector.clamp_timeout_ms(50), 1000)
         self.assertEqual(collector.clamp_timeout_ms(5000), 5000)

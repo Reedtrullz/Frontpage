@@ -43,6 +43,7 @@ class ShadowComparisonTests(unittest.TestCase):
     def _v1_sample(timestamp, cpu=10, service_status="up"):
         return {
             "schema_version": 1,
+            "comparison_complete": True,
             "collected_at": MODULE._timestamp(timestamp),
             "host": {
                 "cpu_percent": cpu,
@@ -62,7 +63,7 @@ class ShadowComparisonTests(unittest.TestCase):
 
     @staticmethod
     def _v2_host(cpu=10):
-        return {"cpu_percent": cpu, "memory_used_bytes": 50, "disk_used_percent": 60}
+        return {"comparison_complete": True, "cpu_percent": cpu, "memory_used_bytes": 50, "disk_used_percent": 60}
 
     @staticmethod
     def _v2_service(status="up"):
@@ -78,6 +79,7 @@ class ShadowComparisonTests(unittest.TestCase):
                 timestamp = f"2026-07-12T19:0{index}:00Z"
                 samples.append({
                     "schema_version": 1,
+                    "comparison_complete": True,
                     "collected_at": timestamp,
                     "host": {"cpu_percent": cpu, "ram_used_bytes": 50, "ram_total_bytes": 100, "disk_used_bytes": 60, "disk_total_bytes": 100},
                     "services": [{"id": "frontpage-public", "visibility": "public", "status": "up"}],
@@ -91,18 +93,53 @@ class ShadowComparisonTests(unittest.TestCase):
             base = 1_783_882_800_000
             for index, cpu in enumerate((10, 40)):
                 timestamp = base + index * 60_000
-                connection.execute("INSERT INTO host_points VALUES('1m',?,?)", (timestamp, json.dumps({"cpu_percent": cpu, "memory_used_bytes": 50, "disk_used_percent": 60})))
+                connection.execute("INSERT INTO host_points VALUES('1m',?,?)", (timestamp, json.dumps({"comparison_complete": True, "cpu_percent": cpu, "memory_used_bytes": 50, "disk_used_percent": 60})))
                 connection.execute("INSERT INTO service_points VALUES('1m',?,?,?)", (timestamp, "frontpage-public", json.dumps({"visibility": "public", "status": "up"})))
             connection.commit()
             connection.close()
 
-            result = MODULE.compare(v1, database, evidence_start_ms=base, now_ms=base + 90_000)
+            result = MODULE.compare(v1, database, evidence_start_ms=base, now_ms=base + 150_000)
             self.assertFalse(result["approved"])
             self.assertEqual(result["paired_minutes"], 2)
             self.assertGreater(result["p99_relative_divergence_percent"]["cpu"], 2)
 
     def test_p99_uses_the_nearest_rank(self):
         self.assertEqual(MODULE._p99([1] * 98 + [5, 5]), 5)
+
+    def test_partial_duplicate_and_unknown_evidence_cannot_approve(self):
+        base = 1_783_882_800_000
+        timestamps = [base + index * 60_000 for index in range(2881)]
+        for failure in ("partial-v1", "partial-v2", "duplicate-v1", "unknown-both"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                samples = [self._v1_sample(timestamp) for timestamp in timestamps]
+                hosts = [(timestamp, self._v2_host()) for timestamp in timestamps]
+                services = [(timestamp, "frontpage-public", self._v2_service()) for timestamp in timestamps]
+                if failure == "partial-v1":
+                    samples[100]["comparison_complete"] = False
+                elif failure == "partial-v2":
+                    hosts[100][1]["comparison_complete"] = False
+                elif failure == "duplicate-v1":
+                    samples.append(self._v1_sample(timestamps[100] + 1000))
+                else:
+                    samples[100]["services"][0]["status"] = "unknown"
+                    services[100][2]["status"] = "unknown"
+                v1, database = self._write_inputs(Path(directory), samples, hosts, services)
+                result = MODULE.compare(v1, database, evidence_start_ms=base, now_ms=timestamps[-1] + 90_000)
+                self.assertFalse(result["approved"])
+                if failure == "unknown-both":
+                    self.assertGreater(result["public_service_mismatch_percent"], 0)
+                else:
+                    self.assertEqual(result["missed_minutes"], 1)
+
+    def test_open_minute_is_not_acceptance_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = 1_783_882_800_000
+            v1, database = self._write_inputs(Path(directory), [self._v1_sample(base)],
+                                            [(base, self._v2_host())],
+                                            [(base, "frontpage-public", self._v2_service())])
+            result = MODULE.compare(v1, database, evidence_start_ms=base, now_ms=base + 50_000)
+            self.assertEqual(result["paired_minutes"], 0)
+            self.assertFalse(result["approved"])
 
     def test_incomplete_v2_host_rows_become_explicit_missed_evidence(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -127,7 +164,7 @@ class ShadowComparisonTests(unittest.TestCase):
                 v1,
                 database,
                 evidence_start_ms=base,
-                now_ms=timestamps[-1] + 30_000,
+                now_ms=timestamps[-1] + 90_000,
             )
 
             self.assertFalse(result["approved"])
@@ -159,7 +196,7 @@ class ShadowComparisonTests(unittest.TestCase):
                 v1,
                 database,
                 evidence_start_ms=base,
-                now_ms=timestamps[-1] + 30_000,
+                now_ms=timestamps[-1] + 90_000,
             )
 
             self.assertFalse(result["approved"])
@@ -187,15 +224,15 @@ class ShadowComparisonTests(unittest.TestCase):
                 v1,
                 database,
                 evidence_start_ms=base,
-                now_ms=timestamps[-1] + 30_000,
+                now_ms=timestamps[-1] + 90_000,
             )
 
             self.assertTrue(result["approved"])
-            self.assertEqual(result["schema_version"], 2)
+            self.assertEqual(result["schema_version"], 3)
             self.assertEqual(result["duration_hours"], 48)
             self.assertEqual(result["paired_minutes"], 2881)
             self.assertEqual(result["missed_minutes"], 0)
-            self.assertEqual(result["evidence_age_seconds"], 30)
+            self.assertEqual(result["evidence_age_seconds"], 90)
 
     def test_stale_or_missing_public_service_evidence_cannot_approve(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -216,7 +253,7 @@ class ShadowComparisonTests(unittest.TestCase):
                 v1,
                 database,
                 evidence_start_ms=base,
-                now_ms=timestamps[-1] + 30_000,
+                now_ms=timestamps[-1] + 90_000,
             )
             stale = MODULE.compare(
                 v1,
@@ -257,7 +294,7 @@ class ShadowComparisonTests(unittest.TestCase):
                 v1,
                 database,
                 evidence_start_ms=base,
-                now_ms=timestamps[-1] + 30_000,
+                now_ms=timestamps[-1] + 90_000,
             )
 
             self.assertFalse(result["approved"])
@@ -338,7 +375,7 @@ class ShadowComparisonTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 2, completed.stderr)
             artifact = json.loads(output.read_text())
             self.assertFalse(artifact["approved"])
-            self.assertEqual(artifact["schema_version"], 2)
+            self.assertEqual(artifact["schema_version"], 3)
             self.assertEqual(artifact["incomplete_v2_host_minutes"], 1)
             self.assertEqual(artifact["evidence_epoch"]["commit_sha"], "b" * 40)
 

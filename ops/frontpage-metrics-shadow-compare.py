@@ -15,7 +15,7 @@ from pathlib import Path
 MINUTE_MS = 60_000
 WINDOW_MS = 48 * 3_600_000
 MAX_EVIDENCE_AGE_SECONDS = 120
-GATE_SCHEMA_VERSION = 2
+GATE_SCHEMA_VERSION = 3
 EVIDENCE_EPOCH_REASONS = frozenset(
     {
         "collector_or_comparator_change",
@@ -69,20 +69,32 @@ def _v1_points(path: Path):
     payload = json.loads(path.read_text())
     result = {}
     services = {}
+    observed = set()
+    incomplete = set()
     for sample in payload.get("samples", []):
         minute = _minute(_timestamp_ms(sample["collected_at"]))
+        if minute in observed:
+            incomplete.add(minute)
+        observed.add(minute)
         host = sample["host"]
-        result[minute] = {
-            "cpu": float(host["cpu_percent"]),
-            "ram": float(host["ram_used_bytes"]),
-            "disk": float(host["disk_used_bytes"]) / max(float(host["disk_total_bytes"]), 1) * 100,
-        }
+        try:
+            if sample.get("comparison_complete") is not True:
+                raise ValueError("v1 minute is incomplete")
+            result[minute] = {
+                "cpu": _metric(host, "cpu_percent"),
+                "ram": _metric(host, "ram_used_bytes"),
+                "disk": _metric(host, "disk_used_bytes") / max(_metric(host, "disk_total_bytes"), 1) * 100,
+            }
+        except ValueError:
+            incomplete.add(minute)
         services[minute] = {
             service["id"]: service["status"]
             for service in sample.get("services", [])
             if service.get("visibility") == "public"
         }
-    return result, services
+    for minute in incomplete:
+        result.pop(minute, None)
+    return result, services, observed, incomplete
 
 
 def _v2_points(path: Path):
@@ -98,6 +110,8 @@ def _v2_points(path: Path):
             minute = _minute(int(timestamp_ms))
             observed_host_minutes.add(minute)
             try:
+                if payload.get("comparison_complete") is not True:
+                    raise ValueError("v2 minute is incomplete")
                 host[minute] = {
                     "cpu": _metric(payload, "cpu_percent"),
                     "ram": _metric(payload, "memory_used_bytes"),
@@ -128,16 +142,15 @@ def compare(
     now_ms: int | None = None,
 ) -> dict[str, object]:
     generated_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
-    v1_host, v1_services = _v1_points(v1_history)
+    v1_host, v1_services, v1_observed, v1_incomplete = _v1_points(v1_history)
     v2_host, v2_services, v2_observed, v2_incomplete = _v2_points(v2_database)
-    v1_observed = set(v1_host)
     effective_epoch = _next_minute(
         evidence_start_ms
         if evidence_start_ms is not None
         else max(min(v1_observed, default=0), min(v2_observed, default=0))
     )
     overlap_end = (
-        min(max(v1_observed), max(v2_observed))
+        min(max(v1_observed), max(v2_observed), _minute(generated_ms) - MINUTE_MS)
         if v1_observed and v2_observed
         else None
     )
@@ -170,7 +183,7 @@ def compare(
             service_comparisons += 1
             left = v1_services.get(timestamp, {}).get(service_id)
             right = v2_services.get(timestamp, {}).get(service_id)
-            service_mismatches += left is None or right is None or left != right
+            service_mismatches += left not in {"up", "down"} or right not in {"up", "down"} or left != right
     duration_hours = (
         0.0
         if window_start is None or overlap_end is None
@@ -236,6 +249,10 @@ def compare(
         "duration_hours": round(duration_hours, 3),
         "paired_minutes": len(paired),
         "missed_minutes": missed_minutes,
+        "incomplete_v1_host_minutes": (
+            0 if window_start is None or overlap_end is None
+            else sum(window_start <= timestamp <= overlap_end for timestamp in v1_incomplete)
+        ),
         "incomplete_v2_host_minutes": incomplete_v2_host_minutes,
         "total_incomplete_v2_host_minutes_since_epoch": total_incomplete_v2_host_minutes,
         "maximum_gap_seconds": maximum_gap_seconds,

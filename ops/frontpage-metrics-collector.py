@@ -3,10 +3,12 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +18,7 @@ for candidate in (Path(__file__).resolve().parent.parent, Path("/usr/local/lib/f
 
 from ops.frontpage_metrics_v2 import config as collector_config
 from ops.frontpage_metrics_v2.sources import services as service_source
+from ops.frontpage_metrics_v2.daemon import run_aligned
 
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
@@ -140,12 +143,12 @@ def collect_load_average():
         return 0, 0, 0
 
 
-def collect_host_metrics():
+def collect_host_metrics(cpu_percent=...):
     ram_used, ram_total = collect_meminfo()
     disk = shutil.disk_usage("/")
     load_1m, load_5m, load_15m = collect_load_average()
     return {
-        "cpu_percent": collect_cpu_percent(),
+        "cpu_percent": collect_cpu_percent() if cpu_percent is ... else cpu_percent,
         "ram_used_bytes": int(ram_used),
         "ram_total_bytes": int(ram_total),
         "disk_used_bytes": int(disk.used),
@@ -257,39 +260,95 @@ def load_history(path):
         return []
 
 
-def collect_snapshot(config):
-    collected_at = utc_now()
+def collect_snapshot(config, host=None, collected_at=None):
+    collected_at = collected_at or utc_now()
     return {
         "schema_version": SCHEMA_VERSION,
         "collected_at": collected_at,
-        "host": collect_host_metrics(),
+        "host": collect_host_metrics() if host is None else host,
         "services": [service_result(service) for service in config["services"]],
         "containers": [container_result(container) for container in config["containers"]],
     }
+
+
+def write_snapshot(metrics_dir, snapshot, *, comparison=True):
+    atomic_write_json(metrics_dir / "latest.json", snapshot)
+    samples = prune_history(load_history(metrics_dir / "history.json") + [snapshot])
+    atomic_write_json(metrics_dir / "history.json", {"schema_version": SCHEMA_VERSION, "samples": samples})
+    if comparison:
+        write_comparison(metrics_dir, snapshot)
+
+
+def write_comparison(metrics_dir, snapshot):
+    samples = prune_comparison_history(load_history(metrics_dir / "comparison-history.json") + [snapshot])
+    atomic_write_json(metrics_dir / "comparison-history.json", {"schema_version": SCHEMA_VERSION, "samples": samples})
+
+
+def publish_minute(metrics_dir, samples):
+    snapshot = dict(samples[-1])
+    slots = {int(datetime.fromisoformat(row["collected_at"].replace("Z", "+00:00")).timestamp()) % 60 // 15 for row in samples}
+    complete = len(samples) == 4 and len(slots) == 4 and all(row["host"]["cpu_percent"] is not None for row in samples)
+    host = dict(snapshot["host"])
+    for key in host:
+        values = [row["host"][key] for row in samples]
+        host[key] = None if any(value is None for value in values) else sum(values) / len(values)
+        if host[key] is not None and key.endswith(("_bytes", "_seconds")):
+            host[key] = round(host[key])
+    snapshot["host"] = host
+    if complete:
+        write_snapshot(metrics_dir, snapshot, comparison=False)
+    write_comparison(metrics_dir, {**snapshot, "comparison_complete": complete})
+
+
+def run_daemon(config, metrics_dir, stop_event, wall_clock_ms=lambda: int(time.time() * 1000)):
+    previous = (wall_clock_ms(), Path("/proc/sys/kernel/random/boot_id").read_text(), read_cpu_times())
+    samples = []
+
+    def collect():
+        nonlocal previous, samples
+        now_ms = wall_clock_ms()
+        boot = Path("/proc/sys/kernel/random/boot_id").read_text()
+        idle, total = read_cpu_times()
+        elapsed = now_ms - previous[0]
+        idle_delta, total_delta = idle - previous[2][0], total - previous[2][1]
+        cpu = None
+        if boot == previous[1] and 14_000 <= elapsed <= 16_000 and total_delta > 0 and 0 <= idle_delta <= total_delta:
+            cpu = round((1 - idle_delta / total_delta) * 100, 4)
+        previous = (now_ms, boot, (idle, total))
+        timestamp = datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        if samples and samples[-1]["collected_at"][:16] != timestamp[:16]:
+            publish_minute(metrics_dir, samples)
+            samples = []
+        host = collect_host_metrics(cpu)
+        # A late wakeup is unavailable evidence, not a relabelled on-time sample.
+        if now_ms % 15_000 >= 1000:
+            host["cpu_percent"] = None
+        samples.append(collect_snapshot(config, host, timestamp))
+        if now_ms % 60_000 >= 45_000:
+            publish_minute(metrics_dir, samples)
+            samples = []
+        return False
+
+    run_aligned(collect, stop_event, wall_clock_ms=wall_clock_ms)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--metrics-dir", required=True)
+    parser.add_argument("--daemon", action="store_true")
     args = parser.parse_args()
 
     config = load_config(Path(args.config))
     metrics_dir = Path(args.metrics_dir)
-    snapshot = collect_snapshot(config)
-    atomic_write_json(metrics_dir / "latest.json", snapshot)
-    samples = prune_history(load_history(metrics_dir / "history.json") + [snapshot])
-    atomic_write_json(
-        metrics_dir / "history.json",
-        {"schema_version": SCHEMA_VERSION, "samples": samples},
-    )
-    comparison_samples = prune_comparison_history(
-        load_history(metrics_dir / "comparison-history.json") + [snapshot]
-    )
-    atomic_write_json(
-        metrics_dir / "comparison-history.json",
-        {"schema_version": SCHEMA_VERSION, "samples": comparison_samples},
-    )
+    if args.daemon:
+        stop_event = threading.Event()
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(signum, lambda *_: stop_event.set())
+        run_daemon(config, metrics_dir, stop_event)
+    else:
+        # One-shot snapshots are useful for preflight, but are not minute evidence.
+        write_snapshot(metrics_dir, collect_snapshot(config), comparison=False)
 
 
 if __name__ == "__main__":

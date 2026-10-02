@@ -189,11 +189,23 @@ class MetricsStore:
     def _upsert_rollup_tier(self, tier: str, bucket_ms: int, expected_samples: int, now_ms: int) -> None:
         source_start = bucket_ms
         host_rows = self._connection.execute(
-            "SELECT payload_json,coverage_percent FROM host_points WHERE tier='15s' AND ts_ms>=? AND ts_ms<=? ORDER BY ts_ms",
+            "SELECT payload_json,coverage_percent,ts_ms FROM host_points WHERE tier='15s' AND ts_ms>=? AND ts_ms<=? ORDER BY ts_ms",
             (source_start, now_ms),
         ).fetchall()
         if host_rows:
             host_payload = _rollup_payload([json.loads(row[0]) for row in host_rows])
+            if tier == "1m":
+                host_payload["comparison_complete"] = (
+                    len(host_rows) == 4
+                    and len({int(row[2]) // 15_000 for row in host_rows}) == 4
+                    and all(
+                        int(row[2]) % 15_000 < 1000
+                        and float(row[1]) == 100
+                        and all(json.loads(row[0]).get(key) is not None for key in
+                                ("cpu_percent", "memory_used_bytes", "disk_used_percent"))
+                        for row in host_rows
+                    )
+                )
             host_coverage = min(
                 100.0,
                 sum(float(row[1]) for row in host_rows) / expected_samples,

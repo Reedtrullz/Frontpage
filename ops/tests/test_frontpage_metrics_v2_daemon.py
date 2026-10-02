@@ -98,8 +98,8 @@ class CollectorDaemonTests(unittest.TestCase):
         self.assertEqual(publisher.snapshots[0]["cycle"]["source_errors"], ["psi unavailable"])
         self.assertFalse(result.skip_next_cycle)
 
-    def test_immediate_boot_cycle_and_monotonic_15_second_wait(self):
-        ticks = iter((0.0, 0.2, 15.0, 15.1))
+    def test_boot_primes_counters_and_waits_for_utc_slots(self):
+        ticks = iter((1000, 1000, 15000, 16200))
         stop = FakeStopEvent(waits_to_stop=2)
         collector = FakeCollector()
         daemon = CollectorDaemon(
@@ -107,27 +107,24 @@ class CollectorDaemonTests(unittest.TestCase):
             FakeStore([CycleWriteStatus(0.1, False), CycleWriteStatus(0.1, False)]),
             FakeEngine(),
             FakePublisher(),
-            monotonic=lambda: next(ticks),
-            wall_clock_ms=lambda: 1000,
+            wall_clock_ms=lambda: next(ticks),
         )
         daemon.run_forever(stop)
         self.assertEqual(collector.calls, 2)
-        self.assertAlmostEqual(stop.waits[0], 14.8)
+        self.assertAlmostEqual(stop.waits[0], 14.0)
 
-    def test_slow_write_skips_one_cadence_without_backlog(self):
-        ticks = iter((0.0, 1.0, 30.0, 30.1))
-        stop = FakeStopEvent(waits_to_stop=2)
+    def test_slow_write_skips_one_utc_slot_without_backlog(self):
+        ticks = iter((1000, 1000, 15000, 16000, 30000, 45000))
+        stop = FakeStopEvent(waits_to_stop=3)
         collector = FakeCollector()
         daemon = CollectorDaemon(
             collector,
-            FakeStore([CycleWriteStatus(6.0, True), CycleWriteStatus(0.1, False)]),
-            FakeEngine(),
-            FakePublisher(),
-            monotonic=lambda: next(ticks),
-            wall_clock_ms=lambda: 1000,
+            FakeStore([CycleWriteStatus(6.0, True)]),
+            FakeEngine(), FakePublisher(),
+            wall_clock_ms=lambda: next(ticks),
         )
         daemon.run_forever(stop)
-        self.assertAlmostEqual(stop.waits[0], 29.0)
+        self.assertEqual(stop.waits, [14.0, 14.0, 15.0])
         self.assertEqual(collector.calls, 2)
 
     def test_already_set_stop_event_runs_no_cycle(self):
