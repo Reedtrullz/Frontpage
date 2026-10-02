@@ -34,6 +34,8 @@
           - /var/lib/frontpage-metrics/v2-shadow
           - --evidence-epoch
           - /var/lib/frontpage-metrics/shadow-evidence-epoch.json
+          - --output
+          - /var/lib/frontpage-metrics/shadow-gate.json
       register: fresh_gate
       check_mode: false
       changed_when: false

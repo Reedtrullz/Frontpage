@@ -140,6 +140,7 @@ def fresh_acceptance() -> dict:
         "--v2-database", "/var/lib/frontpage-metrics/private/metrics-v2-shadow.sqlite3",
         "--projection-root", "/var/lib/frontpage-metrics/v2-shadow",
         "--evidence-epoch", "/var/lib/frontpage-metrics/shadow-evidence-epoch.json",
+        "--output", "/var/lib/frontpage-metrics/shadow-gate.json",
     ], capture_output=True, text=True, check=True, timeout=60)
     gate = json.loads(result.stdout)
     if gate.get("schema_version") != 3 or gate.get("approved") is not True:
