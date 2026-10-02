@@ -95,12 +95,13 @@
       loop:
         - frontpage-metrics-upload.service
         - frontpage-metrics-upload.timer
+      register: cloudflare_upload_units
 
     - name: Enable upload timer
       ansible.builtin.systemd:
         name: frontpage-metrics-upload.timer
         enabled: true
-        state: started
+        state: "{{ 'restarted' if cloudflare_upload_units.changed else 'started' }}"
         daemon_reload: true
 
     - name: Upload the first snapshots
