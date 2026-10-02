@@ -4,6 +4,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable, Mapping
 
@@ -97,7 +98,8 @@ def collect_services(
     now_ms: int,
     opener: Callable = open_status_request,
 ) -> SourceResult[tuple[ServiceSample, ...]]:
-    rows = tuple(service_result(service, now_ms, opener) for service in config)
+    with ThreadPoolExecutor(max_workers=8) as checks:
+        rows = tuple(checks.map(lambda service: service_result(service, now_ms, opener), config))
     available = any(row.status != "unknown" for row in rows)
     return SourceResult(rows, available, {"service_checks": "available" if available else "unavailable"}, ())
 
