@@ -29,6 +29,7 @@
         argv: [systemctl, "{{ item }}", frontpage-metrics-collector-v2.service]
       loop: [is-enabled, is-active]
       register: promoted_collector
+      check_mode: false
       changed_when: false
       failed_when: false
       when: maintain_collectors
@@ -233,6 +234,7 @@
       ansible.builtin.command:
         argv: [date, -u, -d, '+60 seconds', '+%Y-%m-%dT%H:%M:%SZ']
       register: evidence_clock
+      check_mode: false
       changed_when: false
       when: (mark_primary or maintain_collectors) and evidence_reset_required
 
