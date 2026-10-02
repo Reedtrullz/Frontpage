@@ -20,6 +20,7 @@ import {
   readPublicLatestV2,
   readSeriesV2,
 } from "@/lib/metrics/v2/reader";
+import { isObservabilityV2Enabled } from "@/lib/metrics/cloudflare-store";
 import { createPublicStatusV2 } from "@/lib/metrics/v2/public-status";
 import { fetchMiningV2 } from "@/lib/metrics/v2/mining";
 
@@ -49,7 +50,7 @@ export default async function StatusPage() {
         })
       : null;
   const ownerV2Enabled =
-    isOwner && process.env.FRONTPAGE_OBSERVABILITY_V2 === "1";
+    isOwner && isObservabilityV2Enabled();
   const ownerLatestV2 = ownerV2Enabled
     ? readOwnerLatestV2(getOwnerMetricsRootV2())
     : null;

@@ -1,0 +1,11 @@
+[Unit]
+Description=Upload Frontpage v2 projections after each UTC sample
+
+[Timer]
+OnCalendar=*-*-* *:*:12,27,42,57 UTC
+AccuracySec=1ms
+Persistent=true
+Unit=frontpage-metrics-upload-v2.service
+
+[Install]
+WantedBy=timers.target

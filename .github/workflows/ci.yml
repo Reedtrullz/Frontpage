@@ -54,6 +54,7 @@ jobs:
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-collector.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-proposals-origin.yml --vault-password-file .vault_pass
+          ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-v2-upload.yml --vault-password-file .vault_pass
       - run: npm run build
         env:
           CI: true

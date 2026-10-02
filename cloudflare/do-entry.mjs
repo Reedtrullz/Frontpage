@@ -1,4 +1,5 @@
 import app from './worker.js';
+import { initializeCloudflareV2, uploadCloudflareV2 } from '../src/lib/metrics/v2/cloudflare-upload';
 import { timingSafeEqual } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 
@@ -16,6 +17,7 @@ export class FrontpageDO {
   constructor(state, env) {
     this.state = state;
     this.env = env;
+    initializeCloudflareV2(this.state.storage.sql);
     this.state.storage.sql.exec('CREATE TABLE IF NOT EXISTS metrics_snapshot (name TEXT PRIMARY KEY, data BLOB NOT NULL)');
   }
 
@@ -23,11 +25,12 @@ export class FrontpageDO {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/__collector/')) {
       const name = url.pathname.slice('/__collector/'.length);
-      if (request.method !== 'PUT' || !names.has(name)) return new Response('Not found', { status: 404 });
+      if (request.method !== 'PUT' || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
       if (!authorized(request, this.env.COLLECTOR_UPLOAD_SECRET)) {
         await request.body?.cancel();
         return new Response('Unauthorized', { status: 401 });
       }
+      if (name.startsWith('v2/')) return uploadCloudflareV2(request, this.state.storage, this.env.VERSION);
       const compressed = new Uint8Array(await request.arrayBuffer());
       if (!compressed.length || compressed.length > 1024 * 1024) return new Response('Payload too large', { status: 413 });
       let payload;

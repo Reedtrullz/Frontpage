@@ -1,0 +1,38 @@
+[Unit]
+Description=Upload complete Frontpage v2 projections to Cloudflare
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=frontpage-observer
+Group=frontpage-observer
+LoadCredential=upload-secret:/etc/frontpage-metrics/cloudflare-upload-secret
+Environment=FRONTPAGE_METRICS_DIR=/var/lib/frontpage-metrics/v2-shadow
+Environment=FRONTPAGE_UPLOAD_URL=https://frontpage.reidjoss.workers.dev
+Environment=FRONTPAGE_UPLOAD_SECRET_FILE=%d/upload-secret
+ExecStart=/usr/local/bin/frontpage-metrics-upload --v2
+TimeoutStartSec=120s
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/var/lib/frontpage-metrics/v2-shadow
+InaccessiblePaths=/var/lib/frontpage-metrics/private
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
