@@ -59,9 +59,10 @@ function issueLines(
         return path ? `${path}: ${issue.message}` : issue.message;
       })), ...galleryIssues, ...milestonesIssues];
   const effectiveProject = result.success ? preserveProjectSlugAliases(result.data, originalSlug) : null;
+  const otherProjects = allProjects.filter((item) => item.slug !== originalSlug);
   if (
     project.slug !== originalSlug &&
-    allProjects.some((item) => item.slug === project.slug || item.aliases?.includes(project.slug))
+    otherProjects.some((item) => item.slug === project.slug || item.aliases?.includes(project.slug))
   ) {
     issues.push("slug: Must be unique across projects.");
   }
@@ -69,7 +70,7 @@ function issueLines(
     const aliases = effectiveProject?.aliases ?? [];
     if (aliases.length > 32) issues.push("aliases: At most 32 historical slugs are allowed.");
     for (const alias of aliases) {
-      if (allProjects.some((item) => item.slug === alias && item.slug !== originalSlug || item.aliases?.includes(alias) && item.slug !== originalSlug)) {
+      if (otherProjects.some((item) => item.slug === alias || item.aliases?.includes(alias))) {
         issues.push(`aliases: ${alias} is already used by another project.`);
       }
     }

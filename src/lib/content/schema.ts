@@ -280,7 +280,9 @@ export function resolveProjectSlug(slug: string, projects: readonly ProjectConte
 
 export function preserveProjectSlugAliases(project: ProjectContent, previousSlug: string): ProjectContent {
   if (!previousSlug || previousSlug === project.slug) return project;
-  return { ...project, aliases: Array.from(new Set([...(project.aliases ?? []), previousSlug])) };
+  const aliases = (project.aliases ?? []).filter((alias) => alias !== project.slug);
+  aliases.push(previousSlug);
+  return { ...project, aliases: Array.from(new Set(aliases)) };
 }
 
 export function parsePublicRepositories(input: unknown): PublicRepository[] {

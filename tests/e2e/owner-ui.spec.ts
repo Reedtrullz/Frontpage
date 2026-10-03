@@ -325,7 +325,11 @@ test.describe("owner workspace", () => {
     await page.getByLabel("Slug").fill("e2e-owner-draft-final");
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-final$/);
-    expect(submittedRenames.at(-1)).toEqual({ slug: "e2e-owner-draft-final", aliases: ["e2e-owner-draft", "e2e-owner-draft-renamed"] });
+    await page.getByLabel("Slug").fill("e2e-owner-draft");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft$/);
+    expect(submittedRenames.at(-1)).toEqual({ slug: "e2e-owner-draft", aliases: ["e2e-owner-draft-renamed", "e2e-owner-draft-final"] });
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Archive project" }).click();
     await expect(page.getByText(/Project archived in the local draft/)).toBeVisible();
