@@ -95,15 +95,16 @@
       until:
         - (health_check.status | default(0)) == 200
         - (health_check.json.status | default("")) == "healthy"
+        - (health_check.json.version | default("")) == frontpage_new_env.VERSION
       retries: "{{ frontpage_health_retries | default(10) }}"
       delay: "{{ frontpage_health_delay | default(5) }}"
       failed_when: false
 
     - name: Fail if application is not healthy
       ansible.builtin.fail:
-        msg: "Frontpage health check failed: {{ health_check }}"
+        msg: "Frontpage health or release identity check failed (expected {{ frontpage_new_env.VERSION }})."
       when:
-        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy"
+        - (health_check.status | default(0)) != 200 or (health_check.json.status | default("")) != "healthy" or (health_check.json.version | default("")) != frontpage_new_env.VERSION
 
   rescue:
     - name: Mark deployment as rolled back
@@ -249,15 +250,16 @@
       until:
         - (rollback_health_check.status | default(0)) == 200
         - (rollback_health_check.json.status | default("")) == "healthy"
+        - (rollback_health_check.json.version | default("")) == frontpage_rollback_env.VERSION
       retries: "{{ frontpage_health_retries | default(10) }}"
       delay: "{{ frontpage_health_delay | default(5) }}"
       failed_when: false
 
     - name: Fail if rollback did not restore a healthy application
       ansible.builtin.fail:
-        msg: "Deployment and rollback failed: {{ rollback_health_check }}"
+        msg: "Deployment and rollback health or identity check failed (expected {{ frontpage_rollback_env.VERSION }})."
       when:
-        - (rollback_health_check.status | default(0)) != 200 or (rollback_health_check.json.status | default("")) != "healthy"
+        - (rollback_health_check.status | default(0)) != 200 or (rollback_health_check.json.status | default("")) != "healthy" or (rollback_health_check.json.version | default("")) != frontpage_rollback_env.VERSION
 
     - name: Fail with rollback message
       ansible.builtin.fail:

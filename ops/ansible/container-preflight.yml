@@ -102,6 +102,7 @@
       - frontpage_new_env.VERSION == deploy_commit_sha
       - frontpage_new_env.METRICS_DIR == '/metrics'
       - frontpage_new_volumes | select('search', ':ro$') | list | length >= 1
+      - previous_image == "none" or previous_version is match('^[a-f0-9]{40}$')
       - previous_image == "none" or frontpage_rollback_env.VERSION == previous_version
       - previous_image == "none" or frontpage_rollback_volumes | select('search', ':ro$') | list | length >= 1
     fail_msg: "Deployment or rollback arguments are not safe to apply after container stop."

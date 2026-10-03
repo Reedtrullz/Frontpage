@@ -53,6 +53,11 @@ elif requested_state == "started":
     if failure == "rollback" and image == "previous-image":
         module.fail_json(msg="mock rollback failure")
     state_data["image"] = image
+    state_data["version"] = (module.params.get("env") or {}).get("VERSION")
+    if failure == "health-wrong-rollback-version" and image == "previous-image":
+        state_data["version"] = "c" * 40
+    if failure == "health-wrong-new-version" and image == "new-image":
+        state_data["version"] = "c" * 40
     state_data["events"].append("start:" + str(image))
 with open(state_path, "w", encoding="utf-8") as handle:
     json.dump(state_data, handle)
@@ -98,12 +103,17 @@ class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         with open(self.state_path, encoding="utf-8") as handle:
             image = json.load(handle).get("image")
-        unhealthy = self.failure in {"health", "rollback"} and image == "new-image"
+        unhealthy = self.failure in {"health", "rollback", "health-wrong-rollback-version"} and image == "new-image"
         unhealthy = unhealthy or (
             self.failure == "health-rollback" and image in {"new-image", "previous-image"}
         )
         status = 503 if unhealthy else 200
-        payload = b'{"status":"unhealthy"}' if unhealthy else b'{"status":"healthy"}'
+        with open(self.state_path, encoding="utf-8") as handle:
+            version = json.load(handle).get("version", "")
+        payload = (
+            json.dumps({"status": "unhealthy" if unhealthy else "healthy", "version": version})
+            .encode("utf-8")
+        )
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -205,7 +215,7 @@ sys.exit(0 if active else 3)
         temp_context = tempfile.TemporaryDirectory()
         temp = Path(temp_context.name)
         state_path = temp / "docker-state.json"
-        state_path.write_text(json.dumps({"image": "previous-image", "events": []}))
+        state_path.write_text(json.dumps({"image": "previous-image", "version": "b" * 40, "events": []}))
         collection_root = self._write_mock_collection(temp)
         runtime_map = temp / "runtime-map.py"
         write_executable(
@@ -235,7 +245,7 @@ pathlib.Path(output).write_text('{}')
             "container_name": "frontpage",
             "docker_image": "new-image",
             "previous_image": "previous-image",
-            "previous_version": "previous",
+            "previous_version": "b" * 40,
             "previous_observability_v2_enabled": False,
             "metrics_group_id": "20",
             "metrics_config_dir": str(config_dir),
@@ -251,9 +261,9 @@ pathlib.Path(output).write_text('{}')
             "frontpage_health_delay": 0,
             "frontpage_runtime_map_argv_prefix": [],
             "runtime_map_executable": str(runtime_map),
-            "frontpage_new_env": {"VERSION": "new"},
+            "frontpage_new_env": {"VERSION": "a" * 40},
             "frontpage_new_volumes": ["data:/data", "metrics:/metrics:ro"],
-            "frontpage_rollback_env": {"VERSION": "previous"},
+            "frontpage_rollback_env": {"VERSION": "b" * 40},
             "frontpage_rollback_volumes": ["data:/data", "metrics:/metrics:ro"],
         }
         try:
@@ -275,7 +285,7 @@ pathlib.Path(output).write_text('{}')
             thread.join(timeout=2)
             temp_context.cleanup()
 
-    def _preflight_run(self, valid: bool):
+    def _preflight_run(self, valid: bool, previous_version: str = "b" * 40):
         temp_context = tempfile.TemporaryDirectory()
         temp = Path(temp_context.name)
         state_path = temp / "docker-state.json"
@@ -286,7 +296,7 @@ pathlib.Path(output).write_text('{}')
             "docker_image": f"ghcr.io/reedtrullz/frontpage:sha-{commit}" if valid else "invalid-image",
             "deploy_commit_sha": commit if valid else "bad",
             "previous_image": "previous-image",
-            "previous_version": "b" * 40,
+            "previous_version": previous_version,
             "app_owner_github_id": "2069259",
             "metrics_group_id": "986",
             "observability_v2_enabled": False,
@@ -322,6 +332,19 @@ pathlib.Path(output).write_text('{}')
                 self.assertEqual(state["image"], "previous-image")
                 self.assertIn("start:previous-image", state["events"])
 
+    def test_rollback_health_requires_captured_previous_full_version(self):
+        result, state = self._swap_run("health-wrong-rollback-version")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(state["image"], "previous-image")
+        self.assertIn("Deployment and rollback health or identity check failed", result.stdout + result.stderr)
+
+    def test_new_container_health_requires_the_exact_requested_version(self):
+        result, state = self._swap_run("health-wrong-new-version")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(state["image"], "previous-image")
+        self.assertIn("Frontpage health or release identity check failed", result.stdout + result.stderr)
+        self.assertNotIn("c" * 40, result.stdout + result.stderr)
+
     def test_actual_swap_tasks_report_rollback_failure(self):
         result, state = self._swap_run("rollback")
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -332,13 +355,18 @@ pathlib.Path(output).write_text('{}')
         result, state = self._swap_run("health-rollback")
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(state["image"], "previous-image")
-        self.assertIn("Deployment and rollback failed", result.stdout + result.stderr)
+        self.assertIn("Deployment and rollback health or identity check failed", result.stdout + result.stderr)
 
     def test_actual_preflight_accepts_valid_identity_and_rejects_invalid_identity(self):
         valid = self._preflight_run(True)
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
         invalid = self._preflight_run(False)
         self.assertNotEqual(invalid.returncode, 0)
+
+    def test_preflight_rejects_a_non_full_previous_rollback_version(self):
+        result = self._preflight_run(True, previous_version="unknown")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Validate deployment and rollback facts before container stop", result.stdout + result.stderr)
 
     def test_playbook_wires_preflight_and_actual_swap_task_file(self):
         playbook = PLAYBOOK.read_text()
