@@ -135,7 +135,72 @@ Docker uses the Node 22.22.3 Bookworm slim manifest digest recorded in the Docke
 
 ### Cloudflare headroom evidence
 
-`scripts/measure-cloudflare-headroom.mjs` is a bounded, read-only preliminary harness. It requires an explicitly allowlisted isolated origin, owner session, exact SHA, a current budget evidence reference, and a maximum request budget no greater than 2,000. It reports route latency and HTTP failures. It does not measure collector writes, write starvation, Worker/DO CPU or monthly quota, so its output is not issue #55 acceptance by itself. Do not run it against production.
+`scripts/measure-cloudflare-headroom.mjs` implements a bounded mixed-workload harness for issue #55. **Do not run it until the parent has verified the preview Worker bindings, distinct Durable Object/storage, synthetic owner session, isolated collector credential, current account quota, and authorized request allowance, and explicitly coordinated the run.** It refuses `reidar.tech`, its subdomains, and the production `frontpage.reidjoss.workers.dev` origin. Only the verified `frontpage-do-preview` or `frontpage-migration-preview` Workers are accepted in the isolation evidence.
+
+Every live invocation requires all of these preconditions before the first request: `FRONTPAGE_BENCHMARK_ISOLATED_APPROVED=1`, `FRONTPAGE_BENCHMARK_COORDINATED=1`, an exact `FRONTPAGE_BENCHMARK_ALLOWED_ORIGIN`, non-secret budget reference, configured request cap, fresh provider observability evidence, fresh origin-matched preview-binding evidence, and a non-secret coordination reference. Provider evidence must contain actual observed Worker CPU ms, Durable Object CPU ms, account quota name/used/limit/unit, and an operator-authorized request allowance no greater than observed remaining quota. Those values are copied to the report; the harness does not infer CPU or account headroom. Evidence must be no older than 15 minutes. Missing, stale, insufficient, or mismatched evidence prevents network access.
+
+The provider evidence JSON shape is:
+
+```json
+{
+  "observedAt": "<UTC timestamp from current provider observability>",
+  "source": "<dashboard or API source name>",
+  "workerCpuMs": 0,
+  "durableObjectCpuMs": 0,
+  "quota": {
+    "name": "Workers requests",
+    "used": 0,
+    "limit": 100000,
+    "unit": "requests/month",
+    "authorizedRequestBudget": 181
+  }
+}
+```
+
+The isolation evidence file must bind the exact allowed origin to an inspected preview Worker and explicitly attest production-resource separation, a distinct Durable Object, an isolated collector secret, and a synthetic owner session. It contains no credentials:
+
+```json
+{
+  "observedAt": "<UTC timestamp from the bindings inspection>",
+  "source": "Wrangler preview bindings inventory",
+  "origin": "https://<verified-preview-host>",
+  "candidateWorker": "frontpage-do-preview",
+  "candidateDurableObjectNamespace": "<preview DO namespace identity>",
+  "productionDurableObjectNamespace": "<production DO namespace identity>",
+  "candidateCollectorSecretBinding": "COLLECTOR_UPLOAD_SECRET",
+  "productionWorker": "frontpage",
+  "productionResourcesExcluded": true,
+  "distinctDurableObjectFromProduction": true,
+  "isolatedCollectorSecret": true,
+  "syntheticOwnerSession": true
+}
+```
+
+Replace example CPU/quota values with measurements actually read from current provider observability. The sample values above are shape examples only and never benchmark evidence.
+
+The workload is 80% public GETs, 15% authenticated owner GETs, and 5% collector requests at concurrency 1/2/4. A logical synthetic v1 writer is exactly three requests: exact-SHA health preflight, gzip PUT of `latest.json`, and gzip PUT of `history.json`. The bodies are locally validated schema-v1 snapshots with the same new, monotonically increasing timestamp; their logical identity is SHA-256 of the uncompressed `latest.json` bytes, NUL, then uncompressed `history.json` bytes. Writers are serialized so concurrent stages cannot interleave the two independently stored v1 snapshots. The per-writer deadline is shared across all three calls and bounded by the stage deadline. A failed second upload is recorded as a partial generation. Public/owner traffic continues in the same stages so queued or deadline-starved writes are reported directly; generation queue delay is reported separately.
+
+The hard cap is 2,000 HTTP requests total, including the initial exact-SHA preflight and all three requests for every logical write; each of the three stages is at most 60 seconds. At least 181 requests are required to include a collector generation at each concurrency level. For a run, provide owner cookie and collector bearer token only through separate regular files with mode `0400` or `0600`; their values never enter the JSON report. Example invocation after the parent has prepared evidence and coordinated the run:
+
+```bash
+FRONTPAGE_BENCHMARK_ISOLATED_APPROVED=1 \
+FRONTPAGE_BENCHMARK_COORDINATED=1 \
+FRONTPAGE_BENCHMARK_ALLOWED_ORIGIN=https://<verified-preview-host> \
+FRONTPAGE_BENCHMARK_BUDGET_REFERENCE='<current quota evidence reference>' \
+FRONTPAGE_BENCHMARK_MAX_REQUESTS=181 \
+node scripts/measure-cloudflare-headroom.mjs \
+  --base-url https://<verified-preview-host> \
+  --expected-sha <full-candidate-sha> \
+  --max-requests 181 \
+  --stage-seconds 60 \
+  --owner-cookie-file <0400-or-0600-owner-cookie-file> \
+  --collector-token-file <0400-or-0600-preview-collector-token-file> \
+  --provider-evidence-file <current-provider-observability.json> \
+  --isolation-evidence-file <verified-preview-bindings.json> \
+  --coordination-reference <parent-coordination-reference>
+```
+
+The JSON result reports exact SHA, preflight, request mix/counts, per-stage concurrency/duration, public/owner/collector latency, HTTP/network/deadline failures, partial and completed writes, queued write starvation, generation hashes, and the supplied actual provider CPU/quota evidence. It does not make a keep/change decision automatically: provider measurements, storage/decompression cost, correctness/privacy, and account-plan fit still require operator review. Tests use mocked fetch only; no provider measurement is implied by local regressions.
 
 ## VPS metrics collector
 
