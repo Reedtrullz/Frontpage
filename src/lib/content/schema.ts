@@ -90,6 +90,8 @@ export const projectMilestoneSchema = z.object({
   commitSha: z.string().regex(/^[a-f0-9]{7,40}$/).optional(),
 }).strict();
 
+export const projectMilestonesSchema = z.array(projectMilestoneSchema).max(20);
+
 export const projectMediaSchema = z
   .object({
     cover: projectMediaItemSchema,
@@ -147,7 +149,7 @@ export const projectSchema = z
       .superRefine(uniqueStrings)
       .optional(),
     evidence: projectEvidenceSchema,
-    milestones: z.array(projectMilestoneSchema).max(20).optional(),
+    milestones: projectMilestonesSchema.optional(),
     sections: projectSectionsSchema,
     limitations: z.array(z.string().trim().min(1)).max(12).default([]),
   })
@@ -272,6 +274,11 @@ export function resolveProjectSlug(slug: string, projects: readonly ProjectConte
   if (current) return { kind: "current", project: current };
   const aliased = projects.find((project) => project.aliases?.includes(slug));
   return aliased ? { kind: "redirect", project: aliased } : { kind: "not-found" };
+}
+
+export function preserveProjectSlugAliases(project: ProjectContent, previousSlug: string): ProjectContent {
+  if (!previousSlug || previousSlug === project.slug) return project;
+  return { ...project, aliases: Array.from(new Set([...(project.aliases ?? []), previousSlug])) };
 }
 
 export function parsePublicRepositories(input: unknown): PublicRepository[] {

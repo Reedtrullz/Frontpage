@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProjects, projectGallerySchema, projectSchema, resolveProjectSlug } from "./schema";
+import { parseProjects, preserveProjectSlugAliases, projectGallerySchema, projectMilestonesSchema, projectSchema, resolveProjectSlug } from "./schema";
 
 const validProject = {
   slug: "sample-project",
@@ -74,6 +74,15 @@ describe("canonical project content", () => {
     expect(resolveProjectSlug("missing", [renamed])).toEqual({ kind: "not-found" });
   });
 
+  it("keeps every prior slug across repeated project renames", () => {
+    const original = projectSchema.parse(validProject);
+    const second = preserveProjectSlugAliases({ ...original, slug: "second-name" }, original.slug);
+    const third = preserveProjectSlugAliases({ ...second, slug: "third-name" }, second.slug);
+    expect(third.aliases).toEqual(["sample-project", "second-name"]);
+    expect(resolveProjectSlug("sample-project", [third])).toEqual({ kind: "redirect", project: third });
+    expect(resolveProjectSlug("second-name", [third])).toEqual({ kind: "redirect", project: third });
+  });
+
   it("rejects global canonical and alias collisions and duplicate milestone IDs", () => {
     expect(() => parseProjects([
       { ...validProject, aliases: ["legacy-name"] },
@@ -83,5 +92,12 @@ describe("canonical project content", () => {
       { id: "same", occurredAt: "2026-01-01", title: "First milestone", summary: "A recorded source milestone.", scope: "source-reviewed", evidenceUrl: "https://example.com/evidence", reviewedAt: "2026-01-02T00:00:00Z" },
       { id: "same", occurredAt: "2026-01-02", title: "Second milestone", summary: "Another recorded source milestone.", scope: "ci-verified", evidenceUrl: "https://example.com/ci", reviewedAt: "2026-01-03T00:00:00Z" },
     ] }])).toThrow(/duplicate milestone/i);
+  });
+
+  it("keeps empty timelines optional and rejects invalid dates or more than twenty milestones", () => {
+    const milestone = { id: "fixture", occurredAt: "2026-10-02", title: "Synthetic fixture", summary: "A source-scoped synthetic test entry.", scope: "source-reviewed", evidenceUrl: "https://example.com/evidence", reviewedAt: "2026-10-03T00:00:00Z" };
+    expect(projectMilestonesSchema.parse([])).toEqual([]);
+    expect(projectMilestonesSchema.safeParse([{ ...milestone, occurredAt: "2026-02-30" }]).success).toBe(false);
+    expect(projectMilestonesSchema.safeParse(Array.from({ length: 21 }, (_, index) => ({ ...milestone, id: `fixture-${index}` }))).success).toBe(false);
   });
 });
