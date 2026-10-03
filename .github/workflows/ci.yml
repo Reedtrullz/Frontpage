@@ -30,7 +30,7 @@ jobs:
       - run: npm ci --include=optional
       - run: npm audit --include=dev --audit-level=critical
       - run: npm test
-      - run: node --test scripts/*.test.mjs
+      - run: node --test --test-concurrency=1 scripts/*.test.mjs
       - name: Operator restore transport regressions
         run: node --test ops/owner-state-transport.test.mjs
       - run: npm run lint

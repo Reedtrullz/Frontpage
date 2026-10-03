@@ -19,7 +19,7 @@ test("workflow preserves stacked issue branch filters and owner transport regres
 test("CI uses exact Node and Ansible pins and runs all operational script regressions", () => {
   assert.equal(workflow.env.NODE_VERSION, "22.22.3");
   const testRuns = workflow.jobs.test.steps.map((step) => step.run).filter(Boolean);
-  assert.ok(testRuns.includes("node --test scripts/*.test.mjs"));
+  assert.ok(testRuns.includes("node --test --test-concurrency=1 scripts/*.test.mjs"));
   assert.ok(testRuns.some((run) => run.includes("pip install -r ops/requirements-ansible.txt")));
   assert.ok(testRuns.some((run) => run.includes("ansible-galaxy collection install -r ops/ansible/requirements.yml")));
   assert.ok(!workflowText.includes("ssh-keyscan"));
