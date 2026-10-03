@@ -168,6 +168,8 @@ test.describe("owner workspace", () => {
     await page.goto("/admin/projects");
     await page.getByRole("link", { name: "Create project draft" }).click();
     await page.getByLabel("Name").fill("Fallback unsaved draft");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window as Window & { navigation?: unknown }).navigation)).toBeUndefined();
 
     const editorUrl = page.url();
     const historyLength = await page.evaluate(() => history.length);
@@ -200,6 +202,7 @@ test.describe("owner workspace", () => {
 
     const name = page.getByLabel("Name");
     await name.fill("Keep fields after rejected Forward");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
     const historyLength = await page.evaluate(() => history.length);
     const canceledForward = page.waitForEvent("dialog");
     await page.evaluate(() => history.forward());
@@ -241,6 +244,7 @@ test.describe("owner workspace", () => {
 
     const name = page.getByLabel("Name");
     await name.fill("Retain fields after failed push");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
     const canceledBack = page.waitForEvent("dialog");
     await page.evaluate(() => history.back());
     await (await canceledBack).dismiss();
@@ -263,7 +267,7 @@ test.describe("owner workspace", () => {
 
     const editorsLink = page.getByRole("link", { name: "All project editors" });
     const modifiedPopup = page.waitForEvent("popup");
-    await editorsLink.click({ modifiers: ["Control"] });
+    await editorsLink.click({ modifiers: ["ControlOrMeta"] });
     await expect(await modifiedPopup).toHaveURL(/\/admin\/projects$/);
 
     await editorsLink.evaluate((anchor: HTMLAnchorElement) => { anchor.target = "_blank"; });
@@ -320,10 +324,23 @@ test.describe("owner workspace", () => {
     await page.getByLabel("Evidence note").fill("Synthetic browser fixture only; no public claim.");
     await page.getByLabel("Milestones JSON").fill(JSON.stringify([{ id: "fixture-first-release", occurredAt: "2026-10-02", title: "Synthetic timeline fixture", summary: "A local browser fixture with a documented source reference.", scope: "source-reviewed", evidenceUrl: "https://example.com/test-evidence", reviewedAt: "2026-10-03T15:00:00Z" }], null, 2));
     await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await page.getByRole("button", { name: "Preview" }).click();
-    await expect(page.getByRole("heading", { name: "What it solves" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Project timeline" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Synthetic timeline fixture" })).toBeVisible();
+    const preview = page.getByRole("region", { name: "Project draft preview" });
+    const previewHeading = preview.getByRole("heading", { name: "What it solves" });
+    await expect(previewHeading).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Project timeline" })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Synthetic timeline fixture" })).toBeVisible();
+    const [previewWidth, validationWidth] = await Promise.all([
+      preview.evaluate((element) => element.getBoundingClientRect().width),
+      page.getByRole("heading", { name: "Validation" }).evaluate((element) => element.parentElement!.getBoundingClientRect().width),
+    ]);
+    expect(previewWidth).toBeGreaterThan(validationWidth + 100);
+    expect(await preview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(previewHeading).toBeVisible();
+    expect(await preview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.getByText("Current limitations")).toHaveCount(0);
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();

@@ -339,20 +339,20 @@ export function ProjectEditor({
         ) : <p className="mt-3 text-sm text-[var(--role-positive)]">All project fields validate.</p>}
         {invalid("name") ? <p id="project-name-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("name:")).join(" ")}</p> : null}
         {validation.issues.some((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")) ? <p id="project-slug-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")).join(" ")}</p> : null}
-        {preview ? (
-          <div className="mt-8 border-y border-[var(--border)] py-5">
-            <p className="mb-5 font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW · NOT PUBLIC</p>
-            <p className="font-mono text-xs uppercase text-[var(--text-subtle)]">{project.category} / {project.slug}</p>
-            <h2 className="mb-4 mt-2 text-3xl font-semibold text-[var(--text)]">{project.name}</h2>
-            <p className="mb-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p>
-            <p className="mb-5 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p>
-            <div className="mb-5 flex flex-wrap gap-2"><PostureBadge dimension="lifecycle" value={project.lifecycle} /><PostureBadge dimension="maturity" value={project.maturity} /><PostureBadge dimension="evidence" value={project.evidence.level} /></div>
-            {(project.liveUrl || project.repoUrl) ? <div className="mb-5 flex flex-wrap gap-3">{project.liveUrl ? <a className="secondary-command" href={project.liveUrl} target="_blank" rel="noopener noreferrer">Open live product</a> : null}{project.repoUrl ? <a className="secondary-command" href={project.repoUrl} target="_blank" rel="noopener noreferrer">View repository</a> : null}</div> : null}
-            <p className="mb-4 text-xs text-[var(--text-subtle)]">Runtime health comes from live public metrics and is not simulated in this draft preview.</p>
-            <ProjectDetailContent project={validation.candidate ?? project} now={new Date(previewNow)} />
-          </div>
-        ) : null}
       </aside>
+      {preview ? (
+        <section aria-label="Project draft preview" className="min-w-0 border-y border-[var(--border)] py-5 xl:col-span-2">
+          <p className="mb-5 font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW · NOT PUBLIC</p>
+          <p className="font-mono text-xs uppercase text-[var(--text-subtle)]">{project.category} / {project.slug}</p>
+          <h2 className="mb-4 mt-2 text-3xl font-semibold text-[var(--text)]">{project.name}</h2>
+          <p className="mb-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p>
+          <p className="mb-5 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p>
+          <div className="mb-5 flex flex-wrap gap-2"><PostureBadge dimension="lifecycle" value={project.lifecycle} /><PostureBadge dimension="maturity" value={project.maturity} /><PostureBadge dimension="evidence" value={project.evidence.level} /></div>
+          {(project.liveUrl || project.repoUrl) ? <div className="mb-5 flex flex-wrap gap-3">{project.liveUrl ? <a className="secondary-command" href={project.liveUrl} target="_blank" rel="noopener noreferrer">Open live product</a> : null}{project.repoUrl ? <a className="secondary-command" href={project.repoUrl} target="_blank" rel="noopener noreferrer">View repository</a> : null}</div> : null}
+          <p className="mb-4 text-xs text-[var(--text-subtle)]">Runtime health comes from live public metrics and is not simulated in this draft preview.</p>
+          <ProjectDetailContent project={validation.candidate ?? project} now={new Date(previewNow)} />
+        </section>
+      ) : null}
     </div>
   );
 }
