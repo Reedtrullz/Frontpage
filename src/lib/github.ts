@@ -18,7 +18,7 @@ export function createGitHubPublicationClient(): GitPublicationClient | null {
   const token = process.env.GITHUB_TOKEN;
   if (!token) return null;
 
-  const octokit = new Octokit({ auth: token });
+  const octokit = new Octokit({ auth: token, request: {timeout: 10_000} });
   const { owner, repo, branch } = repositoryConfig();
 
   return {
@@ -76,6 +76,14 @@ export function createGitHubPublicationClient(): GitPublicationClient | null {
         sha: commitSha,
         force: false,
       });
+    },
+    async getCommitIdentity(commitSha) {
+      const { data } = await octokit.git.getCommit({owner, repo, commit_sha: commitSha});
+      return {treeSha: data.tree.sha, parentSha: data.parents[0]?.sha ?? ''};
+    },
+    async isAncestor(commitSha, headSha) {
+      const {data} = await octokit.repos.compareCommits({owner, repo, base: commitSha, head: headSha});
+      return data.status === 'ahead' || data.status === 'identical';
     },
     getCommitUrl(commitSha) {
       return `https://github.com/${owner}/${repo}/commit/${commitSha}`;

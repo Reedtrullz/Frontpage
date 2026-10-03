@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import {z} from "zod";
+import {readOwnerMutationJson,OwnerRequestError} from "@/lib/owner-request";
+import {findPublicationIntent} from "@/lib/content/publication-intents";
 import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
 import { getCanonicalPersonal, getCanonicalProjects } from "@/lib/content";
@@ -9,7 +12,7 @@ import {
 } from "@/lib/content/publication";
 import { createGitHubPublicationClient } from "@/lib/github";
 
-export async function POST() {
+export async function POST(request?: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -19,8 +22,10 @@ export async function POST() {
   }
 
   try {
+    const input = z.object({reviewedRevisions:z.object({personal:z.string().uuid().nullable(),projects:z.string().uuid().nullable()}).strict()}).strict().parse(await readOwnerMutationJson(request));
     const drafts = readDraftBundle();
-    if (!drafts.personal && !drafts.projects) {
+    const existingIntent = findPublicationIntent(input.reviewedRevisions);
+    if (!drafts.personal && !drafts.projects && !existingIntent) {
       return NextResponse.json(
         { error: "There is no saved draft to publish.", state: "clean" },
         { status: 409 },
@@ -32,7 +37,7 @@ export async function POST() {
         (value): value is string => Boolean(value),
       ),
     );
-    if (baseVersions.size !== 1) {
+    if (baseVersions.size !== 1 && !existingIntent) {
       return NextResponse.json(
         {
           error: "Drafts were saved from different deployed versions. Refresh and save again.",
@@ -57,15 +62,17 @@ export async function POST() {
       {
         personal: drafts.personal?.content ?? getCanonicalPersonal(),
         projects: drafts.projects?.content ?? getCanonicalProjects(),
-        baseVersion: [...baseVersions][0],
+        baseVersion: existingIntent?.baseSha ?? [...baseVersions][0],
+        reviewedRevisions: input.reviewedRevisions,
       },
       client,
     );
 
-    if (result.kind === "published") {
+    if (result.kind === "published" || result.kind === "published-recovery-pending") {
       return NextResponse.json({
         ok: true,
-        state: "awaiting-deploy",
+        state: result.kind === "published" ? "awaiting-deploy" : "published-recovery-pending",
+        ...("message" in result ? {message: result.message} : {}),
         commitSha: result.commitSha,
         commitUrl: result.commitUrl,
       });
@@ -76,6 +83,8 @@ export async function POST() {
       { status: result.kind === "conflict" ? 409 : 502 },
     );
   } catch (error) {
+    if (error instanceof OwnerRequestError) return NextResponse.json({error:error.message},{status:error.status});
+    if (error instanceof z.ZodError) return NextResponse.json({error:"Invalid reviewed publication request."},{status:400});
     console.error(
       "Failed to publish content",
       summarizePublicationError(error),

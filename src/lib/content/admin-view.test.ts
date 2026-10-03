@@ -22,7 +22,8 @@ describe("admin content view", () => {
     const drafts: DraftBundle = {
       ...emptyDrafts,
       personal: {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        revision: "11111111-1111-4111-8111-111111111111",
         baseVersion: "abc1234",
         savedAt: "2026-07-09T19:00:00Z",
         content: { ...canonicalPersonal, title: "Draft title" },

@@ -27,12 +27,15 @@ export function PersonalEditor({
   initial,
   canonical,
   hasDraft,
+  initialRevision,
 }: {
   initial: PersonalContent;
   canonical: PersonalContent;
   hasDraft: boolean;
+  initialRevision: string | null;
 }) {
   const router = useRouter();
+  const [revision, setRevision] = useState(initialRevision);
   const [data, setData] = useState(initial);
   const [baseline, setBaseline] = useState(JSON.stringify(initial));
   const [draftExists, setDraftExists] = useState(hasDraft);
@@ -64,14 +67,15 @@ export function PersonalEditor({
       const response = await fetch("/api/data/personal", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({content: data, expectedRevision: revision}),
       });
-      const body = (await response.json()) as { error?: string; savedAt?: string };
+      const body = (await response.json()) as { error?: string; revision?: string; savedAt?: string };
       if (!response.ok) {
         setMessage(body.error ?? "The draft could not be saved.");
         return;
       }
       setBaseline(JSON.stringify(data));
+      setRevision(body.revision ?? null);
       setDraftExists(true);
       setMessage("Personal draft saved locally. It is not published.");
       router.refresh();
@@ -86,13 +90,14 @@ export function PersonalEditor({
     if (!window.confirm("Discard the saved personal draft?")) return;
     setBusy(true);
     try {
-      const response = await fetch("/api/data/personal", { method: "DELETE" });
+      const response = await fetch("/api/data/personal", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({expectedRevision: revision}) });
       if (!response.ok) {
         setMessage("The saved draft could not be discarded.");
         return;
       }
       setData(canonical);
       setBaseline(JSON.stringify(canonical));
+      setRevision(null);
       setDraftExists(false);
       setMessage("Personal draft discarded. Published content is unchanged.");
       router.refresh();

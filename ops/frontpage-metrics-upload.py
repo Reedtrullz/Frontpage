@@ -15,20 +15,61 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 
+V1_CAPS = {"latest.json": 512 * 1024, "history.json": 4 * 1024 * 1024}
+
+
+def read_v1(root: Path, name: str) -> bytes:
+    if root.is_symlink() or name not in V1_CAPS:
+        raise ValueError("Symlinked or invalid snapshot root")
+    path = root / name
+    if path.is_symlink():
+        raise ValueError("Symlinked snapshot")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError("Snapshot is not a regular file")
+        data = handle.read(V1_CAPS[name] + 1)
+    if len(data) > V1_CAPS[name]:
+        raise ValueError(f"{name} exceeds its application size cap")
+    return data
+
+
+def v1_snapshot(root: Path) -> dict[str, bytes]:
+    files = {name: read_v1(root, name) for name in V1_CAPS}
+    latest = json.loads(files["latest.json"])
+    history = json.loads(files["history.json"])
+    if (latest.get("schema_version") != 1 or history.get("schema_version") != 1
+            or not isinstance(history.get("samples"), list) or not history["samples"]
+            or history["samples"][-1] != latest):
+        raise ValueError("Snapshot pair is inconsistent")
+    # The collector publishes by atomic renames, but two reads can straddle publication.
+    # Reject changed inputs before the first request; retry on the next scheduled tick.
+    if any(read_v1(root, name) != data for name, data in files.items()):
+        raise ValueError("Snapshot changed during upload preparation")
+    return files
+
+
 def upload(root: Path, base_url: str, secret: str) -> None:
-    for name, cap in (("latest.json", 512 * 1024), ("history.json", 4 * 1024 * 1024)):
-        path = root / name
-        data = path.read_bytes()
-        if len(data) > cap:
-            raise ValueError(f"{name} exceeds its application size cap")
-        body = gzip.compress(data)
-        if len(body) > 1024 * 1024:
-            raise ValueError(f"{name} exceeds the upload size cap")
+    files = v1_snapshot(root)
+    generation = hashlib.sha256(files["latest.json"] + b"\0" + files["history.json"]).hexdigest()
+    payloads = {name: gzip.compress(data, mtime=0) for name, data in files.items()}
+    if any(len(body) > 1024 * 1024 for body in payloads.values()):
+        raise ValueError("Snapshot exceeds the compressed upload size cap")
+    capability = Request(f"{base_url.rstrip('/')}/__collector/v1/capabilities",
+                         headers={"Authorization": f"Bearer {secret}"}, method="GET")
+    with urlopen(capability, timeout=20) as response:
+        data = response.read(2049)
+        if response.status != 200 or len(data) > 2048:
+            raise RuntimeError("Collector does not advertise bounded atomic v1 uploads")
+        advertised = json.loads(data)
+        if advertised != {"schema_version": 1, "atomic_generations": True}:
+            raise RuntimeError("Collector does not advertise bounded atomic v1 uploads")
+    payloads["v1/commit"] = b""
+    for name, body in payloads.items():
         request = Request(
-            f"{base_url.rstrip('/')}/__collector/{name}",
-            data=body,
+            f"{base_url.rstrip('/')}/__collector/{name}", data=body,
             headers={"Authorization": f"Bearer {secret}", "Content-Type": "application/gzip",
-                     "User-Agent": "frontpage-metrics-upload/1"},
+                     "X-Frontpage-Generation": generation, "User-Agent": "frontpage-metrics-upload/1"},
             method="PUT",
         )
         with urlopen(request, timeout=20) as response:

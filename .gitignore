@@ -67,3 +67,6 @@ group_vars/
 # Cloudflare build output
 /.open-next/
 /.wrangler/
+
+# Private operator CLI build
+.owner-tool/

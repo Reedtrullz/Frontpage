@@ -1,3 +1,4 @@
+import {findPendingPublicationIntent} from './publication-intents';
 import {
   derivePublicationState,
   readDraftBundle,
@@ -25,6 +26,8 @@ export interface ValidationSummary {
 }
 
 export interface AdminContentView {
+  recoveryRevisions: {personal: string | null; projects: string | null} | null;
+  reviewedRevisions: {personal: string | null; projects: string | null};
   deployedVersion: string;
   draftBaseVersion: string | null;
   draftCount: number;
@@ -42,6 +45,7 @@ export interface AdminContentView {
     projects: ValidationSummary;
   };
   diff: string[];
+  valueDiff: ContentChange[];
 }
 
 export interface RunbookCommand {
@@ -133,6 +137,26 @@ function changedKeys(
     .toSorted();
 }
 
+export interface ContentChange {path: string; kind: 'added' | 'removed' | 'changed'; before: unknown; after: unknown}
+export function buildContentDiff(input: Parameters<typeof summarizeContentDiff>[0]): ContentChange[] {
+  const result: ContentChange[] = [];
+  function compare(label: string, before: Record<string, unknown>, after: Record<string, unknown>) {
+    for (const key of changedKeys(before, after)) result.push({path: `${label}.${key}`, kind: key in before ? key in after ? 'changed' : 'removed' : 'added', before: before[key] ?? null, after: after[key] ?? null});
+  }
+  if (input.draftPersonal) compare('Personal', input.canonicalPersonal as unknown as Record<string, unknown>, input.draftPersonal as unknown as Record<string, unknown>);
+  if (input.draftProjects) {
+    const before = new Map(input.canonicalProjects.map(project => [project.slug, project]));
+    const after = new Map(input.draftProjects.map(project => [project.slug, project]));
+    for (const project of input.draftProjects) {
+      const original = before.get(project.slug);
+      if (original) compare(project.name, original as unknown as Record<string, unknown>, project as unknown as Record<string, unknown>);
+      else result.push({path: project.name, kind: 'added', before: null, after: project});
+    }
+    for (const project of input.canonicalProjects) if (!after.has(project.slug)) result.push({path: project.name, kind: 'removed', before: project, after: null});
+  }
+  return result;
+}
+
 export function summarizeContentDiff(input: {
   canonicalPersonal: PersonalContent;
   canonicalProjects: ProjectContent[];
@@ -183,6 +207,7 @@ export function buildAdminContentView(input: {
   canonicalProjects: ProjectContent[];
   drafts: DraftBundle;
   deployedVersion: string;
+  recoveryRevisions?: AdminContentView['recoveryRevisions'];
 }): AdminContentView {
   const personal = input.drafts.personal?.content ?? input.canonicalPersonal;
   const projects = input.drafts.projects?.content ?? input.canonicalProjects;
@@ -210,6 +235,8 @@ export function buildAdminContentView(input: {
         : baseVersions.length === 1
           ? baseVersions[0]
           : "mixed",
+    recoveryRevisions: input.recoveryRevisions ?? null,
+    reviewedRevisions: {personal: input.drafts.personal?.revision ?? null, projects: input.drafts.projects?.revision ?? null},
     draftCount,
     hasPersonalDraft: Boolean(input.drafts.personal),
     hasProjectsDraft: Boolean(input.drafts.projects),
@@ -237,6 +264,7 @@ export function buildAdminContentView(input: {
             issues: projectValidation.flatMap((result) => result.issues),
           },
     },
+    valueDiff: buildContentDiff({canonicalPersonal: input.canonicalPersonal, canonicalProjects: input.canonicalProjects, draftPersonal: input.drafts.personal?.content ?? null, draftProjects: input.drafts.projects?.content ?? null}),
     diff: summarizeContentDiff({
       canonicalPersonal: input.canonicalPersonal,
       canonicalProjects: input.canonicalProjects,
@@ -251,6 +279,7 @@ export function readAdminContentView(): AdminContentView {
     canonicalPersonal: getCanonicalPersonal(),
     canonicalProjects: getCanonicalProjects(),
     drafts: readDraftBundle(),
+    recoveryRevisions: findPendingPublicationIntent()?.reviewedRevisions ?? null,
     deployedVersion: process.env.VERSION || "dev",
   });
 }
