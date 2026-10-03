@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import {createPublicationIntent,findPublicationIntent,updatePublicationIntent,type PublicationIntent} from "./publication-intents";
 import {
   clearDrafts,
   readDraftBundle,
@@ -27,6 +29,8 @@ export interface GitPublicationClient {
   }): Promise<string>;
   updateHead(commitSha: string): Promise<void>;
   getCommitUrl(commitSha: string): string;
+  getCommitIdentity(commitSha: string): Promise<{treeSha: string; parentSha: string}>;
+  isAncestor(commitSha: string, headSha: string): Promise<boolean>;
 }
 
 export interface PublishCanonicalContentInput {
@@ -40,6 +44,8 @@ export interface PublishCanonicalContentInput {
 
 export type PublishCanonicalContentResult =
   | { kind: "published"; commitSha: string; commitUrl: string }
+  | { kind: "published-recovery-pending"; commitSha: string; commitUrl: string; message: string }
+  | { kind: "outcome-unknown"; message: string }
   | { kind: "conflict"; message: string }
   | { kind: "failed"; message: string };
 
@@ -96,69 +102,67 @@ function saveConflict(input: PublishCanonicalContentInput): void {
   );
 }
 
-export async function publishCanonicalContent(
-  input: PublishCanonicalContentInput,
-  client: GitPublicationClient,
-): Promise<PublishCanonicalContentResult> {
+async function finishCommitted(intent: PublicationIntent, input: PublishCanonicalContentInput, client: GitPublicationClient): Promise<PublishCanonicalContentResult> {
+  const commitSha = intent.commitSha!;
+  const commitUrl = client.getCommitUrl(commitSha);
+  try {
+    const committed = updatePublicationIntent(intent, {phase: 'committed'}, input.dataDir);
+    savePublishReceipt({schemaVersion: 1, kind: 'published', recordedAt: recordedAt(input), baseVersion: intent.baseSha, commitSha, commitUrl}, input.dataDir);
+    clearDrafts(input.dataDir, intent.reviewedRevisions);
+    updatePublicationIntent(committed, {phase: 'complete'}, input.dataDir);
+    return {kind: 'published', commitSha, commitUrl};
+  } catch {
+    return {kind: 'published-recovery-pending', commitSha, commitUrl, message: 'Published to GitHub. Local recovery is pending; newer drafts are preserved.'};
+  }
+}
+async function reconcileIntent(intent: PublicationIntent, input: PublishCanonicalContentInput, client: GitPublicationClient): Promise<PublishCanonicalContentResult> {
+  if (!intent.commitSha || !intent.treeSha) return {kind: 'outcome-unknown', message: 'Publication preparation is pending. Retry recovery before starting another publication.'};
+  try {
+    const identity = await client.getCommitIdentity(intent.commitSha);
+    if (identity.treeSha !== intent.treeSha || identity.parentSha !== intent.baseSha) return {kind: 'conflict', message: 'The saved publication identity could not be verified.'};
+    const head = await client.getHead();
+    if (head.commitSha === intent.commitSha || await client.isAncestor(intent.commitSha, head.commitSha)) return finishCommitted(intent, input, client);
+    if (head.commitSha !== intent.baseSha) return {kind: 'conflict', message: CONFLICT_MESSAGE};
+    // Retry the SAME durable commit; never create a second content commit.
+    await client.updateHead(intent.commitSha);
+    return finishCommitted(intent, input, client);
+  } catch {
+    return {kind: 'outcome-unknown', message: 'The remote publication outcome is unknown. Retry to reconcile the original commit.'};
+  }
+}
+export async function publishCanonicalContent(input: PublishCanonicalContentInput, client: GitPublicationClient): Promise<PublishCanonicalContentResult> {
   const personal = parsePersonal(input.personal);
   const projects = parseProjects(input.projects);
-
   const bundle = readDraftBundle(input.dataDir);
   const reviewed = input.reviewedRevisions ?? {personal: bundle.personal?.revision ?? null, projects: bundle.projects?.revision ?? null};
+  const prior = findPublicationIntent(reviewed, input.dataDir);
+  if (prior && prior.phase !== 'failed') return reconcileIntent(prior, input, client);
   if (reviewed.personal !== (bundle.personal?.revision ?? null) || reviewed.projects !== (bundle.projects?.revision ?? null)) return {kind: 'conflict', message: 'The draft changed. Refresh and review before publishing.'};
+  let intent: PublicationIntent | undefined;
+  let attemptedRef = false;
   try {
     const head = await client.getHead();
     if (!parseFullCommitSha(input.baseVersion) || parseFullCommitSha(input.baseVersion) !== parseFullCommitSha(head.commitSha)) {
-      saveConflict(input);
-      return { kind: "conflict", message: CONFLICT_MESSAGE };
+      saveConflict(input); return {kind: 'conflict', message: CONFLICT_MESSAGE};
     }
-
-    const [personalBlob, projectsBlob] = await Promise.all([
-      client.createBlob(`${JSON.stringify(personal, null, 2)}\n`),
-      client.createBlob(`${JSON.stringify(projects, null, 2)}\n`),
-    ]);
-    const treeSha = await client.createTree(head.treeSha, [
-      { path: "content/personal.json", blobSha: personalBlob },
-      { path: "content/projects.json", blobSha: projectsBlob },
-    ]);
-    const commitSha = await client.createCommit({
-      message: "content: publish Frontpage updates",
-      treeSha,
-      parentSha: head.commitSha,
-    });
+    const key = createHash('sha256').update(JSON.stringify({personal, projects, reviewed, base: head.commitSha})).digest('hex');
+    const started = createPublicationIntent(key, head.commitSha, reviewed, input.dataDir);
+    intent = started.intent;
+    if (!started.created) return reconcileIntent(intent, input, client);
+    const [personalBlob, projectsBlob] = await Promise.all([client.createBlob(`${JSON.stringify(personal, null, 2)}\n`), client.createBlob(`${JSON.stringify(projects, null, 2)}\n`)]);
+    const treeSha = await client.createTree(head.treeSha, [{path: 'content/personal.json', blobSha: personalBlob}, {path: 'content/projects.json', blobSha: projectsBlob}]);
+    const commitSha = await client.createCommit({message: 'content: publish Frontpage updates', treeSha, parentSha: head.commitSha});
+    if (!parseFullCommitSha(commitSha)) throw new Error('Invalid commit identity.');
+    intent = updatePublicationIntent(intent, {phase: 'ref-pending', commitSha, treeSha}, input.dataDir);
+    attemptedRef = true;
     await client.updateHead(commitSha);
-    const commitUrl = client.getCommitUrl(commitSha);
-    const receipt: PublishReceipt = {
-      schemaVersion: 1,
-      kind: "published",
-      recordedAt: recordedAt(input),
-      baseVersion: input.baseVersion,
-      commitSha,
-      commitUrl,
-    };
-    savePublishReceipt(receipt, input.dataDir);
-    clearDrafts(input.dataDir, reviewed);
-    return { kind: "published", commitSha, commitUrl };
+    return finishCommitted(intent, input, client);
   } catch (error) {
-    if (isRefConflict(error)) {
-      saveConflict(input);
-      return { kind: "conflict", message: CONFLICT_MESSAGE };
-    }
-
-    console.error(
-      "Canonical content publication failed",
-      summarizePublicationError(error),
-    );
-    savePublishReceipt(
-      {
-        schemaVersion: 1,
-        kind: "failed",
-        recordedAt: recordedAt(input),
-        baseVersion: input.baseVersion,
-        message: FAILURE_MESSAGE,
-      },
-      input.dataDir,
-    );
-    return { kind: "failed", message: FAILURE_MESSAGE };
+    if (attemptedRef && intent) return reconcileIntent(intent, input, client);
+    if (intent) {try {updatePublicationIntent(intent, {phase: 'failed'}, input.dataDir);} catch { /* Original durable intent remains available to the operator. */ }}
+    if (isRefConflict(error)) {try {saveConflict(input);} catch {} return {kind: 'conflict', message: CONFLICT_MESSAGE};}
+    console.error('Canonical content publication failed', summarizePublicationError(error));
+    try {savePublishReceipt({schemaVersion: 1, kind: 'failed', recordedAt: recordedAt(input), baseVersion: input.baseVersion, message: FAILURE_MESSAGE}, input.dataDir);} catch {}
+    return {kind: 'failed', message: FAILURE_MESSAGE};
   }
 }

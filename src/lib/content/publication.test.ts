@@ -20,6 +20,8 @@ function makeTempDir(): string {
 
 function fakeClient(headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
   const client: GitPublicationClient = {
+    getCommitIdentity: vi.fn().mockResolvedValue({treeSha: 'tree-after', parentSha: headSha}),
+    isAncestor: vi.fn().mockResolvedValue(false),
     getHead: vi.fn().mockResolvedValue({
       commitSha: headSha,
       treeSha: "tree-before",

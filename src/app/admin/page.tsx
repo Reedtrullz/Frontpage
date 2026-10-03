@@ -26,7 +26,7 @@ export default function AdminPage() {
       </section>
 
       <div className="mt-12">
-        <PublishPanel state={view.publicationState} receipt={view.receipt} diff={view.diff} hasDraft={view.draftCount > 0} />
+        <PublishPanel state={view.publicationState} receipt={view.receipt} diff={view.valueDiff} reviewedRevisions={view.reviewedRevisions} hasDraft={view.draftCount > 0} />
       </div>
     </div>
   );

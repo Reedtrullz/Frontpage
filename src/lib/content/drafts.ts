@@ -356,3 +356,16 @@ export function derivePublicationState(input: {
   }
   return { kind: "clean", label: "Clean" };
 }
+
+/** Private persistence primitive; callers use a constant receipt key, never a request path. */
+export function readOwnerRecord<T>(schema: z.ZodType<T>, dataDir?: string): T | null {
+  return withStateLock(dataDir, () => readJson(path.join(resolveDataDir(dataDir), 'receipts/publication-intents.json'), schema, dataDir));
+}
+export function mutateOwnerRecord<T>(schema: z.ZodType<T>, update: (value: T | null) => T, dataDir?: string): T {
+  return withStateLock(dataDir, () => {
+    const file = path.join(resolveDataDir(dataDir), 'receipts/publication-intents.json');
+    const next = schema.parse(update(readJson(file, schema, dataDir)));
+    atomicWriteJson(file, next, dataDir);
+    return next;
+  });
+}

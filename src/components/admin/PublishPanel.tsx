@@ -8,16 +8,22 @@ import type {
   PublishReceipt,
 } from "@/lib/content/drafts";
 
+import type {ContentChange} from "@/lib/content/admin-view";
+import type {ReviewedRevisions} from "@/lib/content/drafts";
+
 interface PublishPanelProps {
   state: ContentPublicationState;
   receipt: PublishReceipt | null;
-  diff: string[];
+  diff: ContentChange[];
+  reviewedRevisions: ReviewedRevisions;
   hasDraft: boolean;
 }
 
-export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelProps) {
+export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions }: PublishPanelProps) {
   const router = useRouter();
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmedRevision, setConfirmedRevision] = useState<string | null>(null);
+  const revisionKey = JSON.stringify(reviewedRevisions);
+  const confirmed = confirmedRevision === revisionKey;
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState("");
   const [resultUrl, setResultUrl] = useState<string | null>(
@@ -28,22 +34,23 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
     setPublishing(true);
     setMessage("");
     try {
-      const response = await fetch("/api/data/publish", { method: "POST" });
+      const response = await fetch("/api/data/publish", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({reviewedRevisions}) });
       const body = (await response.json()) as {
         error?: string;
         state?: string;
         commitUrl?: string;
+        message?: string;
       };
       if (!response.ok) {
         setMessage(body.error ?? "Publication failed. The draft was preserved.");
         return;
       }
       setResultUrl(body.commitUrl ?? null);
-      setMessage("Published to GitHub. Deployment is still pending.");
-      setConfirmed(false);
+      setMessage(body.message ?? "Published to GitHub. Deployment is still pending.");
+      setConfirmedRevision(null);
       router.refresh();
     } catch {
-      setMessage("Publication failed. The draft was preserved.");
+      setMessage("The publication outcome is uncertain. Retry to reconcile the original commit.");
     } finally {
       setPublishing(false);
     }
@@ -65,7 +72,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
         <h3 className="text-sm font-semibold text-[var(--text)]">Draft diff</h3>
         {diff.length ? (
           <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto text-sm text-[var(--text-muted)]">
-            {diff.map((entry) => <li key={entry}>{entry}</li>)}
+            {diff.map((entry) => <li key={entry.path}><details><summary className="cursor-pointer font-semibold">{entry.path}: {entry.kind}</summary><p className="mt-2">Before</p><pre className="whitespace-pre-wrap break-words">{JSON.stringify(entry.before, null, 2)}</pre><p className="mt-2">After</p><pre className="whitespace-pre-wrap break-words">{JSON.stringify(entry.after, null, 2)}</pre></details></li>)}
           </ul>
         ) : (
           <p className="mt-3 text-sm text-[var(--text-muted)]">
@@ -84,7 +91,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft }: PublishPanelPro
         <input
           type="checkbox"
           checked={confirmed}
-          onChange={(event) => setConfirmed(event.target.checked)}
+          onChange={(event) => setConfirmedRevision(event.target.checked ? revisionKey : null)}
           disabled={!hasDraft || diff.length === 0}
           className="mt-1 h-4 w-4 accent-[var(--accent)]"
         />
