@@ -150,3 +150,14 @@ describe("canonical content publication", () => {
     expect(readDraftBundle(dataDir).projects).not.toBeNull();
   });
 });
+it.each([
+ ['sha-'+ 'a'.repeat(40),'published'],
+ ['ci-'+ 'a'.repeat(40),'conflict'],
+ ['pr-'+ 'a'.repeat(40),'conflict'],
+ ['sha-'+ 'a'.repeat(7),'conflict'],
+ ['unrelated '+ 'a'.repeat(40),'conflict'],
+])('uses a documented full production VERSION as a write base: %s',async(baseVersion,kind)=>{
+ const dataDir=makeTempDir();saveProjectsDraft(getCanonicalProjects(),{dataDir,baseVersion});const client=fakeClient();
+ expect((await publishCanonicalContent({personal:getCanonicalPersonal(),projects:getCanonicalProjects(),baseVersion,dataDir},client)).kind).toBe(kind);
+ expect(client.updateHead).toHaveBeenCalledTimes(kind==='published'?1:0);
+});

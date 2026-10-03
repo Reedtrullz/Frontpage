@@ -34,3 +34,10 @@ it('reports local cleanup failure after a confirmed commit and retries only clea
  expect(readDraftBundle(f.dataDir).receipt?.kind).toBe('published');expect(readDraftBundle(f.dataDir).projects?.revision).toBe(f.input.reviewedRevisions.projects);spy.mockRestore();
  expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(readDraftBundle(f.dataDir).projects).toBeNull();expect(f.client.createCommit).toHaveBeenCalledTimes(1);
 });
+it('keeps an owner recovery action available after draft cleanup when final journal acknowledgement fails',async()=>{
+ const f=fixture(),write=fs.writeFileSync;
+ const spy=vi.spyOn(fs,'writeFileSync').mockImplementation(((file,...args)=>{if(String(file).includes('.publication-intents.json.')&&String(args[0]).includes('"complete"'))throw new Error('injected final acknowledgement failure');return write(file,...args);}) as typeof fs.writeFileSync);
+ expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published-recovery-pending');expect(readDraftBundle(f.dataDir).projects).toBeNull();
+ const {findPendingPublicationIntent}=await import('./publication-intents');expect(findPendingPublicationIntent(f.dataDir)?.reviewedRevisions).toEqual(f.input.reviewedRevisions);spy.mockRestore();
+ expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(findPendingPublicationIntent(f.dataDir)).toBeUndefined();expect(f.client.createCommit).toHaveBeenCalledTimes(1);
+});

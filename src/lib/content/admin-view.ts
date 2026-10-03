@@ -1,3 +1,4 @@
+import {findPendingPublicationIntent} from './publication-intents';
 import {
   derivePublicationState,
   readDraftBundle,
@@ -25,6 +26,7 @@ export interface ValidationSummary {
 }
 
 export interface AdminContentView {
+  recoveryRevisions: {personal: string | null; projects: string | null} | null;
   reviewedRevisions: {personal: string | null; projects: string | null};
   deployedVersion: string;
   draftBaseVersion: string | null;
@@ -205,6 +207,7 @@ export function buildAdminContentView(input: {
   canonicalProjects: ProjectContent[];
   drafts: DraftBundle;
   deployedVersion: string;
+  recoveryRevisions?: AdminContentView['recoveryRevisions'];
 }): AdminContentView {
   const personal = input.drafts.personal?.content ?? input.canonicalPersonal;
   const projects = input.drafts.projects?.content ?? input.canonicalProjects;
@@ -232,6 +235,7 @@ export function buildAdminContentView(input: {
         : baseVersions.length === 1
           ? baseVersions[0]
           : "mixed",
+    recoveryRevisions: input.recoveryRevisions ?? null,
     reviewedRevisions: {personal: input.drafts.personal?.revision ?? null, projects: input.drafts.projects?.revision ?? null},
     draftCount,
     hasPersonalDraft: Boolean(input.drafts.personal),
@@ -275,6 +279,7 @@ export function readAdminContentView(): AdminContentView {
     canonicalPersonal: getCanonicalPersonal(),
     canonicalProjects: getCanonicalProjects(),
     drafts: readDraftBundle(),
+    recoveryRevisions: findPendingPublicationIntent()?.reviewedRevisions ?? null,
     deployedVersion: process.env.VERSION || "dev",
   });
 }

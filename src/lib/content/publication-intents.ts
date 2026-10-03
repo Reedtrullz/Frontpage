@@ -31,3 +31,7 @@ export function updatePublicationIntent(intent:PublicationIntent,update:Partial<
  },dataDir);
  return next;
 }
+/** Used only by the authenticated owner workspace. */
+export function findPendingPublicationIntent(dataDir?:string):PublicationIntent | undefined {
+ return readOwnerRecord(publicationJournalSchema,dataDir)?.intents.find(item=>!['complete','failed'].includes(item.phase));
+}

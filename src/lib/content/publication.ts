@@ -6,7 +6,7 @@ import {
   type ReviewedRevisions,
   savePublishReceipt,
 } from "./drafts";
-import { parseFullCommitSha } from './identity';
+import { parseDeploymentVersion, parseFullCommitSha } from './identity';
 import {
   parsePersonal,
   parseProjects,
@@ -149,7 +149,8 @@ export async function publishCanonicalContent(input: PublishCanonicalContentInpu
   let attemptedRef = false;
   try {
     const head = await client.getHead();
-    if (!parseFullCommitSha(input.baseVersion) || parseFullCommitSha(input.baseVersion) !== parseFullCommitSha(head.commitSha)) {
+    const deployedBase=parseDeploymentVersion(input.baseVersion);
+    if (deployedBase?.scope !== 'main' || deployedBase.sha !== parseFullCommitSha(head.commitSha)) {
       saveConflict(input); return {kind: 'conflict', message: CONFLICT_MESSAGE};
     }
     const key = createHash('sha256').update(JSON.stringify({personal, projects, reviewed, base: head.commitSha})).digest('hex');
