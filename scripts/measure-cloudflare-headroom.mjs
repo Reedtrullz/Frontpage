@@ -6,10 +6,12 @@ import { gzipSync } from "node:zlib";
 
 const FULL_SHA = /^[a-f0-9]{40}$/;
 const MAX_REQUESTS = 2_000;
-const MIN_REQUESTS_FOR_ALL_STAGES = 181;
+const PREFLIGHT_REQUESTS = 2;
+const MIN_REQUESTS_FOR_ALL_STAGES = PREFLIGHT_REQUESTS + 3 * 60;
 const MAX_STAGE_SECONDS = 60;
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const WRITER_COST = 3;
+const WRITER_DEADLINE_MS = 5_000;
 const CYCLE_COST = 60;
 const PUBLIC_ROUTES = ["/", "/projects", "/status", "/api/health"];
 const OWNER_ROUTES = ["/api/owner/metrics?range=1h&view=host", "/api/owner/incidents"];
@@ -35,7 +37,7 @@ export function validateBenchmarkTarget({ baseUrl, expectedSha, maxRequests, app
   if (!/^[A-Za-z0-9][A-Za-z0-9 .:#/_-]{0,119}$/.test(budgetReference)) throw new Error("A short, non-secret provider budget evidence reference is required.");
   const configuredBudget = Number(approval.FRONTPAGE_BENCHMARK_MAX_REQUESTS);
   if (!Number.isInteger(maxRequests) || maxRequests > MAX_REQUESTS) throw new Error("Benchmark has a hard 2000-request ceiling including preflight and collector requests.");
-  if (maxRequests < MIN_REQUESTS_FOR_ALL_STAGES) throw new Error("Request cap must be at least 181 so all three bounded concurrency stages can include a collector generation.");
+  if (maxRequests < MIN_REQUESTS_FOR_ALL_STAGES) throw new Error("Request cap must be at least 182 for both setup preflights and one complete mixed-workload cycle at each concurrency stage.");
   if (!Number.isInteger(configuredBudget) || configuredBudget < MIN_REQUESTS_FOR_ALL_STAGES || configuredBudget > MAX_REQUESTS || maxRequests > configuredBudget) {
     throw new Error("Requested load exceeds the configured current request budget.");
   }
@@ -97,6 +99,24 @@ export function validateProviderEvidence(input, nowMs = Date.now()) {
   };
 }
 
+export function validateLatencyTargets(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("Explicit positive public, owner, collector, and generation targets in milliseconds are required.");
+  }
+  const source = typeof input?.source === "string" ? input.source.trim() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9 .:#/_-]{2,119}$/.test(source)) {
+    throw new Error("Latency target source must identify the parent-approved category thresholds without secrets.");
+  }
+  const keys = ["publicP95Ms", "ownerP95Ms", "collectorRequestP95Ms", "collectorGenerationP95Ms"];
+  if (!keys.every((key) => Number.isInteger(input[key]) && input[key] >= 1 && input[key] <= 30_000)) {
+    throw new Error("Explicit positive public, owner, collector, and generation targets in milliseconds are required.");
+  }
+  if (input.collectorGenerationP95Ms > WRITER_DEADLINE_MS) {
+    throw new Error("Collector generation target cannot exceed five seconds.");
+  }
+  return { source, ...Object.fromEntries(keys.map((key) => [key, input[key]])) };
+}
+
 export function validateIsolationEvidence(input, origin, nowMs = Date.now()) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Fresh preview isolation evidence is required before any network request.");
   if (typeof input.observedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(input.observedAt)) {
@@ -107,8 +127,10 @@ export function validateIsolationEvidence(input, origin, nowMs = Date.now()) {
     throw new Error("Preview binding isolation evidence is missing a current timestamp or is stale.");
   }
   if (input.origin !== origin) throw new Error("Preview isolation evidence origin must exactly match the benchmark target.");
-  if (!new Set(["frontpage-do-preview", "frontpage-migration-preview"]).has(input.candidateWorker)) {
-    throw new Error("Only the verified Frontpage preview Workers may be benchmark candidates.");
+  const existingPreview = new Set(["frontpage-do-preview", "frontpage-migration-preview"]).has(input.candidateWorker);
+  const isolatedHeadroomCandidate = typeof input.candidateWorker === "string" && /^frontpage-headroom-[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(input.candidateWorker);
+  if (!existingPreview && !isolatedHeadroomCandidate) {
+    throw new Error("Only a verified preview or isolated headroom Worker may be a benchmark candidate.");
   }
   const identityPattern = /^[A-Za-z0-9][A-Za-z0-9 .:_/-]{2,127}$/;
   if (typeof input.candidateDurableObjectNamespace !== "string" || !identityPattern.test(input.candidateDurableObjectNamespace)
@@ -266,7 +288,7 @@ function makeCycle() {
 }
 
 function stageCycles(requestCap) {
-  const available = Math.floor((requestCap - 1) / CYCLE_COST);
+  const available = Math.floor((requestCap - PREFLIGHT_REQUESTS) / CYCLE_COST);
   const stages = [[], [], []];
   const cycle = makeCycle();
   for (let index = 0; index < available; index += 1) stages[index % 3].push(...cycle.map((task) => ({ ...task })));
@@ -274,7 +296,31 @@ function stageCycles(requestCap) {
 }
 
 function timingReport(values) {
-  return { p50: percentile(values, 0.5), p95: percentile(values, 0.95), p99: percentile(values, 0.99) };
+  return { samples: values.length, p50: percentile(values, 0.5), p95: percentile(values, 0.95), p99: percentile(values, 0.99) };
+}
+
+function evaluateThresholds(latencies, targets) {
+  const mapping = {
+    public: ["public", "publicP95Ms"],
+    owner: ["owner", "ownerP95Ms"],
+    collectorRequests: ["collectorRequests", "collectorRequestP95Ms"],
+    collectorGeneration: ["writeTransactions", "collectorGenerationP95Ms"],
+  };
+  return Object.fromEntries(Object.entries(mapping).map(([category, [metric, targetKey]]) => {
+    const measuredP95Ms = latencies[metric]?.p95 ?? null;
+    const targetP95Ms = targets[targetKey];
+    return [category, {
+      targetP95Ms,
+      measuredP95Ms,
+      status: measuredP95Ms === null ? "insufficient_samples" : measuredP95Ms <= targetP95Ms ? "within_target" : "exceeds_target",
+    }];
+  }));
+}
+
+async function waitForSlot(targetPerformance, stageDeadline) {
+  const remaining = targetPerformance - performance.now();
+  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  return Date.now() < stageDeadline;
 }
 
 export async function measureHeadroom({
@@ -286,6 +332,7 @@ export async function measureHeadroom({
   collectorTokenFile,
   providerEvidence,
   isolationEvidence,
+  latencyTargets,
   coordinationReference,
   approval = process.env,
   fetchImpl = fetch,
@@ -301,6 +348,7 @@ export async function measureHeadroom({
   const evidence = validateProviderEvidence(providerEvidence, now());
   if (maxRequests > evidence.quota.authorizedRequestBudget) throw new Error("Requested load exceeds the provider evidence run budget.");
   const isolation = validateIsolationEvidence(isolationEvidence, target.origin, now());
+  const validatedLatencyTargets = validateLatencyTargets(latencyTargets);
   const ownerCookie = loadProtectedSecret(ownerCookieFile);
   const collectorToken = loadProtectedSecret(collectorTokenFile);
   const budgetStages = stageCycles(maxRequests);
@@ -364,6 +412,7 @@ export async function measureHeadroom({
   }
 
   const startedAt = new Date(now()).toISOString();
+  const runStartedPerformance = performance.now();
   const preflight = await send("/api/health", { readJson: true });
   let preflightIdentity = null;
   if (preflight.ok && preflight.responseText) {
@@ -375,20 +424,36 @@ export async function measureHeadroom({
       preflightPassed = false;
     }
   }
+  let capabilitiesPassed = false;
+  if (preflightPassed) {
+    const capabilityResponse = await send("/__collector/v1/capabilities", {
+      headers: { authorization: `Bearer ${collectorToken}` },
+      readJson: true,
+    });
+    if (capabilityResponse.ok && capabilityResponse.status === 200) {
+      try {
+        const capabilities = JSON.parse(capabilityResponse.responseText ?? "");
+        capabilitiesPassed = capabilities?.schema_version === 1 && capabilities?.atomic_generations === true;
+      } catch {
+        capabilitiesPassed = false;
+      }
+    }
+  }
 
   const report = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     startedAt,
     origin: target.origin,
     expectedSha,
     coordinationReference: coordinationReference.trim(),
     isolationEvidence: isolation,
-    mixTargetPercent: { public: 80, authenticatedOwner: 15, collectorUploadIncludingPreflight: 5 },
+    mixTargetPercent: { public: 80, authenticatedOwner: 15, collectorWrites: 5 },
     requests,
     requestCap: maxRequests,
     preflightRequests: requests,
-    preflight: { healthy: preflightPassed, reportedVersion: preflightIdentity },
+    preflight: { healthy: preflightPassed, reportedVersion: preflightIdentity, capabilities: capabilitiesPassed },
     stageSeconds,
+    latencyThresholdTargetsMs: validatedLatencyTargets,
     concurrencyStages: stageReports,
     requestCounts,
     actualMixPercent: null,
@@ -400,6 +465,7 @@ export async function measureHeadroom({
       collectorRequests: timingReport(requestDurations.collector),
       writeTransactions: timingReport(writes.filter((write) => Number.isFinite(write.durationMs)).map((write) => write.durationMs)),
     },
+    latencyThresholdResults: null,
     writes,
     writeOutcomes,
     providerCpu: { observedAt: evidence.observedAt, source: evidence.source, workerCpuMs: evidence.workerCpuMs, durableObjectCpuMs: evidence.durableObjectCpuMs },
@@ -409,9 +475,14 @@ export async function measureHeadroom({
   };
 
   if (requests > maxRequests) throw new Error("Internal request budget accounting exceeded its cap.");
-  if (!preflightPassed) {
-    report.acceptance = "failed: candidate preflight did not prove the exact expected version";
-    report.failures.samples.push({ phase: "preflight", route: "/api/health", failure: preflight.failure ?? "identity_mismatch" });
+  if (!preflightPassed || !capabilitiesPassed) {
+    report.acceptance = !preflightPassed
+      ? "failed: candidate preflight did not prove the exact expected version"
+      : "failed: collector does not advertise authenticated atomic v1 generation support";
+    report.failures.samples.push({ phase: "preflight", route: !preflightPassed ? "/api/health" : "/__collector/v1/capabilities", failure: !preflightPassed ? preflight.failure ?? "identity_mismatch" : "unsupported_capabilities" });
+    report.completedAt = new Date(now()).toISOString();
+    report.durationSeconds = (performance.now() - runStartedPerformance) / 1_000;
+    report.latencyThresholdResults = evaluateThresholds(report.latencyMs, validatedLatencyTargets);
     return report;
   }
 
@@ -421,6 +492,7 @@ export async function measureHeadroom({
     const stageDeadline = stageStartedAt + stageSeconds * 1_000;
     const initialRequestCount = requests;
     let nextTask = 0;
+    let stageTasksStarted = 0;
     let stageWriterScheduled = tasks.filter((task) => task.kind === "writer").length;
     let stageWriterStarted = 0;
     const stageFailureStart = { ...failureCounts };
@@ -438,18 +510,18 @@ export async function measureHeadroom({
 
     async function runWriter(queuedAtWall, queuedAtPerformance) {
       const writeStarted = queuedAtPerformance;
-      const operationDeadline = Math.min(stageDeadline, queuedAtWall + 15_000);
+      const operationDeadline = Math.min(stageDeadline, queuedAtWall + WRITER_DEADLINE_MS);
       const generationTimestamp = Math.max(now(), lastTimestamp + 1_000);
       lastTimestamp = generationTimestamp;
       const generation = createSyntheticGeneration(new Date(generationTimestamp).toISOString());
-      const headers = { authorization: `Bearer ${collectorToken}`, "content-type": "application/gzip" };
+      const headers = { authorization: `Bearer ${collectorToken}`, "content-type": "application/gzip", "X-Frontpage-Generation": generation.generationSha256 };
       const record = { generationSha256: generation.generationSha256, timestamp: generation.timestamp, queueDelayMs: performance.now() - queuedAtPerformance, durationMs: null, status: "pending", failurePhase: null, failureCode: null };
       let successfulUploads = 0;
       writeOutcomes.attempted += 1;
       for (const [phase, route, body] of [
-        ["preflight", "/api/health", null],
         ["latest", "/__collector/latest.json", generation.latestGzip],
         ["history", "/__collector/history.json", generation.historyGzip],
+        ["commit", "/__collector/v1/commit", undefined],
       ]) {
         if (Date.now() >= operationDeadline) {
           record.failurePhase = phase;
@@ -458,34 +530,15 @@ export async function measureHeadroom({
           writeOutcomes.deadlineFailures += 1;
           break;
         }
-        const result = phase === "preflight"
-          ? await send(route, { category: "collector", stageDeadline, taskDeadline: operationDeadline, readJson: true })
-          : await send(route, { category: "collector", stageDeadline, taskDeadline: operationDeadline, method: "PUT", headers, body });
-        if (!result.ok || (phase === "preflight" ? result.status !== 200 : result.status !== 204)) {
+        const result = await send(route, { category: "collector", stageDeadline, taskDeadline: operationDeadline, method: "PUT", headers, ...(body ? { body } : {}) });
+        if (!result.ok || result.status !== 204) {
           record.failurePhase = phase;
           record.status = result.failure === "deadline" ? "deadline" : "failed";
           record.failureCode = result.failure === "http_status" ? `http_${result.status}` : result.failure ?? `unexpected_status_${result.status}`;
           if (record.status === "deadline") writeOutcomes.deadlineFailures += 1;
           break;
         }
-        if (phase === "preflight") {
-          try {
-            const value = JSON.parse(result.responseText ?? "");
-            if (value?.status !== "healthy" || value?.version !== expectedSha) {
-              record.failurePhase = "preflight";
-              record.status = "failed";
-              record.failureCode = "identity_mismatch";
-              break;
-            }
-          } catch {
-            record.failurePhase = "preflight";
-            record.status = "failed";
-            record.failureCode = "invalid_health_json";
-            break;
-          }
-        } else {
-          successfulUploads += 1;
-        }
+        successfulUploads += 1;
       }
       record.durationMs = performance.now() - writeStarted;
       if (record.status === "pending") {
@@ -501,12 +554,19 @@ export async function measureHeadroom({
       writes.push(record);
     }
 
+    const stageStartedPerformance = performance.now();
+    const taskSlots = Math.ceil(tasks.length / concurrency);
+    const slotIntervalMs = stageSeconds * 1_000 / taskSlots;
+
     async function worker() {
       while (Date.now() < stageDeadline) {
         const taskIndex = nextTask;
         nextTask += 1;
         const task = tasks[taskIndex];
         if (!task) return;
+        const slot = Math.floor(taskIndex / concurrency);
+        if (!(await waitForSlot(stageStartedPerformance + slot * slotIntervalMs, stageDeadline))) return;
+        stageTasksStarted += 1;
         if (task.kind === "writer") {
           stageWriterStarted += 1;
           const queuedAtWall = Date.now();
@@ -525,8 +585,12 @@ export async function measureHeadroom({
     writeOutcomes.starved += stageStarved;
     stageReports.push({
       concurrency,
+      stageBudgetSeconds: stageSeconds,
       durationSeconds: (Date.now() - stageStartedAt) / 1_000,
       requests: requests - initialRequestCount,
+      scheduledRequests: tasks.reduce((sum, task) => sum + (task.kind === "writer" ? WRITER_COST : 1), 0),
+      startedTasks: stageTasksStarted,
+      earlyStopReason: stageTasksStarted >= tasks.length ? "scheduled_work_complete" : requests >= maxRequests ? "request_budget_exhausted" : "stage_deadline",
       scheduledWrites: stageWriterScheduled,
       startedWrites: stageWriterStarted,
       starvedWrites: stageStarved,
@@ -547,7 +611,7 @@ export async function measureHeadroom({
   report.actualMixPercent = measured === 0 ? null : {
     public: Number((requestCounts.public / measured * 100).toFixed(2)),
     authenticatedOwner: Number((requestCounts.owner / measured * 100).toFixed(2)),
-    collectorUploadIncludingPreflight: Number((requestCounts.collector / measured * 100).toFixed(2)),
+    collectorWrites: Number((requestCounts.collector / measured * 100).toFixed(2)),
   };
   report.latencyMs = {
     public: timingReport(requestDurations.public),
@@ -555,8 +619,12 @@ export async function measureHeadroom({
     collectorRequests: timingReport(requestDurations.collector),
     writeTransactions: timingReport(writes.filter((write) => Number.isFinite(write.durationMs)).map((write) => write.durationMs)),
   };
-  if (writeOutcomes.failed || writeOutcomes.deadlineFailures || writeOutcomes.starved || failureCounts.public || failureCounts.owner || failureCounts.collector) {
-    report.acceptance = "failed: workload errors, partial writes, or write starvation require investigation";
+  report.latencyThresholdResults = evaluateThresholds(report.latencyMs, validatedLatencyTargets);
+  report.completedAt = new Date(now()).toISOString();
+  report.durationSeconds = (performance.now() - runStartedPerformance) / 1_000;
+  const thresholdFailed = Object.values(report.latencyThresholdResults).some((result) => result.status !== "within_target");
+  if (writeOutcomes.failed || writeOutcomes.deadlineFailures || writeOutcomes.starved || failureCounts.public || failureCounts.owner || failureCounts.collector || thresholdFailed) {
+    report.acceptance = "failed: workload errors, category latency thresholds, or write starvation require investigation";
   }
   return report;
 }
@@ -586,17 +654,19 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const collectorTokenFile = argument(args, "--collector-token-file");
   const providerEvidenceFile = argument(args, "--provider-evidence-file");
   const isolationEvidenceFile = argument(args, "--isolation-evidence-file");
+  const latencyTargetsFile = argument(args, "--latency-targets-file");
   const coordinationReference = argument(args, "--coordination-reference");
-  if (args.length < 16 || !baseUrl || !expectedSha || !Number.isInteger(maxRequests) || !ownerCookieFile || !collectorTokenFile || !providerEvidenceFile || !isolationEvidenceFile || !coordinationReference) {
-    console.error("Usage: node scripts/measure-cloudflare-headroom.mjs --base-url <isolated-origin> --expected-sha <full-sha> --max-requests <181-2000> --owner-cookie-file <0400-or-0600-file> --collector-token-file <0400-or-0600-file> --provider-evidence-file <current-observability.json> --isolation-evidence-file <verified-preview-bindings.json> --coordination-reference <parent-reference> [--stage-seconds <1-60>]");
+  if (args.length < 18 || !baseUrl || !expectedSha || !Number.isInteger(maxRequests) || !ownerCookieFile || !collectorTokenFile || !providerEvidenceFile || !isolationEvidenceFile || !latencyTargetsFile || !coordinationReference) {
+    console.error("Usage: node scripts/measure-cloudflare-headroom.mjs --base-url <isolated-origin> --expected-sha <full-sha> --max-requests <182-2000> --owner-cookie-file <0400-or-0600-file> --collector-token-file <0400-or-0600-file> --provider-evidence-file <current-observability.json> --isolation-evidence-file <verified-preview-bindings.json> --latency-targets-file <parent-approved-thresholds.json> --coordination-reference <parent-reference> [--stage-seconds <1-60>]");
     process.exitCode = 2;
   } else {
     try {
       const providerEvidence = readEvidenceFile(providerEvidenceFile);
       const isolationEvidence = readEvidenceFile(isolationEvidenceFile);
-      const report = await measureHeadroom({ baseUrl, expectedSha, maxRequests, stageSeconds, ownerCookieFile, collectorTokenFile, providerEvidence, isolationEvidence, coordinationReference });
+      const latencyTargets = readEvidenceFile(latencyTargetsFile);
+      const report = await measureHeadroom({ baseUrl, expectedSha, maxRequests, stageSeconds, ownerCookieFile, collectorTokenFile, providerEvidence, isolationEvidence, latencyTargets, coordinationReference });
       console.log(JSON.stringify(report, null, 2));
-      if (!report.preflight.healthy || report.acceptance.startsWith("failed:")) process.exitCode = 1;
+      if (!report.preflight.healthy || !report.preflight.capabilities || report.acceptance.startsWith("failed:")) process.exitCode = 1;
     } catch (error) {
       console.error(`Benchmark refused or failed: ${error instanceof Error ? error.message : "unknown error"}`);
       process.exitCode = 1;
