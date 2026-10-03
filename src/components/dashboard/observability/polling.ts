@@ -13,6 +13,7 @@ export interface OwnerDashboardSnapshot {
   incidents: IncidentV2[];
   incidentsGeneratedAt: string | null;
   data: SeriesV2 | null;
+  seriesGeneratedAt: string | null;
   status: PollStatus;
   etags: { latest: string | null; incidents: string | null; series: string | null };
   error: string | null;
@@ -40,7 +41,12 @@ export interface OwnerDashboardPoller {
 
 export interface OwnerDashboardPollerDependencies {
   urls: { latest: string; incidents: string; series: string };
-  initial: { latest: OwnerLatestV2; incidents: IncidentListV2; series: SeriesV2 };
+  initial: {
+    latest: OwnerLatestV2;
+    incidents?: IncidentListV2 | null;
+    series: SeriesV2;
+    seriesGeneratedAt?: string | null;
+  };
   fetcher?: typeof fetch;
   scheduler?: PollScheduler;
   visibility?: BooleanSignal;
@@ -91,11 +97,19 @@ export function createOwnerDashboardPoller({
   online = browserOnlineSignal(),
 }: OwnerDashboardPollerDependencies): OwnerDashboardPoller {
   const queryKey = urls.series;
+  const query = new URL(queryKey, "https://frontpage.invalid").searchParams;
+  const initialSeriesMatchesQuery =
+    initial.series.range === query.get("range") &&
+    initial.series.view === query.get("view") &&
+    (query.get("resource") ?? null) === initial.series.resource;
   let snapshot: OwnerDashboardSnapshot = {
     latest: initial.latest,
-    incidents: initial.incidents.incidents,
-    incidentsGeneratedAt: initial.incidents.generated_at,
+    incidents: initial.incidents?.incidents ?? initial.latest.incidents,
+    incidentsGeneratedAt: initial.incidents?.generated_at ?? null,
     data: initial.series,
+    seriesGeneratedAt: initial.seriesGeneratedAt === undefined
+      ? initialSeriesMatchesQuery ? initial.series.generated_at : null
+      : initial.seriesGeneratedAt,
     status: "idle",
     etags: { latest: null, incidents: null, series: null },
     error: null,
@@ -154,6 +168,7 @@ export function createOwnerDashboardPoller({
       incidents: [],
       incidentsGeneratedAt: null,
       data: null,
+      seriesGeneratedAt: null,
       etags: { latest: null, incidents: null, series: null },
       status: "auth-expired",
       error: "Owner session expired.",
@@ -230,6 +245,7 @@ export function createOwnerDashboardPoller({
         incidents: incidents?.incidents ?? snapshot.incidents,
         incidentsGeneratedAt: incidents?.generated_at ?? snapshot.incidentsGeneratedAt,
         data: seriesResult.data ?? snapshot.data,
+        seriesGeneratedAt: seriesResult.data?.generated_at ?? snapshot.seriesGeneratedAt,
         etags: {
           latest: latestResult.etag,
           incidents: incidentsResult.etag,

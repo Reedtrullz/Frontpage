@@ -7,6 +7,7 @@ const {
   publicReadMock,
   publicIncidentsMock,
   ownerReadMock,
+  ownerIncidentsReadMock,
   seriesReadMock,
   publicRootMock,
   ownerRootMock,
@@ -17,6 +18,7 @@ const {
   publicReadMock: vi.fn(),
   publicIncidentsMock: vi.fn(),
   ownerReadMock: vi.fn(),
+  ownerIncidentsReadMock: vi.fn(),
   seriesReadMock: vi.fn(),
   publicRootMock: vi.fn(),
   ownerRootMock: vi.fn(),
@@ -35,6 +37,7 @@ vi.mock("@/lib/metrics/v2/reader", () => ({
   readPublicLatestV2: publicReadMock,
   readPublicIncidentsV2: publicIncidentsMock,
   readOwnerLatestV2: ownerReadMock,
+  readOwnerIncidentsV2: ownerIncidentsReadMock,
   readSeriesV2: seriesReadMock,
 }));
 vi.mock("@/lib/metrics/status-page", () => ({
@@ -112,6 +115,11 @@ describe("StatusPage v2 composition", () => {
     publicReadMock.mockReturnValue({ availability: "unavailable", data: null, diagnostics: [] });
     publicIncidentsMock.mockReturnValue({ availability: "unavailable", data: null, diagnostics: [] });
     ownerReadMock.mockReturnValue({ availability: "available", data: ownerLatest, diagnostics: [] });
+    ownerIncidentsReadMock.mockReturnValue({
+      availability: "available",
+      data: { schema_version: 2, generated_at: "2026-07-12T18:58:00Z", incidents: [] },
+      diagnostics: [],
+    });
     seriesReadMock.mockReturnValue(series);
     miningMock.mockResolvedValue({
       data: null,
@@ -148,6 +156,7 @@ describe("StatusPage v2 composition", () => {
     ownerMock.mockReturnValue(true);
     const markup = renderToStaticMarkup(await StatusPage());
     expect(ownerReadMock).toHaveBeenCalledWith("/owner");
+    expect(ownerIncidentsReadMock).toHaveBeenCalledWith("/owner");
     expect(seriesReadMock).toHaveBeenCalled();
     expect(markup).toContain("V2 owner panel");
     expect(markup).toContain("data-observability-v2=\"available\"");

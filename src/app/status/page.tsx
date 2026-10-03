@@ -17,6 +17,7 @@ import {
   getOwnerMetricsRootV2,
   getPublicMetricsRootV2,
   readOwnerLatestV2,
+  readOwnerIncidentsV2,
   readPublicIncidentsV2,
   readPublicLatestV2,
   readSeriesV2,
@@ -55,6 +56,9 @@ export default async function StatusPage() {
   const ownerLatestV2 = ownerV2Enabled
     ? readOwnerLatestV2(getOwnerMetricsRootV2())
     : null;
+  const ownerIncidentsV2 = ownerV2Enabled
+    ? readOwnerIncidentsV2(getOwnerMetricsRootV2())
+    : null;
   let ownerHostSeriesV2 = null;
   if (ownerV2Enabled) {
     try {
@@ -69,7 +73,11 @@ export default async function StatusPage() {
   }
   const ownerObservability =
     ownerLatestV2?.data && ownerHostSeriesV2
-      ? { latest: ownerLatestV2.data, series: ownerHostSeriesV2 }
+      ? {
+          latest: ownerLatestV2.data,
+          incidents: ownerIncidentsV2?.data ?? null,
+          series: ownerHostSeriesV2,
+        }
       : null;
   const publicV2State = publicV2.data
     ? publicV2.data.freshness === "fresh"
