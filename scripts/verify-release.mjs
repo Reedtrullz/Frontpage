@@ -3,6 +3,10 @@ import { pathToFileURL } from "node:url";
 
 const FULL_SHA = /^[a-f0-9]{40}$/;
 const MAX_RESPONSE_BYTES = 512 * 1024;
+
+function mediaType(response) {
+  return response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+}
 const PUBLIC_ROUTE_MARKERS = {
   "/": "reidar.tech / Project OS",
   "/projects": "Published projects",
@@ -179,7 +183,7 @@ export async function verifyRelease({
 
   for (const route of ["/", "/projects", "/status"]) {
     await check(route, (response, body) => {
-      if (response.status !== 200 || !response.headers.get("content-type")?.toLowerCase().includes("text/html")) {
+      if (response.status !== 200 || mediaType(response) !== "text/html") {
         throw new ReleaseVerificationError(`${route} did not return an HTML page with HTTP 200.`);
       }
       if (!body.trim() || !body.includes(PUBLIC_ROUTE_MARKERS[route])) {
@@ -199,7 +203,7 @@ export async function verifyRelease({
   {
     const route = "/proposals";
     const { response, body } = await request(route, { redirectPrefix: "/proposals", maxRedirects: 3 });
-    const isHtml = response.headers.get("content-type")?.toLowerCase().includes("text/html");
+    const isHtml = mediaType(response) === "text/html";
     const hasProjectsTitle = /<title(?:\s[^>]*)?>\s*Projects\s*<\/title>/i.test(body);
     if (response.status !== 200 || !isHtml || !body.trim() || !hasProjectsTitle) {
       throw new ReleaseVerificationError("/proposals forwarding did not reach non-empty Projects HTML.");
@@ -211,7 +215,7 @@ export async function verifyRelease({
     await check(route, (response, body) => {
       if (route === "/api/agents" && response.status === 405) {
         const allow = response.headers.get("allow")?.trim();
-        if (allow !== "POST" || !response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+        if (allow !== "POST" || mediaType(response) !== "application/json") {
           throw new ReleaseVerificationError("/api/agents GET method response must be JSON 405 with exactly Allow: POST.");
         }
         const methodResponse = parseJson(body, route);
@@ -224,7 +228,7 @@ export async function verifyRelease({
       if (response.status < 200 || response.status >= 300) {
         throw new ReleaseVerificationError(`${route} forwarding did not return HTTP 2xx.`);
       }
-      if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+      if (mediaType(response) !== "application/json") {
         throw new ReleaseVerificationError(`${route} forwarding did not return JSON.`);
       }
       parseJson(body, route);

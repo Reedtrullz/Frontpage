@@ -188,6 +188,7 @@ test("agents read-only GET accepts only the exact POST-only JSON 405 or a valid 
   const validResponses = [
     response(200, JSON.stringify({ agents: [] })),
     new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json", allow: "POST" } }),
+    new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "Application/JSON; charset=utf-8", allow: "POST" } }),
   ];
   for (const [index, agentsResponse] of validResponses.entries()) {
     await t.test(index === 0 ? "JSON success" : "POST-only method contract", async () => {
@@ -201,6 +202,7 @@ test("agents read-only GET accepts only the exact POST-only JSON 405 or a valid 
   }
 
   const invalidResponses = [
+    new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/jsonp", allow: "POST" } }),
     response(403, JSON.stringify({ detail: "Forbidden" })),
     new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json" } }),
     new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json", allow: "GET, POST" } }),
@@ -216,6 +218,22 @@ test("agents read-only GET accepts only the exact POST-only JSON 405 or a valid 
         verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} }),
         /\/api\/agents/,
       );
+    });
+  }
+});
+
+test("release routes reject media-type lookalikes despite valid body content", async (t) => {
+  for (const [route, contentType] of [["/", "text/htmlish"], ["/proposals/projects", "text/htmlish"], ["/api/proposals", "application/jsonp"]]) {
+    await t.test(route, async () => {
+      const { fetchImpl: healthy } = healthyFetch();
+      await assert.rejects(verifyRelease({
+        baseUrl: "https://release.example.test", expectedSha: sha, sleepImpl: async () => {},
+        fetchImpl: async (url, options) => {
+          const result = await healthy(url, options);
+          if (new URL(url).pathname === route) result.headers.set("content-type", contentType);
+          return result;
+        },
+      }));
     });
   }
 });
