@@ -1,9 +1,9 @@
 import {
   clearDrafts,
   savePublishReceipt,
-  versionsMatch,
   type PublishReceipt,
 } from "./drafts";
+import { parseFullCommitSha } from './identity';
 import {
   parsePersonal,
   parseProjects,
@@ -102,7 +102,7 @@ export async function publishCanonicalContent(
 
   try {
     const head = await client.getHead();
-    if (!versionsMatch(input.baseVersion, head.commitSha)) {
+    if (!parseFullCommitSha(input.baseVersion) || parseFullCommitSha(input.baseVersion) !== parseFullCommitSha(head.commitSha)) {
       saveConflict(input);
       return { kind: "conflict", message: CONFLICT_MESSAGE };
     }

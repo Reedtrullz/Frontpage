@@ -18,7 +18,7 @@ function makeTempDir(): string {
   return dir;
 }
 
-function fakeClient(headSha = "abc1234abc1234abc1234abc1234abc1234abcd") {
+function fakeClient(headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
   const client: GitPublicationClient = {
     getHead: vi.fn().mockResolvedValue({
       commitSha: headSha,
@@ -31,7 +31,7 @@ function fakeClient(headSha = "abc1234abc1234abc1234abc1234abc1234abcd") {
     createTree: vi.fn().mockResolvedValue("tree-after"),
     createCommit: vi
       .fn()
-      .mockResolvedValue("def5678def5678def5678def5678def5678def5"),
+      .mockResolvedValue("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
     updateHead: vi.fn().mockResolvedValue(undefined),
     getCommitUrl: vi.fn(
       (sha: string) =>
@@ -64,7 +64,7 @@ describe("canonical content publication", () => {
     const dataDir = makeTempDir();
     saveProjectsDraft(getCanonicalProjects(), {
       dataDir,
-      baseVersion: "abc1234",
+      baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
     const client = fakeClient();
 
@@ -72,7 +72,7 @@ describe("canonical content publication", () => {
       {
         personal: getCanonicalPersonal(),
         projects: getCanonicalProjects(),
-        baseVersion: "abc1234",
+        baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         dataDir,
         now: () => new Date("2026-07-09T19:00:00Z"),
       },
@@ -84,12 +84,12 @@ describe("canonical content publication", () => {
     expect(client.createTree).toHaveBeenCalledTimes(1);
     expect(client.createCommit).toHaveBeenCalledTimes(1);
     expect(client.updateHead).toHaveBeenCalledWith(
-      "def5678def5678def5678def5678def5678def5",
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
     expect(readDraftBundle(dataDir).projects).toBeNull();
     expect(readDraftBundle(dataDir).receipt).toMatchObject({
       kind: "published",
-      commitSha: "def5678def5678def5678def5678def5678def5",
+      commitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     });
   });
 
@@ -97,7 +97,7 @@ describe("canonical content publication", () => {
     const dataDir = makeTempDir();
     saveProjectsDraft(getCanonicalProjects(), {
       dataDir,
-      baseVersion: "abc1234",
+      baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
     const client = fakeClient("9999999999999999999999999999999999999999");
 
@@ -105,7 +105,7 @@ describe("canonical content publication", () => {
       {
         personal: getCanonicalPersonal(),
         projects: getCanonicalProjects(),
-        baseVersion: "abc1234",
+        baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         dataDir,
       },
       client,
@@ -121,7 +121,7 @@ describe("canonical content publication", () => {
     const dataDir = makeTempDir();
     saveProjectsDraft(getCanonicalProjects(), {
       dataDir,
-      baseVersion: "abc1234",
+      baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     });
     const client = fakeClient();
     vi.mocked(client.createBlob).mockReset();
@@ -134,7 +134,7 @@ describe("canonical content publication", () => {
       {
         personal: getCanonicalPersonal(),
         projects: getCanonicalProjects(),
-        baseVersion: "abc1234",
+        baseVersion: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         dataDir,
       },
       client,

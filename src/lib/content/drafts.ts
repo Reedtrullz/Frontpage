@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { z } from "zod";
+import { productionVersionMatches } from './identity';
 import {
   parsePersonal,
   parseProjects,
@@ -266,16 +267,8 @@ export function discardProjectsDraft(dataDir?: string): void {
   removeJson(path.join(resolveDataDir(dataDir), "drafts", "projects.json"), dataDir);
 }
 
-function commitToken(value: string): string | null {
-  return value.toLowerCase().match(/[a-f0-9]{7,40}/)?.[0] ?? null;
-}
-
 export function versionsMatch(left: string, right: string): boolean {
-  if (left === right) return true;
-  const leftToken = commitToken(left);
-  const rightToken = commitToken(right);
-  if (!leftToken || !rightToken) return false;
-  return leftToken.startsWith(rightToken) || rightToken.startsWith(leftToken);
+  return productionVersionMatches(left, right);
 }
 
 export function derivePublicationState(input: {

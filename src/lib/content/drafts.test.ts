@@ -105,8 +105,8 @@ describe("publication state", () => {
       kind: "published",
       recordedAt: "2026-07-09T19:00:00.000Z",
       baseVersion: "abc1234",
-      commitSha: "def5678def5678def5678def5678def5678def5",
-      commitUrl: "https://github.com/Reedtrullz/Frontpage/commit/def5678def5678def5678def5678def5678def5",
+      commitSha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      commitUrl: "https://github.com/Reedtrullz/Frontpage/commit/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     };
 
     expect(
@@ -120,7 +120,7 @@ describe("publication state", () => {
       derivePublicationState({
         draftChanged: false,
         receipt,
-        deployedVersion: "sha-def5678def5678def5678def5678def5678def5",
+        deployedVersion: "sha-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       }),
     ).toMatchObject({ kind: "deployed", label: "Deployed" });
   });
