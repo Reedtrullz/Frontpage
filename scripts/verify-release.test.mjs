@@ -24,7 +24,10 @@ function healthyFetch({ healthSha = sha, ownerStatus = 401, ownerBody = "Unautho
     if (parsed.pathname === "/projects") return response(200, "<html><body><h1>Published projects</h1></body></html>", "text/html; charset=utf-8");
     if (parsed.pathname === "/status") return response(200, "<html><body><h1>System status</h1></body></html>", "text/html; charset=utf-8");
     if (parsed.pathname === "/proposals") {
-      return response(200, "<html>proposal origin</html>", "text/html");
+      return new Response(null, { status: 302, headers: { location: "/proposals/projects" } });
+    }
+    if (parsed.pathname === "/proposals/projects") {
+      return response(200, "<html><head><title>Projects</title></head><body><h1>Projects</h1></body></html>", "text/html");
     }
     if (["/api/proposals", "/api/agents"].includes(parsed.pathname)) {
       return response(200, "{}", "application/json");
@@ -47,7 +50,7 @@ test("release verifier checks the exact SHA, public routes, anonymous owner deni
   assert.deepEqual(paths, [
     "/api/health", "/", "/projects", "/status",
     "/api/owner/metrics?range=1h&view=host",
-    "/proposals", "/api/proposals", "/api/agents",
+    "/proposals", "/proposals/projects", "/api/proposals", "/api/agents",
   ]);
 });
 
@@ -112,4 +115,107 @@ test("a route returning generic HTML without its page content fails release acce
     verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} }),
     /expected public page marker/,
   );
+});
+
+test("proposals accepts its bounded same-origin redirect to the Projects HTML page", async () => {
+  const { fetchImpl: healthy } = healthyFetch();
+  const proposalsPaths = [];
+  const fetchImpl = async (url, options) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith("/proposals")) {
+      proposalsPaths.push(parsed.pathname);
+      assert.equal(options.method, "GET");
+      if (parsed.pathname === "/proposals") {
+        return new Response(null, { status: 302, headers: { location: "/proposals/projects" } });
+      }
+      return response(200, "<!doctype html><html><head><title>Projects</title></head><body><h1>Projects</h1></body></html>", "text/html; charset=utf-8");
+    }
+    return healthy(url, options);
+  };
+  const result = await verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} });
+  assert.deepEqual(proposalsPaths, ["/proposals", "/proposals/projects"]);
+  assert.ok(result.checked.includes("/proposals"));
+});
+
+test("proposals rejects cross-origin, off-prefix, looping, and overlong redirects", async (t) => {
+  const cases = [
+    { name: "missing Location", missingLocation: true },
+    { name: "cross-origin", next: "https://outside.example.test/proposals/projects" },
+    { name: "off-prefix", next: "/projects" },
+    { name: "prefix lookalike", next: "/proposals-elsewhere" },
+    { name: "loop", next: "/proposals" },
+    { name: "more than three redirects", chain: ["/proposals/1", "/proposals/2", "/proposals/3", "/proposals/4"] },
+  ];
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      const { fetchImpl: healthy } = healthyFetch();
+      const fetchImpl = async (url, options) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.startsWith("/proposals")) {
+          assert.equal(options.method, "GET");
+          let next = scenario.next;
+          if (scenario.chain) {
+            const index = parsed.pathname === "/proposals" ? -1 : scenario.chain.indexOf(parsed.pathname);
+            next = scenario.chain[index + 1] ?? "/proposals/5";
+          }
+          return new Response(null, { status: 302, headers: scenario.missingLocation ? {} : { location: next } });
+        }
+        return healthy(url, options);
+      };
+      await assert.rejects(
+        verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} }),
+        /proposals forwarding/,
+      );
+    });
+  }
+});
+
+test("proposals requires the expected Projects HTML destination", async () => {
+  const { fetchImpl: healthy } = healthyFetch();
+  const fetchImpl = async (url, options) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/proposals") return new Response(null, { status: 302, headers: { location: "/proposals/projects" } });
+    if (parsed.pathname === "/proposals/projects") return response(200, "<html><title>Generic</title></html>", "text/html");
+    return healthy(url, options);
+  };
+  await assert.rejects(
+    verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} }),
+    /Projects HTML/,
+  );
+});
+
+test("agents read-only GET accepts only the exact POST-only JSON 405 or a valid JSON 2xx", async (t) => {
+  const validResponses = [
+    response(200, JSON.stringify({ agents: [] })),
+    new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json", allow: "POST" } }),
+  ];
+  for (const [index, agentsResponse] of validResponses.entries()) {
+    await t.test(index === 0 ? "JSON success" : "POST-only method contract", async () => {
+      const { fetchImpl: healthy } = healthyFetch();
+      const fetchImpl = async (url, options) => {
+        if (new URL(url).pathname === "/api/agents") assert.equal(options.method, "GET");
+        return new URL(url).pathname === "/api/agents" ? agentsResponse : healthy(url, options);
+      };
+      await verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} });
+    });
+  }
+
+  const invalidResponses = [
+    response(403, JSON.stringify({ detail: "Forbidden" })),
+    new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json" } }),
+    new Response(JSON.stringify({ detail: "Method Not Allowed" }), { status: 405, headers: { "content-type": "application/json", allow: "GET, POST" } }),
+    new Response(JSON.stringify({ detail: "Not allowed" }), { status: 405, headers: { "content-type": "application/json", allow: "POST" } }),
+    new Response("Method Not Allowed", { status: 405, headers: { allow: "POST", "content-type": "text/plain" } }),
+    new Response(JSON.stringify({ detail: "Method Not Allowed", extra: true }), { status: 405, headers: { "content-type": "application/json", allow: "POST" } }),
+  ];
+  for (const [index, agentsResponse] of invalidResponses.entries()) {
+    await t.test(`invalid method contract ${index + 1}`, async () => {
+      const { fetchImpl: healthy } = healthyFetch();
+      const fetchImpl = async (url, options) => new URL(url).pathname === "/api/agents" ? agentsResponse : healthy(url, options);
+      await assert.rejects(
+        verifyRelease({ baseUrl: "https://release.example.test", expectedSha: sha, fetchImpl, sleepImpl: async () => {} }),
+        /\/api\/agents/,
+      );
+    });
+  }
 });

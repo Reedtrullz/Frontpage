@@ -108,30 +108,60 @@ export async function verifyRelease({
   }
   const checked = [];
 
-  async function request(route) {
-    let lastFailure;
-    for (let attempt = 0; attempt < retries; attempt += 1) {
-      try {
-        const response = await fetchImpl(new URL(route, origin), {
-          method: "GET",
-          redirect: "manual",
-          signal: AbortSignal.timeout(timeoutMs),
-          headers: { accept: route.startsWith("/api/") ? "application/json" : "text/html,application/json" },
-        });
-        const body = await readBoundedBody(response);
-        if (response.status >= 500 && attempt + 1 < retries) {
-          lastFailure = `HTTP ${response.status}`;
-          await sleepImpl(delayMs * (attempt + 1));
-          continue;
+  async function request(route, { redirectPrefix, maxRedirects = 0 } = {}) {
+    let currentUrl = new URL(route, origin);
+    const visited = new Set([currentUrl.href]);
+    let redirects = 0;
+
+    while (true) {
+      let lastFailure;
+      let result;
+      for (let attempt = 0; attempt < retries; attempt += 1) {
+        try {
+          const response = await fetchImpl(currentUrl, {
+            method: "GET",
+            redirect: "manual",
+            signal: AbortSignal.timeout(timeoutMs),
+            headers: { accept: route.startsWith("/api/") ? "application/json" : "text/html,application/json" },
+          });
+          const body = await readBoundedBody(response);
+          if (response.status >= 500 && attempt + 1 < retries) {
+            lastFailure = `HTTP ${response.status}`;
+            await sleepImpl(delayMs * (attempt + 1));
+            continue;
+          }
+          result = { response, body };
+          break;
+        } catch (error) {
+          if (error instanceof ReleaseVerificationError) throw error;
+          lastFailure = error?.name === "TimeoutError" || error?.name === "AbortError" ? "request timed out" : "request failed";
+          if (attempt + 1 < retries) await sleepImpl(delayMs * (attempt + 1));
         }
-        return { response, body };
-      } catch (error) {
-        if (error instanceof ReleaseVerificationError) throw error;
-        lastFailure = error?.name === "TimeoutError" || error?.name === "AbortError" ? "request timed out" : "request failed";
-        if (attempt + 1 < retries) await sleepImpl(delayMs * (attempt + 1));
       }
+      if (!result) throw new ReleaseVerificationError(`${route} failed after ${retries} bounded attempts (${lastFailure ?? "unknown failure"}).`);
+
+      const { response } = result;
+      if (![301, 302, 303, 307, 308].includes(response.status)) return result;
+      if (!redirectPrefix || redirects >= maxRedirects) {
+        throw new ReleaseVerificationError(`${route} forwarding exceeded its allowed redirect contract.`);
+      }
+      const location = response.headers.get("location");
+      if (!location) throw new ReleaseVerificationError(`${route} forwarding redirect omitted Location.`);
+      let destination;
+      try {
+        destination = new URL(location, currentUrl);
+      } catch {
+        throw new ReleaseVerificationError(`${route} forwarding redirect had an invalid destination.`);
+      }
+      const withinPrefix = destination.pathname === redirectPrefix || destination.pathname.startsWith(`${redirectPrefix}/`);
+      if (destination.origin !== origin || destination.username || destination.password || !withinPrefix) {
+        throw new ReleaseVerificationError(`${route} forwarding redirect left its same-origin path prefix.`);
+      }
+      if (visited.has(destination.href)) throw new ReleaseVerificationError(`${route} forwarding redirect loop detected.`);
+      visited.add(destination.href);
+      currentUrl = destination;
+      redirects += 1;
     }
-    throw new ReleaseVerificationError(`${route} failed after ${retries} bounded attempts (${lastFailure ?? "unknown failure"}).`);
   }
 
   async function check(route, validate) {
@@ -166,14 +196,31 @@ export async function verifyRelease({
     assertNoPrivateMarkers(body, "/api/owner/metrics");
   });
 
-  await check("/proposals", (response, body) => {
-    if (response.status < 200 || response.status >= 300 || !response.headers.get("content-type")?.toLowerCase().includes("text/html") || !body.trim()) {
-      throw new ReleaseVerificationError("/proposals forwarding did not return a non-empty HTML response.");
+  {
+    const route = "/proposals";
+    const { response, body } = await request(route, { redirectPrefix: "/proposals", maxRedirects: 3 });
+    const isHtml = response.headers.get("content-type")?.toLowerCase().includes("text/html");
+    const hasProjectsTitle = /<title(?:\s[^>]*)?>\s*Projects\s*<\/title>/i.test(body);
+    if (response.status !== 200 || !isHtml || !body.trim() || !hasProjectsTitle) {
+      throw new ReleaseVerificationError("/proposals forwarding did not reach non-empty Projects HTML.");
     }
-  });
+    checked.push(route);
+  }
 
   for (const route of ["/api/proposals", "/api/agents"]) {
     await check(route, (response, body) => {
+      if (route === "/api/agents" && response.status === 405) {
+        const allow = response.headers.get("allow")?.trim();
+        if (allow !== "POST" || !response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
+          throw new ReleaseVerificationError("/api/agents GET method response must be JSON 405 with exactly Allow: POST.");
+        }
+        const methodResponse = parseJson(body, route);
+        if (!methodResponse || typeof methodResponse !== "object" || Array.isArray(methodResponse)
+            || Object.keys(methodResponse).length !== 1 || methodResponse.detail !== "Method Not Allowed") {
+          throw new ReleaseVerificationError("/api/agents GET method response did not match the POST-only JSON method contract.");
+        }
+        return;
+      }
       if (response.status < 200 || response.status >= 300) {
         throw new ReleaseVerificationError(`${route} forwarding did not return HTTP 2xx.`);
       }
