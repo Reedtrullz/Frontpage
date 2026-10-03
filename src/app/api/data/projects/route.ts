@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { readOwnerMutationJson, OwnerRequestError } from "@/lib/owner-request";
 import { auth } from "@/auth";
 import { isOwnerUser } from "@/lib/authz";
 import { getCanonicalProjects } from "@/lib/content";
 import {
+  DraftConflictError,
   discardProjectsDraft,
   saveProjectsDraft,
 } from "@/lib/content/drafts";
@@ -28,7 +30,8 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const projects = parseProjects(await request.json());
+    const input = z.object({content: z.unknown(), expectedRevision: z.string().uuid().nullable()}).strict().parse(await readOwnerMutationJson(request));
+    const projects = parseProjects(input.content);
     const allowedHealthIds = new Set(
       getCanonicalProjects().flatMap((project) => project.healthServiceIds ?? []),
     );
@@ -43,13 +46,17 @@ export async function PUT(request: Request) {
     }
     const draft = saveProjectsDraft(projects, {
       baseVersion: process.env.VERSION || "dev",
+      expectedRevision: input.expectedRevision,
     });
     return NextResponse.json({
       ok: true,
       state: "draft-saved",
       savedAt: draft.savedAt,
+      revision: draft.revision,
     });
   } catch (error) {
+    if (error instanceof DraftConflictError) return NextResponse.json({error: error.message, code: error.code, revision: error.latestRevision}, {status: 409});
+    if (error instanceof OwnerRequestError) return NextResponse.json({error: error.message}, {status: error.status});
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: validationMessage(error) },
@@ -62,7 +69,7 @@ export async function PUT(request: Request) {
     if (error instanceof Error && /duplicate project/i.test(error.message)) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    console.error("Failed to save projects draft", error);
+    console.error("Failed to save projects draft", error instanceof Error ? error.name : "Error");
     return NextResponse.json(
       { error: "The projects draft could not be saved." },
       { status: 500 },
@@ -70,7 +77,7 @@ export async function PUT(request: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request?: Request) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -79,6 +86,13 @@ export async function DELETE() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  discardProjectsDraft();
-  return NextResponse.json({ ok: true, state: "discarded" });
+  try {
+    const input = z.object({expectedRevision: z.string().uuid().nullable()}).strict().parse(await readOwnerMutationJson(request));
+    discardProjectsDraft(undefined, input.expectedRevision);
+    return NextResponse.json({ok: true, state: 'discarded'});
+  } catch (error) {
+    if (error instanceof DraftConflictError) return NextResponse.json({error:error.message,code:error.code,revision:error.latestRevision},{status:409});
+    if (error instanceof OwnerRequestError) return NextResponse.json({error:error.message},{status:error.status});
+    return NextResponse.json({error:'The saved draft could not be discarded.'},{status:error instanceof z.ZodError?400:500});
+  }
 }

@@ -1,10 +1,10 @@
 import app from './worker.js';
+import {handleOwnerMaintenance} from '../src/lib/content/owner-maintenance';
 import { initializeCloudflareV2, uploadCloudflareV2 } from '../src/lib/metrics/v2/cloudflare-upload';
 import { timingSafeEqual } from 'node:crypto';
-import { gunzipSync } from 'node:zlib';
+import { initializeCloudflareV1, uploadCloudflareV1 } from '../src/lib/metrics/cloudflare-v1-upload';
 
-const names = new Set(['latest.json', 'history.json']);
-const caps = { 'latest.json': 512 * 1024, 'history.json': 4 * 1024 * 1024 };
+const names = new Set(['latest.json', 'history.json', 'v1/commit', 'v1/capabilities']);
 
 function authorized(request, secret) {
   if (!secret || !request.headers.get('authorization')?.startsWith('Bearer ')) return false;
@@ -18,33 +18,23 @@ export class FrontpageDO {
     this.state = state;
     this.env = env;
     initializeCloudflareV2(this.state.storage.sql);
-    this.state.storage.sql.exec('CREATE TABLE IF NOT EXISTS metrics_snapshot (name TEXT PRIMARY KEY, data BLOB NOT NULL)');
+    initializeCloudflareV1(this.state.storage.sql);
   }
 
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === '/__operator/owner-state') return handleOwnerMaintenance(request, this.env, this.state.storage);
     if (url.pathname.startsWith('/__collector/')) {
       const name = url.pathname.slice('/__collector/'.length);
-      if (request.method !== 'PUT' || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
+      if ((request.method !== 'PUT' && !(request.method === 'GET' && name === 'v1/capabilities')) || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
       if (!authorized(request, this.env.COLLECTOR_UPLOAD_SECRET)) {
-        await request.body?.cancel();
+        // Let the transport dispose of the forwarded body after the response.
+        // Canceling it here invalidates the outer Worker request stream.
         return new Response('Unauthorized', { status: 401 });
       }
+      if (name === 'v1/capabilities') return Response.json({schema_version: 1, atomic_generations: true}, {headers: {'Cache-Control': 'no-store'}});
       if (name.startsWith('v2/')) return uploadCloudflareV2(request, this.state.storage, this.env.VERSION);
-      const compressed = new Uint8Array(await request.arrayBuffer());
-      if (!compressed.length || compressed.length > 1024 * 1024) return new Response('Payload too large', { status: 413 });
-      let payload;
-      try {
-        payload = gunzipSync(compressed, { maxOutputLength: caps[name] });
-        JSON.parse(payload.toString('utf8'));
-      } catch {
-        return new Response('Invalid snapshot', { status: 400 });
-      }
-      this.state.storage.sql.exec(
-        'INSERT INTO metrics_snapshot (name, data) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET data = excluded.data',
-        name, compressed,
-      );
-      return new Response(null, { status: 204 });
+      return uploadCloudflareV1(request, this.state.storage, name);
     }
     return app.fetch(request, {
       ...this.env,
@@ -58,7 +48,10 @@ export class FrontpageDO {
 const worker = {
   fetch(request, env) {
     const url = new URL(request.url);
-    if (url.pathname.startsWith('/__collector/') && request.method !== 'PUT') {
+    if (url.pathname.startsWith('/__operator/')) {
+      if (url.pathname !== '/__operator/owner-state' || !env.OWNER_OPERATOR_HOST || ['reidar.tech', 'www.reidar.tech'].includes(env.OWNER_OPERATOR_HOST) || env.OWNER_OPERATOR_HOST.endsWith('.workers.dev') || url.hostname !== env.OWNER_OPERATOR_HOST) return new Response('Not found', {status:404,headers:{'Cache-Control':'private, no-store'}});
+    }
+    if (url.pathname.startsWith('/__collector/') && request.method !== 'PUT' && !(url.pathname === '/__collector/v1/capabilities' && request.method === 'GET')) {
       return new Response('Not found', { status: 404 });
     }
     if (/^\/(?:proposals|api\/proposals|api\/agents)(?:\/|$)/.test(url.pathname)) {
@@ -72,7 +65,7 @@ const worker = {
       }
       const upstream = new Request(target, request);
       if (target.hostname === 'proposals-origin.reidar.tech') upstream.headers.set('X-Frontpage-Origin-Token', env.PROPOSALS_ORIGIN_TOKEN);
-      return fetch(upstream);
+      return env.PROPOSALS_ORIGIN_SERVICE ? env.PROPOSALS_ORIGIN_SERVICE.fetch(upstream) : fetch(upstream);
     }
     return env.FRONTPAGE.get(env.FRONTPAGE.idFromName('primary')).fetch(request);
   },

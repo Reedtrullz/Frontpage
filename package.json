@@ -12,7 +12,9 @@
     "pretest:e2e": "node tests/e2e/prepare-runtime.mjs",
     "test:e2e": "playwright test",
     "build:cloudflare": "opennextjs-cloudflare build && cp cloudflare/do-entry.mjs .open-next/do-entry.mjs",
-    "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc"
+    "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc",
+    "test:cloudflare": "node --test --test-concurrency=1 tests/cloudflare/runtime.test.mjs",
+    "build:owner-tool": "node scripts/build-owner-state-tool.mjs"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
@@ -24,7 +26,8 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "uplot": "1.6.32",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "jose": "6.2.9"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
@@ -38,7 +41,8 @@
     "tailwindcss": "^4.3.2",
     "typescript": "^5",
     "vitest": "^4.1.10",
-    "wrangler": "^4.142.0"
+    "wrangler": "^4.142.0",
+    "esbuild": "0.28.2"
   },
   "overrides": {
     "postcss": "8.5.26"

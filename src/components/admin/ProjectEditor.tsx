@@ -76,12 +76,15 @@ export function ProjectEditor({
   initial,
   allProjects,
   hasDraft,
+  initialRevision,
 }: {
   initial: ProjectContent;
   allProjects: ProjectContent[];
   hasDraft: boolean;
+  initialRevision: string | null;
 }) {
   const router = useRouter();
+  const [revision, setRevision] = useState(initialRevision);
   const originalSlug = initial.slug;
   const [project, setProject] = useState(initial);
   const [galleryJson, setGalleryJson] = useState(
@@ -122,15 +125,16 @@ export function ProjectEditor({
       const response = await fetch("/api/data/projects", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(nextProjects),
+        body: JSON.stringify({content: nextProjects, expectedRevision: revision}),
       });
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json()) as { error?: string; revision?: string };
       if (!response.ok) {
         setMessage(body.error ?? "The project draft could not be saved.");
         return;
       }
       setProject(validation.candidate);
       setBaseline(JSON.stringify({ project: validation.candidate, galleryJson }));
+      setRevision(body.revision ?? null);
       setDraftExists(true);
       setMessage("Projects draft saved locally. It is not published.");
       if (validation.candidate.slug !== originalSlug) {
@@ -149,11 +153,12 @@ export function ProjectEditor({
     if (!window.confirm("Discard every saved project draft change?")) return;
     setBusy(true);
     try {
-      const response = await fetch("/api/data/projects", { method: "DELETE" });
+      const response = await fetch("/api/data/projects", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({expectedRevision: revision}) });
       if (!response.ok) {
         setMessage("The projects draft could not be discarded.");
         return;
       }
+      setRevision(null);
       setDraftExists(false);
       setMessage("Projects draft discarded. Published content is unchanged.");
       router.replace("/admin/projects");

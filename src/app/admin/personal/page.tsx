@@ -11,7 +11,7 @@ export default function PersonalAdminPage() {
         <p className="mt-4 text-base leading-7 text-[var(--text-muted)]">Changes save to the local owner draft. Public pages remain canonical until explicit publication and deployment.</p>
       </header>
       <div className="mt-10">
-        <PersonalEditor initial={view.personal} canonical={view.canonicalPersonal} hasDraft={view.hasPersonalDraft} />
+        <PersonalEditor initial={view.personal} canonical={view.canonicalPersonal} hasDraft={view.hasPersonalDraft} initialRevision={view.reviewedRevisions.personal} />
       </div>
     </div>
   );
