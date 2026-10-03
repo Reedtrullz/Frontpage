@@ -150,6 +150,33 @@ test.describe("owner workspace", () => {
     await expect(page).toHaveURL(/\/admin\/projects\/new$/);
   });
 
+  test("popstate fallback cancels Forward by restoring the prior entry", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects/new");
+    await page.evaluate(() => {
+      history.pushState({ ...history.state, forwardProbe: "earlier" }, "", location.href);
+      history.pushState({ ...history.state, forwardProbe: "later" }, "", location.href);
+      history.back();
+    });
+    await page.waitForFunction(() => history.state?.forwardProbe === "earlier");
+
+    const name = page.getByLabel("Name");
+    await name.fill("Keep fields after rejected Forward");
+    const historyLength = await page.evaluate(() => history.length);
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.goForward();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(name).toHaveValue("Keep fields after rejected Forward");
+    await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("earlier");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goForward();
+    await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("later");
+  });
+
   test("modified and new-tab links do not prompt or disturb unsaved fields", async ({ page }) => {
     await page.goto("/admin/projects/new");
     await page.getByLabel("Name").fill("Keep this editor open");
@@ -171,6 +198,19 @@ test.describe("owner workspace", () => {
     await expect(page).toHaveURL(/\/admin\/projects\/new$/);
     await expect(page.getByLabel("Name")).toHaveValue("Keep this editor open");
     expect(dialogCount).toBe(0);
+  });
+
+  test("accepted same-tab links show one unsaved warning", async ({ page }) => {
+    await page.goto("/admin/projects/new");
+    await page.getByLabel("Name").fill("Navigate after accepting once");
+    let dialogCount = 0;
+    page.on("dialog", async (dialog) => {
+      dialogCount += 1;
+      await dialog.accept();
+    });
+    await page.getByRole("link", { name: "All project editors" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    expect(dialogCount).toBe(1);
   });
 
   test("creates, previews, archives, then discards one complete project draft", async ({ page }) => {

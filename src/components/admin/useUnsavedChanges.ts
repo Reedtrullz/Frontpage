@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 
 const navigationWarning = "Leave without saving this draft?";
+const historyPositionKey = "__frontpageHistoryPosition";
 
 type NavigationApi = EventTarget & { currentEntry?: { key?: string } };
 type NavigationEvent = Event & {
@@ -10,9 +11,9 @@ type NavigationEvent = Event & {
   userInitiated?: boolean;
   destination?: { key?: string; sameDocument?: boolean; url?: string };
 };
-type RestorePoint = { href: string; state: string };
+type RestorePoint = { href: string; state: string; position: number | null };
 
-const approvedProgrammaticTransitions = new Set<string>();
+const approvedNavigations = new Set<string>();
 
 function serializeHistoryState(state: unknown): string {
   try {
@@ -22,11 +23,54 @@ function serializeHistoryState(state: unknown): string {
   }
 }
 
+function readHistoryPosition(state: unknown): number | null {
+  if (state === null || typeof state !== "object") return null;
+  const position = (state as Record<string, unknown>)[historyPositionKey];
+  return typeof position === "number" && Number.isSafeInteger(position) ? position : null;
+}
+
+function withHistoryPosition(state: unknown, position: number): Record<string, unknown> {
+  return state !== null && typeof state === "object" && !Array.isArray(state)
+    ? { ...(state as Record<string, unknown>), [historyPositionKey]: position }
+    : { [historyPositionKey]: position, __frontpageOriginalHistoryState: state };
+}
+
+/** Track real entry positions so the popstate fallback can reverse Back and Forward. */
+export function useHistoryPositionTracking() {
+  useLayoutEffect(() => {
+    const trackedWindow = window as Window & { __frontpageHistoryPositionTracking?: boolean };
+    if (trackedWindow.__frontpageHistoryPositionTracking) return;
+
+    let currentPosition = readHistoryPosition(history.state) ?? 0;
+    trackedWindow.__frontpageHistoryPositionTracking = true;
+    const originalPushState = history.pushState.bind(history);
+    const originalReplaceState = history.replaceState.bind(history);
+
+    history.replaceState(withHistoryPosition(history.state, currentPosition), "", location.href);
+    history.pushState = function pushState(data, unused, url) {
+      currentPosition += 1;
+      return originalPushState(withHistoryPosition(data, currentPosition), unused, url);
+    };
+    history.replaceState = function replaceState(data, unused, url) {
+      currentPosition = readHistoryPosition(history.state) ?? currentPosition;
+      return originalReplaceState(withHistoryPosition(data, currentPosition), unused, url);
+    };
+    window.addEventListener("popstate", (event) => {
+      const position = readHistoryPosition(event.state);
+      if (position !== null) currentPosition = position;
+    }, true);
+  }, []);
+}
+
+function approveNavigation(destination: string) {
+  const approvedUrl = new URL(destination, window.location.href).href;
+  approvedNavigations.add(approvedUrl);
+  window.setTimeout(() => approvedNavigations.delete(approvedUrl), 2_000);
+}
+
 /** Owner actions call this immediately before a successful save/discard route change. */
 export function allowUnsavedProgrammaticTransition(destination: string) {
-  const approvedUrl = new URL(destination, window.location.href).href;
-  approvedProgrammaticTransitions.add(approvedUrl);
-  window.setTimeout(() => approvedProgrammaticTransitions.delete(approvedUrl), 2_000);
+  approveNavigation(destination);
 }
 
 /** Owner-controlled transitions should call this with the editor's dirty state. */
@@ -60,7 +104,9 @@ export function useUnsavedChanges(dirty: boolean) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
+        return;
       }
+      approveNavigation(destination.href);
     };
 
     const navigation = (window as Window & { navigation?: NavigationApi }).navigation;
@@ -69,6 +115,7 @@ export function useUnsavedChanges(dirty: boolean) {
     const protectedEntry: RestorePoint = {
       href: window.location.href,
       state: serializeHistoryState(history.state),
+      position: readHistoryPosition(history.state),
     };
 
     const navigate = (rawEvent: Event) => {
@@ -82,12 +129,10 @@ export function useUnsavedChanges(dirty: boolean) {
         acceptedNativeTraverseKey = event.destination?.key;
         return;
       }
+      const destination = event.destination?.url;
+      if (destination && approvedNavigations.delete(destination)) return;
       if (event.userInitiated !== false || event.destination?.sameDocument !== true) return;
       if (!event.cancelable) return;
-      const destination = event.destination?.url;
-      if (destination && approvedProgrammaticTransitions.delete(destination)) {
-        return;
-      }
       if (!confirmUnsavedNavigation(dirty)) event.preventDefault();
     };
 
@@ -117,7 +162,12 @@ export function useUnsavedChanges(dirty: boolean) {
       // window listener, so stop it before it can route and restore without a sentinel.
       event.stopImmediatePropagation();
       restorePoint = protectedEntry;
-      history.forward();
+      const targetPosition = readHistoryPosition(event.state);
+      const reverseSteps =
+        targetPosition !== null && protectedEntry.position !== null && targetPosition !== protectedEntry.position
+          ? protectedEntry.position - targetPosition
+          : 1;
+      history.go(reverseSteps);
     };
 
     window.addEventListener("beforeunload", beforeUnload);
