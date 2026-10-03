@@ -301,10 +301,10 @@ export const seriesV2Schema = z
   .strict()
   .superRefine((value, context) => {
     const maxPoints = MAX_SERIES_POINTS_BY_RANGE[value.range];
-    if (value.timestamps.length === 0 || value.timestamps.length > maxPoints) {
+    if (value.timestamps.length > maxPoints) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Range ${value.range} must include between 1 and ${maxPoints} timestamps.`,
+        message: `Range ${value.range} may include at most ${maxPoints} timestamps.`,
         path: ["timestamps"],
       });
     }

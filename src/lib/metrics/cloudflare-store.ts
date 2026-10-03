@@ -49,7 +49,19 @@ export function getCloudflareMetricsRootV2(namespace: "public" | "owner"): strin
   return isObservabilityV2Enabled() ? V2_ROOT + namespace : undefined;
 }
 
-export function readCloudflareProjectionV2(root: string, relative: string, cap: number): unknown {
+export class CloudflareMetricsTooLargeError extends Error {
+  constructor() {
+    super("Cloudflare metrics projection exceeds its decoded size budget.");
+    this.name = "CloudflareMetricsTooLargeError";
+  }
+}
+
+export function readCloudflareProjectionV2(
+  root: string,
+  relative: string,
+  cap: number,
+  budget?: { remainingBytes: number },
+): unknown {
   if (![V2_ROOT + "public", V2_ROOT + "owner"].includes(root) || !isObservabilityV2Enabled()) {
     throw new Error("Cloudflare v2 projections are disabled.");
   }
@@ -63,5 +75,20 @@ export function readCloudflareProjectionV2(root: string, relative: string, cap: 
     error.code = "ENOENT";
     throw error;
   }
-  return JSON.parse(gunzipSync(row.data as Uint8Array, { maxOutputLength: cap }).toString("utf8"));
+  const maxOutputLength = Math.min(cap, budget?.remainingBytes ?? cap);
+  if (maxOutputLength <= 0) throw new CloudflareMetricsTooLargeError();
+  let decoded: Buffer;
+  try {
+    decoded = gunzipSync(row.data as Uint8Array, { maxOutputLength });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+      throw new CloudflareMetricsTooLargeError();
+    }
+    throw error;
+  }
+  if (budget) {
+    if (decoded.byteLength > budget.remainingBytes) throw new CloudflareMetricsTooLargeError();
+    budget.remainingBytes -= decoded.byteLength;
+  }
+  return JSON.parse(decoded.toString("utf8"));
 }

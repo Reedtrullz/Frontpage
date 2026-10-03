@@ -56,7 +56,9 @@ test.describe("owner workspace", () => {
     const cpuChart = page.getByRole("img", { name: /CPU history. Use left and right/ });
     await cpuChart.focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(cpuChart.locator("..").locator('[aria-live="polite"]')).toContainText("CPU total");
+    const chartReadout = cpuChart.locator("..").locator('[aria-live="polite"]');
+    await expect(chartReadout).toContainText("CPU total");
+    await expect(chartReadout).not.toContainText("No measured samples in this range.");
 
     const incident = page.getByRole("button", { name: /Frontpage workload recovered after OOM kill/ });
     await incident.click();
@@ -73,6 +75,28 @@ test.describe("owner workspace", () => {
     expect(attribution).not.toBeNull();
     expect(summary!.y).toBeLessThan(chart!.y);
     expect(chart!.y).toBeLessThan(attribution!.y);
+  });
+
+  test("clears owner telemetry and stops polling after an authorization failure", async ({ page }) => {
+    await page.clock.install();
+    const requests: string[] = [];
+    await page.route("**/api/owner/**", async (route) => {
+      requests.push(new URL(route.request().url()).pathname);
+      await route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
+    });
+
+    await page.goto("/status");
+    await expect(
+      page.getByRole("status").filter({ hasText: /Owner session expired\. Private telemetry was cleared/ }),
+    ).toBeVisible();
+    await expect(page.locator("[data-observability-v2]")).toHaveCount(0);
+    await expect(page.getByText("Frontpage internal", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "CPU total" })).toHaveCount(0);
+    await expect.poll(() => new Set(requests).size).toBe(3);
+
+    const expiredRequestCount = requests.length;
+    await page.clock.fastForward(16_000);
+    expect(requests).toHaveLength(expiredRequestCount);
   });
 
   test("saves and discards a personal draft", async ({ page }) => {

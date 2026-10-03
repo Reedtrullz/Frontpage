@@ -5,6 +5,7 @@ import { PublicIncidentHistory } from "@/components/dashboard/PublicIncidentHist
 import { OwnerAttentionSummary } from "@/components/dashboard/OwnerAttentionSummary";
 import { OwnerMetricsPanel } from "@/components/dashboard/OwnerMetricsPanel";
 import { OwnerObservabilityPanel } from "@/components/dashboard/observability/OwnerObservabilityPanel";
+import { OwnerTelemetryBoundary } from "@/components/dashboard/observability/OwnerTelemetryBoundary";
 import { StatusInventory } from "@/components/dashboard/StatusInventory";
 import { VpsStatusSummary } from "@/components/dashboard/VpsStatusSummary";
 import { RelativeTime } from "@/components/ui/RelativeTime";
@@ -16,6 +17,7 @@ import {
   getOwnerMetricsRootV2,
   getPublicMetricsRootV2,
   readOwnerLatestV2,
+  readOwnerIncidentsV2,
   readPublicIncidentsV2,
   readPublicLatestV2,
   readSeriesV2,
@@ -54,6 +56,9 @@ export default async function StatusPage() {
   const ownerLatestV2 = ownerV2Enabled
     ? readOwnerLatestV2(getOwnerMetricsRootV2())
     : null;
+  const ownerIncidentsV2 = ownerV2Enabled
+    ? readOwnerIncidentsV2(getOwnerMetricsRootV2())
+    : null;
   let ownerHostSeriesV2 = null;
   if (ownerV2Enabled) {
     try {
@@ -68,7 +73,11 @@ export default async function StatusPage() {
   }
   const ownerObservability =
     ownerLatestV2?.data && ownerHostSeriesV2
-      ? { latest: ownerLatestV2.data, series: ownerHostSeriesV2 }
+      ? {
+          latest: ownerLatestV2.data,
+          incidents: ownerIncidentsV2?.data ?? null,
+          series: ownerHostSeriesV2,
+        }
       : null;
   const publicV2State = publicV2.data
     ? publicV2.data.freshness === "fresh"
@@ -150,6 +159,21 @@ export default async function StatusPage() {
     : model.ownerAttention;
 
   const miningData = await fetchMiningV2();
+  const miningReferenceMs = miningData.observedAt
+    ? Date.parse(miningData.observedAt) + (miningData.observationAgeMs ?? 0)
+    : 0;
+  const miningHasRecentShare = Boolean(
+    miningData.data?.last_share_at_ms &&
+      miningReferenceMs >= miningData.data.last_share_at_ms &&
+      miningReferenceMs - miningData.data.last_share_at_ms < 600_000,
+  );
+  const miningHeading = !miningData.data
+    ? "Mining stats not available"
+    : miningData.freshness === "stale"
+      ? "Last-known mining stats"
+      : miningHasRecentShare
+        ? "Mining PEARL"
+        : "No recent pool activity";
 
 function formatHashrate(h: number): string {
   // ponytail: simple H/s formatting, add more granularity if needed
@@ -192,20 +216,25 @@ function formatDuration(s: number): string {
       <section className="border-y border-[var(--border)] bg-[var(--surface-raised)]" aria-labelledby="mining-heading">
         <div className="mx-auto grid max-w-7xl gap-0 px-4 sm:px-6 lg:grid-cols-[1.4fr_repeat(3,0.7fr)]">
           <div className="flex gap-3 py-6 lg:pr-8">
-            <div className={miningData.data && miningData.data.hashrate > 0 ? "mt-1 h-2 w-2 shrink-0 rounded-full bg-green-500" : "mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--text-muted)]"} aria-hidden="true" />
+            <div className={miningHasRecentShare && miningData.freshness !== "stale" ? "mt-1 h-2 w-2 shrink-0 rounded-full bg-green-500" : "mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--text-muted)]"} aria-hidden="true" />
             <div>
               <h2 id="mining-heading" className="text-base font-semibold">
-                {miningData.data && miningData.data.hashrate > 0 ? "Mining PEARL" : "Miner offline"}
+                {miningHeading}
               </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--text-muted)]">
-                {miningData.data && miningData.data.hashrate > 0
-                  ? `Desktop miner on LuckyPool${miningData.data.worker_name ? ` (${miningData.data.worker_name})` : ""}`
-                  : miningData.data && miningData.age !== null && miningData.age < 600_000
-                    ? `No recent shares — miner may be starting up`
+                {miningData.data && miningHasRecentShare && miningData.freshness !== "stale"
+                  ? `Recent shares reported by LuckyPool${miningData.data.worker_name ? ` (${miningData.data.worker_name})` : ""}`
+                  : miningData.data && miningData.freshness === "stale"
+                    ? `Cached LuckyPool stats${miningData.data.worker_name ? ` (${miningData.data.worker_name})` : ""}`
                     : miningData.data
-                      ? `No known miner activity`
-                      : `Mining stats not available`}
+                      ? `No recent shares reported by LuckyPool${miningData.data.worker_name ? ` (${miningData.data.worker_name})` : ""}`
+                      : "Mining stats not available"}
               </p>
+              {miningData.data && miningData.observedAt ? (
+                <p className="mt-1 text-xs text-[var(--text-subtle)]">
+                  Stats observed <RelativeTime value={miningData.observedAt} /> · Pool sample time unknown.
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="border-t border-[var(--border)] py-5 lg:border-l lg:border-t-0 lg:px-6">
@@ -220,7 +249,7 @@ function formatDuration(s: number): string {
             ) : null}
           </div>
           <div className="border-t border-[var(--border)] py-5 lg:border-l lg:border-t-0 lg:px-6">
-            <p className="text-xs text-[var(--text-subtle)]">Uptime</p>
+            <p className="text-xs text-[var(--text-subtle)]">Pool reported uptime</p>
             <p className="mt-1 text-sm font-semibold text-[var(--text)]">
               {miningData.data?.uptime_seconds ? formatDuration(miningData.data.uptime_seconds) : "—"}
             </p>
@@ -235,11 +264,6 @@ function formatDuration(s: number): string {
                 ? <RelativeTime value={new Date(miningData.data.last_share_at_ms).toISOString()} />
                 : "—"}
             </p>
-            {miningData.data ? (
-              <span className="mt-1 block text-xs text-[var(--text-subtle)]">
-                <RelativeTime value={miningData.data.collected_at} />
-              </span>
-            ) : null}
           </div>
         </div>
       </section>
@@ -308,6 +332,7 @@ function formatDuration(s: number): string {
       {publicStatusV2 ? <PublicIncidentHistory model={publicStatusV2} /> : null}
 
       {ownerAttentionItems ? (
+        <OwnerTelemetryBoundary>
         <>
           <div
             className="border-t border-[var(--border)] pt-14"
@@ -339,6 +364,7 @@ function formatDuration(s: number): string {
           ) : null}
           <OwnerMetricsPanel metrics={model.owner} showResourceOverview={!ownerObservability} />
         </>
+        </OwnerTelemetryBoundary>
       ) : null}
     </div>
   );

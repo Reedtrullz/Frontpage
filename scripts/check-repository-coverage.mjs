@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeGitHubRepository } from "./github-repository.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const owner = process.env.GITHUB_OWNER || "Reedtrullz";
@@ -14,17 +15,7 @@ const aliases = new Map([
 ]);
 
 export function normalizeRepositoryRef(value) {
-  const input = value.trim().replace(/\.git\/?$/, "");
-  const parts = input.startsWith("http")
-    ? (() => {
-        const url = new URL(input);
-        return url.hostname.toLowerCase() === "github.com"
-          ? url.pathname.split("/").filter(Boolean)
-          : [];
-      })()
-    : input.split("/").filter(Boolean);
-  if (parts.length !== 2) return null;
-  return `${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
+  return normalizeGitHubRepository(value)?.key ?? null;
 }
 
 export function repositoryAlias(value) {

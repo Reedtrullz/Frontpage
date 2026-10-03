@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type {
   IncidentV2,
+  IncidentListV2,
   ObservabilityRange,
   ObservabilityResource,
   OwnerLatestV2,
@@ -16,6 +17,7 @@ import { useOwnerObservability } from "./useOwnerObservability";
 
 export interface OwnerObservabilityInitial {
   latest: OwnerLatestV2;
+  incidents?: IncidentListV2 | null;
   series: SeriesV2;
 }
 
@@ -51,6 +53,10 @@ function seriesForResource(data: SeriesV2, resource: ObservabilityResource): Ser
   };
 }
 
+function displayTimestamp(value: string): string {
+  return `${value.slice(0, 16).replace("T", " ")} UTC`;
+}
+
 export function OwnerObservabilityPanel({
   initial,
   diskCapacity,
@@ -61,17 +67,40 @@ export function OwnerObservabilityPanel({
   const [range, setRange] = useState<ObservabilityRange>("1h");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const observed = useOwnerObservability({
-    initial: initial.series,
+    initial,
     range,
     view: "host",
     resource: null,
   });
-  const selectedIncident = initial.latest.incidents.find((incident) => incident.id === selectedIncidentId);
+  const latest = observed.latest;
+  const series = observed.data;
+  const selectedIncident = observed.incidents.find((incident) => incident.id === selectedIncidentId);
+
+  if (observed.status === "auth-expired") {
+    return (
+      <section aria-labelledby="owner-observability-heading" className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-14">
+        <p className="font-mono text-sm text-[var(--role-info)]">OWNER ONLY</p>
+        <h2 id="owner-observability-heading" className="mt-2 text-3xl font-semibold text-[var(--text)]">Resource observability</h2>
+        <p className="mt-5 border-y border-[var(--role-warning-border)] py-3 text-sm text-[var(--role-warning)]">
+          Owner session expired. Private telemetry was cleared; sign in again to continue.
+        </p>
+      </section>
+    );
+  }
+  if (!latest || !series) {
+    return <p className="mx-auto max-w-7xl px-4 py-12 text-sm text-[var(--text-muted)]">Owner telemetry is loading.</p>;
+  }
+
   const incidentsFor = (resource: ObservabilityResource): IncidentV2[] =>
-    (selectedIncident ? [selectedIncident] : initial.latest.incidents).filter(
+    (selectedIncident ? [selectedIncident] : observed.incidents).filter(
       (incident) => incident.resource === null || incident.resource === resource,
     );
-  const stale = initial.latest.freshness !== "fresh";
+  const stale = latest.freshness !== "fresh";
+  const timestamps = [
+    `Latest: ${displayTimestamp(latest.collected_at)}`,
+    observed.incidentsGeneratedAt ? `Incidents: ${displayTimestamp(observed.incidentsGeneratedAt)}` : "Incidents: unavailable",
+    observed.seriesGeneratedAt ? `History: ${displayTimestamp(observed.seriesGeneratedAt)}` : "History: unavailable",
+  ];
 
   return (
     <section aria-labelledby="owner-observability-heading" className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-14">
@@ -80,25 +109,26 @@ export function OwnerObservabilityPanel({
           <p className="font-mono text-sm text-[var(--role-info)]">OWNER ONLY</p>
           <h2 id="owner-observability-heading" className="mt-2 text-3xl font-semibold text-[var(--text)]">Resource observability</h2>
           <p className="mt-3 text-sm text-[var(--text-muted)]">
-            {stale ? "Last known sample" : "Current sample"} · workload attribution is bounded and reconciled to host totals.
+            {stale ? "Last known sample" : "Latest sample"} · workload attribution is bounded and reconciled to host totals.
+          </p>
+          <p className="mt-2 text-xs text-[var(--text-subtle)]" aria-label="Telemetry source timestamps">
+            {timestamps.join(" · ")}
           </p>
         </div>
         <RangeControl value={range} onChange={setRange} />
       </div>
 
-      {observed.status === "error" || observed.status === "offline" || observed.status === "auth-expired" ? (
+      {observed.status === "error" || observed.status === "offline" ? (
         <p className="mt-5 border-y border-[var(--role-warning-border)] py-3 text-sm text-[var(--role-warning)]">
-          {observed.status === "auth-expired"
-            ? "Owner session expired. Chart polling stopped."
-            : observed.status === "offline"
-              ? "Offline. Showing the last loaded chart data."
-              : "Chart refresh failed. Showing the last loaded data."}
+          {observed.status === "offline"
+            ? "Offline. Showing the last loaded owner snapshot."
+            : "Owner refresh failed. Showing the last loaded snapshot."}
         </p>
       ) : null}
 
       <div className="mt-7 border-y border-[var(--border)]">
         {resources.map((resource) => {
-          const total = initial.latest.host.totals.find((item) => item.resource === resource);
+          const total = latest.host.totals.find((item) => item.resource === resource);
           if (!total) return null;
           return (
             <ResourceRow
@@ -106,9 +136,9 @@ export function OwnerObservabilityPanel({
               incidents={incidentsFor(resource)}
               key={resource}
               resource={resource}
-              series={seriesForResource(observed.data, resource)}
+              series={seriesForResource(series, resource)}
               total={total}
-              workloads={initial.latest.workloads}
+              workloads={latest.workloads}
             />
           );
         })}
@@ -118,7 +148,7 @@ export function OwnerObservabilityPanel({
         <section aria-labelledby="owner-capabilities-heading">
           <h3 id="owner-capabilities-heading" className="text-xl font-semibold text-[var(--text)]">Source capabilities</h3>
           <dl className="mt-4 border-y border-[var(--border)]">
-            {initial.latest.host.capabilities.map((capability) => (
+            {latest.host.capabilities.map((capability) => (
               <div className="border-t border-[var(--border)] py-3 first:border-t-0" key={capability.id}>
                 <dt className="text-sm font-semibold text-[var(--text)]">{capability.label}</dt>
                 <dd className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{capability.state}: {capability.detail}</dd>
@@ -126,11 +156,11 @@ export function OwnerObservabilityPanel({
             ))}
           </dl>
         </section>
-        <IncidentTimeline incidents={initial.latest.incidents} onSelect={setSelectedIncidentId} selectedId={selectedIncidentId} />
+        <IncidentTimeline incidents={observed.incidents} onSelect={setSelectedIncidentId} selectedId={selectedIncident ? selectedIncidentId : null} />
       </div>
 
       <div className="mt-10">
-        <WorkloadTable incidents={initial.latest.incidents} workloads={initial.latest.workloads} />
+        <WorkloadTable incidents={observed.incidents} workloads={latest.workloads} />
       </div>
     </section>
   );

@@ -217,7 +217,7 @@ describe("observability v2 latest readers", () => {
 });
 
 describe("observability v2 series reader", () => {
-  it("merges daily chunks in timestamp order and de-duplicates overlap", () => {
+  it("merges daily chunks in timestamp order and de-duplicates overlap inside the requested window", () => {
     const root = temporaryRoot();
     const files = [
       "host/minute/2026-07-11.v2.json",
@@ -247,26 +247,28 @@ describe("observability v2 series reader", () => {
       JSON.stringify({ schema_version: 2, files: [...files].reverse() }),
     );
 
-    const result = readSeriesV2(root, { range: "24h", view: "host", resource: null });
-    expect(result.timestamps).toEqual([
-      "2026-07-11T23:59:00Z",
-      "2026-07-12T00:00:00Z",
-      "2026-07-12T00:01:00Z",
-    ]);
-    expect(result.series[0]?.values).toEqual([10, 21, 30]);
+    const result = readSeriesV2(
+      root,
+      { range: "24h", view: "host", resource: null },
+      new Date("2026-07-12T00:01:00Z"),
+    );
+    expect(result.timestamps).toHaveLength(1440);
+    expect(result.series[0]?.values.slice(-3)).toEqual([10, 21, 30]);
+    expect(result.coverage_percent).toBeCloseTo((3 / 1440) * 100, 8);
     expect(result.range).toBe("24h");
   });
 
-  it("trims samples outside the requested time window even below the point cap", () => {
+  it("anchors a dense old series to now instead of letting it report complete coverage", () => {
     const root = temporaryRoot();
-    const file = "host/minute/2026-07-12.v2.json";
+    const file = "host/1h.v2.json";
     fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     fs.writeFileSync(
       path.join(root, file),
       JSON.stringify(
         seriesPayload(
-          ["2026-07-10T00:00:00Z", "2026-07-12T00:00:00Z"],
+          ["2026-07-12T17:59:45Z", "2026-07-12T18:00:00Z"],
           [1, 2],
+          { range: "1h", resolution_seconds: 15 },
         ),
       ),
     );
@@ -275,9 +277,174 @@ describe("observability v2 series reader", () => {
       JSON.stringify({ schema_version: 2, files: [file] }),
     );
 
-    expect(
-      readSeriesV2(root, { range: "24h", view: "host", resource: null }).timestamps,
-    ).toEqual(["2026-07-12T00:00:00Z"]);
+    const result = readSeriesV2(
+      root,
+      { range: "1h", view: "host", resource: null },
+      new Date("2026-07-12T19:00:07Z"),
+    );
+    expect(result.timestamps).toHaveLength(240);
+    expect(result.timestamps[0]).toBe("2026-07-12T18:00:15.000Z");
+    expect(result.timestamps.at(-1)).toBe("2026-07-12T19:00:00.000Z");
+    expect(result.timestamps).not.toContain("2026-07-12T19:00:15.000Z");
+    expect(result.series[0]?.values.every((value) => value === null)).toBe(true);
+    expect(result.coverage_percent).toBe(0);
+  });
+
+  it("keeps only closed aligned slots in the requested window and leaves absent samples as gaps", () => {
+    const root = temporaryRoot();
+    const file = "host/1h.v2.json";
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, file),
+      JSON.stringify(
+        seriesPayload(
+          [
+            "2026-07-12T18:00:00Z",
+            "2026-07-12T18:00:15Z",
+            "2026-07-12T18:00:45Z",
+            "2026-07-12T19:00:00Z",
+          ],
+          [99, 1, 3, 4],
+          { range: "1h", resolution_seconds: 15 },
+        ),
+      ),
+    );
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files: [file] }),
+    );
+
+    const result = readSeriesV2(
+      root,
+      { range: "1h", view: "host", resource: null },
+      new Date("2026-07-12T19:00:00Z"),
+    );
+    expect(result.timestamps[0]).toBe("2026-07-12T18:00:15.000Z");
+    expect(result.timestamps.at(-1)).toBe("2026-07-12T19:00:00.000Z");
+    expect(result.series[0]?.values.slice(0, 3)).toEqual([1, null, 3]);
+    expect(result.series[0]?.values.at(-1)).toBe(4);
+    expect(result.coverage_percent).toBeCloseTo((3 / 240) * 100, 8);
+  });
+
+  it("returns zero window coverage for a valid empty source chunk", () => {
+    const root = temporaryRoot();
+    const file = "host/1h.v2.json";
+    fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, file),
+      JSON.stringify(
+        seriesPayload([], [], {
+          generated_at: "2026-07-12T18:59:45Z",
+          range: "1h",
+          resolution_seconds: 15,
+        }),
+      ),
+    );
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files: [file] }),
+    );
+
+    const result = readSeriesV2(
+      root,
+      { range: "1h", view: "host", resource: null },
+      new Date("2026-07-12T19:00:00Z"),
+    );
+    expect(result.timestamps).toHaveLength(240);
+    expect(result.series[0]?.values).toHaveLength(240);
+    expect(result.series[0]?.values.every((value) => value === null)).toBe(true);
+    expect(result.coverage_percent).toBe(0);
+  });
+
+  it("reads only the daily chunks intersecting a 24-hour window across UTC midnight", () => {
+    const root = temporaryRoot();
+    const oldFile = "host/minute/2026-07-11.v2.json";
+    const firstFile = "host/minute/2026-07-12.v2.json";
+    const lastFile = "host/minute/2026-07-13.v2.json";
+    const futureFile = "host/minute/2026-07-14.v2.json";
+    fs.mkdirSync(path.join(root, "host/minute"), { recursive: true });
+    fs.writeFileSync(path.join(root, oldFile), "not-json");
+    fs.writeFileSync(path.join(root, futureFile), "not-json");
+    fs.writeFileSync(
+      path.join(root, firstFile),
+      JSON.stringify(seriesPayload(["2026-07-12T23:59:00Z"], [5])),
+    );
+    fs.writeFileSync(
+      path.join(root, lastFile),
+      JSON.stringify(seriesPayload(["2026-07-13T00:00:00Z"], [6])),
+    );
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files: [oldFile, firstFile, lastFile, futureFile] }),
+    );
+
+    const result = readSeriesV2(
+      root,
+      { range: "24h", view: "host", resource: null },
+      new Date("2026-07-13T00:00:00Z"),
+    );
+    expect(result.timestamps).toHaveLength(1440);
+    expect(result.series[0]?.values.slice(-2)).toEqual([5, 6]);
+  });
+
+  it("selects dated quarter-hour chunks for 30 days and skips unrelated retention", () => {
+    const root = temporaryRoot();
+    const oldFile = "host/quarter-hour/2026-06-01.v2.json";
+    const minuteFile = "host/minute/2026-07-30.v2.json";
+    const currentFile = "host/quarter-hour/2026-07-30.v2.json";
+    fs.mkdirSync(path.join(root, "host/quarter-hour"), { recursive: true });
+    fs.mkdirSync(path.join(root, "host/minute"), { recursive: true });
+    fs.writeFileSync(path.join(root, oldFile), "not-json");
+    fs.writeFileSync(path.join(root, minuteFile), "not-json");
+    fs.writeFileSync(
+      path.join(root, currentFile),
+      JSON.stringify(
+        seriesPayload(["2026-07-30T23:45:00Z"], [9], {
+          range: "30d",
+          resolution_seconds: 900,
+        }),
+      ),
+    );
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files: [oldFile, minuteFile, currentFile] }),
+    );
+
+    const result = readSeriesV2(
+      root,
+      { range: "30d", view: "host", resource: null },
+      new Date("2026-07-31T00:00:00Z"),
+    );
+    expect(result.timestamps).toHaveLength(2880);
+    expect(result.series[0]?.values.filter((value) => value !== null)).toEqual([9]);
+  });
+
+  it("rejects an aggregate query over 32 MiB before schema-parsing another chunk", () => {
+    const root = temporaryRoot();
+    const files = Array.from({ length: 10 }, (_, index) =>
+      `host/quarter-hour/2026-07-${String(index + 1).padStart(2, "0")}.v2.json`,
+    );
+    for (const file of files) {
+      const destination = path.join(root, file);
+      fs.mkdirSync(path.dirname(destination), { recursive: true });
+      fs.writeFileSync(destination, JSON.stringify({ padding: "x".repeat(3_500_000) }));
+    }
+    fs.writeFileSync(
+      path.join(root, "manifest.v2.json"),
+      JSON.stringify({ schema_version: 2, files }),
+    );
+
+    try {
+      readSeriesV2(
+        root,
+        { range: "30d", view: "host", resource: null },
+        new Date("2026-07-31T00:00:00Z"),
+      );
+      throw new Error("Expected the aggregate read budget to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProjectionReadError);
+      expect((error as ProjectionReadError).code).toBe("too_large");
+    }
   });
 
   it("enforces the exact requested bucket cap", () => {

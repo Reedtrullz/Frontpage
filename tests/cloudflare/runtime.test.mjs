@@ -4,17 +4,218 @@ import { encode } from 'next-auth/jwt';
 import { chromium, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { startRuntime, base, version, secret } from './runtime.mjs';
 const cookie = async sub => `authjs.session-token=${await encode({token:{sub, name:'Fixture user'}, secret, salt:'authjs.session-token'})}`;
 const jsonHeaders = async sub => ({cookie: await cookie(sub), origin:base, 'content-type':'application/json'});
+const fixture = name => JSON.parse(readFileSync(new URL(`../../ops/tests/fixtures/observability-v2/${name}`, import.meta.url), 'utf8'));
+const privateNoStore = response => assert.equal(response.headers.get('cache-control'), 'private, no-store');
+
+function assertHistoryMatchesFixture(history, fixtureHistory, requestBounds) {
+  const resolutionMs = history.resolution_seconds * 1000;
+  const timestamps = history.timestamps.map(Date.parse);
+  assert.ok(resolutionMs > 0);
+  assert.ok(timestamps.length > 0);
+  assert.ok(timestamps.every(Number.isFinite));
+  assert.ok(timestamps.every(timestamp => timestamp % resolutionMs === 0));
+
+  const firstPossibleSlot = Math.floor(requestBounds.startedAt / resolutionMs) * resolutionMs;
+  const lastPossibleSlot = Math.floor(requestBounds.finishedAt / resolutionMs) * resolutionMs;
+  const lastReturnedSlot = timestamps.at(-1);
+  assert.ok(
+    lastReturnedSlot >= firstPossibleSlot && lastReturnedSlot <= lastPossibleSlot,
+    `last closed slot ${new Date(lastReturnedSlot).toISOString()} must fall within request clock bounds`,
+  );
+  assert.ok(timestamps.every((timestamp, index) =>
+    timestamp === lastReturnedSlot - (timestamps.length - 1 - index) * resolutionMs));
+
+  const fixtureIndexByTimestamp = new Map(
+    fixtureHistory.timestamps.map((timestamp, index) => [Date.parse(timestamp), index]),
+  );
+  const fixtureSeriesById = new Map(fixtureHistory.series.map(series => [series.id, series]));
+  assert.equal(history.series.length, fixtureHistory.series.length);
+  let measuredValues = 0;
+  let possibleValues = 0;
+  for (const series of history.series) {
+    const fixtureSeries = fixtureSeriesById.get(series.id);
+    assert.ok(fixtureSeries, `fixture series ${series.id} must exist`);
+    const expectedValues = timestamps.map(timestamp => {
+      const fixtureIndex = fixtureIndexByTimestamp.get(timestamp);
+      return fixtureIndex === undefined ? null : fixtureSeries.values[fixtureIndex] ?? null;
+    });
+    assert.deepEqual(series.values, expectedValues, `${series.id} must map by returned timestamp`);
+    measuredValues += expectedValues.filter(value => value !== null).length;
+    possibleValues += expectedValues.length;
+  }
+  assert.equal(history.coverage_percent, possibleValues ? (measuredValues / possibleValues) * 100 : 0);
+}
+
+test('maps owner history by returned timestamps when a request crosses a closed-slot boundary', () => {
+  const resolutionMs = 15_000;
+  const boundary = Date.parse('2026-10-03T15:00:00.000Z');
+  const fixtureHistory = {
+    timestamps: [-60_000, -45_000, -30_000, -15_000].map(offset => new Date(boundary + offset).toISOString()),
+    series: [{id:'cpu-total', values:[22.1, 24.4, null, 31.2]}],
+  };
+  const timestamps = Array.from({length:240}, (_, index) =>
+    new Date(boundary - (239 - index) * resolutionMs).toISOString(),
+  );
+  const values = Array(240).fill(null);
+  values.splice(-5, 5, 22.1, 24.4, null, 31.2, null);
+  const history = {
+    resolution_seconds: 15,
+    timestamps,
+    series: [{id:'cpu-total', values}],
+    coverage_percent: (3 / 240) * 100,
+  };
+
+  assertHistoryMatchesFixture(history, fixtureHistory, {
+    startedAt: boundary - 1,
+    finishedAt: boundary + 1,
+  });
+  assert.deepEqual(history.series[0].values.slice(-4), [24.4, null, 31.2, null]);
+  assert.equal(history.coverage_percent, (3 / 240) * 100);
+});
+
+function v2FixtureSnapshot() {
+  const now = Date.now();
+  const generatedAt = new Date(now).toISOString();
+  const ownerSentinel = 'OWNER_V2_RUNTIME_SENTINEL_8f2d1a';
+  const publicLatest = fixture('public-latest.json');
+  publicLatest.generated_at = generatedAt;
+  publicLatest.collected_at = generatedAt;
+  for (const service of publicLatest.services) service.checked_at = generatedAt;
+
+  const ownerLatest = fixture('owner-latest.json');
+  ownerLatest.generated_at = generatedAt;
+  ownerLatest.collected_at = generatedAt;
+  for (const total of ownerLatest.host.totals) {
+    total.updated_at = generatedAt;
+    total.freshness = 'fresh';
+  }
+  ownerLatest.host.capabilities[0].detail = ownerSentinel;
+  const incidentOpened = new Date(now - 10 * 60_000).toISOString();
+  const incidentUpdated = new Date(now - 5 * 60_000).toISOString();
+  for (const incident of ownerLatest.incidents) {
+    incident.opened_at = incidentOpened;
+    incident.updated_at = incidentUpdated;
+    if (incident.state === 'recovered') incident.resolved_at = incidentUpdated;
+    for (const [index, point] of (incident.evidence?.points ?? []).entries()) {
+      point.recorded_at = new Date(now - (10 - index * 5) * 60_000).toISOString();
+    }
+  }
+
+  const series = fixture('host-series-1h.json');
+  series.generated_at = generatedAt;
+  const lastClosedSlot = Math.floor(now / 15_000) * 15_000;
+  series.timestamps = series.timestamps.map((_, index, timestamps) =>
+    new Date(lastClosedSlot - (timestamps.length - 1 - index) * 15_000).toISOString(),
+  );
+  const emptyIncidents = { schema_version: 2, generated_at: generatedAt, incidents: [] };
+  return {
+    ownerSentinel,
+    generatedAt,
+    payloads: {
+      'public/latest.v2.json': publicLatest,
+      'public/incidents.v2.json': emptyIncidents,
+      'owner/latest.v2.json': ownerLatest,
+      'owner/incidents.v2.json': {
+        schema_version: 2,
+        generated_at: generatedAt,
+        incidents: ownerLatest.incidents,
+      },
+      'owner/host/1h.v2.json': series,
+      'owner/manifest.v2.json': {
+        schema_version: 2,
+        files: ['latest.v2.json', 'incidents.v2.json', 'host/1h.v2.json'],
+      },
+    },
+  };
+}
+
+function syntheticAcceptedGate() {
+  const now = Date.now();
+  const windowEndedAt = new Date(now - 60_000).toISOString();
+  const windowStartedAt = new Date(Date.parse(windowEndedAt) - 48 * 3_600_000).toISOString();
+  return {
+    schema_version: 3,
+    approved: true,
+    generated_at: new Date(now).toISOString(),
+    evidence_started_at: windowStartedAt,
+    window_started_at: windowStartedAt,
+    window_ended_at: windowEndedAt,
+    duration_hours: 48,
+    paired_minutes: 2881,
+    missed_minutes: 0,
+    incomplete_v1_host_minutes: 0,
+    incomplete_v2_host_minutes: 0,
+    maximum_gap_seconds: 60,
+    evidence_age_seconds: 60,
+    p99_relative_divergence_percent: { cpu: 0.1, ram: 0.1, disk: 0.1 },
+    public_service_comparisons: 17286,
+    public_service_mismatch_percent: 0,
+    evidence_epoch: {
+      schema_version: 1,
+      started_at: windowStartedAt,
+      commit_sha: version,
+      reason: 'collector_or_comparator_change',
+    },
+    thresholds: {
+      minimum_duration_hours: 48,
+      maximum_gap_seconds: 120,
+      maximum_evidence_age_seconds: 120,
+      maximum_p99_relative_divergence_percent: 2,
+      public_service_mismatch_percent: 0,
+    },
+  };
+}
+
+async function uploadV2Snapshot(payloads) {
+  const files = {};
+  for (const [name, payload] of Object.entries(payloads)) {
+    const bytes = Buffer.from(JSON.stringify(payload));
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    files[name] = hash;
+    const response = await fetch(`${base}/__collector/v2/${hash}`, {
+      method: 'PUT',
+      headers: { authorization: 'Bearer local-collector-token' },
+      body: gzipSync(bytes),
+    });
+    assert.equal(response.status, 204, `upload ${name}`);
+  }
+  const manifest = { schema_version: 2, files };
+  const prepared = await fetch(`${base}/__collector/v2/prepare`, {
+    method: 'PUT',
+    headers: { authorization: 'Bearer local-collector-token', 'content-type': 'application/json' },
+    body: JSON.stringify(manifest),
+  });
+  assert.equal(prepared.status, 200);
+  assert.deepEqual((await prepared.json()).missing, []);
+  const committed = await fetch(`${base}/__collector/v2/commit`, {
+    method: 'PUT',
+    headers: { authorization: 'Bearer local-collector-token', 'content-type': 'application/json' },
+    body: JSON.stringify(manifest),
+  });
+  assert.equal(committed.status, 204);
+  const activated = await fetch(`${base}/__collector/v2/activate`, {
+    method: 'PUT',
+    headers: { authorization: 'Bearer local-collector-token', 'content-type': 'application/json' },
+    body: JSON.stringify({ version, gate: syntheticAcceptedGate() }),
+  });
+  assert.equal(activated.status, 204);
+}
+
 test('built Worker exercises SQL owner state, isolation, collector and proxy, including restart', {timeout:180000}, async () => {
   let runtime = await startRuntime();
   try {
     assert.equal((await (await fetch(base+'/api/health')).json()).version, version);
-    for(const route of ['/api/owner/metrics?range=1h&view=host', '/api/owner/incidents']) {
-      assert.equal((await fetch(base+route)).status,401, route);
+    for(const route of ['/api/owner/latest', '/api/owner/metrics?range=1h&view=host', '/api/owner/incidents']) {
+      const anonymous=await fetch(base+route);
+      assert.equal(anonymous.status,401, route);
+      privateNoStore(anonymous);
       const nonOwner=await fetch(base+route,{headers:{cookie:await cookie('not-owner')}});
       assert.equal(nonOwner.status,403,route);
+      privateNoStore(nonOwner);
     }
     assert.equal((await fetch(base+'/__operator/owner-state')).status,404);
     const canonical = await (await fetch(base+'/api/data')).json();
@@ -42,6 +243,35 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     assert.equal((await fetch(base+'/__collector/v1/commit',{method:'PUT',headers:uploadHeaders})).status,400);
     assert.equal((await fetch(base+'/__collector/history.json',{method:'PUT',headers:uploadHeaders,body:gzipSync(historyRaw)})).status,204);
     for(let repeat=0;repeat<2;repeat++)assert.equal((await fetch(base+'/__collector/v1/commit',{method:'PUT',headers:uploadHeaders})).status,204);
+    const decodedBomb=await fetch(base+'/__collector/v2/'+ 'f'.repeat(64),{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:gzipSync(Buffer.alloc(4*1024*1024+1))});assert.equal(decodedBomb.status,400);
+    const oversizedStream=new ReadableStream({start(controller){controller.enqueue(new Uint8Array(512*1024));controller.enqueue(new Uint8Array(512*1024));controller.enqueue(new Uint8Array(1));controller.close();}});
+    const streamedOversize=await fetch(base+'/__collector/v2/'+ 'e'.repeat(64),{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:oversizedStream,duplex:'half'});assert.equal(streamedOversize.status,413);
+    const v2=v2FixtureSnapshot();
+    await uploadV2Snapshot(v2.payloads);
+    const ownerHeaders={cookie:await cookie('runtime-owner')};
+    const ownerLatest=await fetch(base+'/api/owner/latest',{headers:ownerHeaders});assert.equal(ownerLatest.status,200);privateNoStore(ownerLatest);
+    assert.match(await ownerLatest.text(),new RegExp(v2.ownerSentinel));
+    const latestEtag=ownerLatest.headers.get('etag');assert.match(latestEtag,/^"[a-f0-9]{64}"$/);
+    const latest304=await fetch(base+'/api/owner/latest',{headers:{...ownerHeaders,'if-none-match':latestEtag}});assert.equal(latest304.status,304);privateNoStore(latest304);assert.equal(await latest304.text(),'');
+    const historyRequestStartedAt=Date.now();
+    const history=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});
+    const historyResponseReceivedAt=Date.now();assert.equal(history.status,200);privateNoStore(history);
+    const historyBody=await history.json();
+    assert.equal(historyBody.range,'1h');assert.equal(historyBody.resolution_seconds,15);assert.equal(historyBody.timestamps.length,240);
+    const historyFixture=v2.payloads['owner/host/1h.v2.json'];
+    assertHistoryMatchesFixture(historyBody,historyFixture,{startedAt:historyRequestStartedAt,finishedAt:historyResponseReceivedAt});
+    const feedResponse=await fetch(base+'/status/feed.json');assert.equal(feedResponse.status,200);
+    const feedText=await feedResponse.text();const feed=JSON.parse(feedText);
+    assert.equal(feed._frontpage.availability,'available');assert.equal(feed._frontpage.collected_at,v2.generatedAt);
+    assert.equal(feed._frontpage.incident_generated_at,v2.generatedAt);
+    assert.ok(Date.parse(feed._frontpage.checked_at)>=Date.parse(feed._frontpage.collected_at));
+    assert.doesNotMatch(feedText,/OWNER_V2_RUNTIME_SENTINEL|RUNTIME_PRIVATE_PROVIDER_SENTINEL|frontpage-app|system\.slice/);
+    const publicStatus=await fetch(base+'/status');assert.equal(publicStatus.status,200);
+    const publicHtml=await publicStatus.text();
+    assert.doesNotMatch(publicHtml,/OWNER_V2_RUNTIME_SENTINEL|RUNTIME_PRIVATE_PROVIDER_SENTINEL|private-agent-build|frontpage-app/);
+    const ownerStatus=await fetch(base+'/status',{headers:ownerHeaders});assert.equal(ownerStatus.status,200);
+    const ownerHtml=await ownerStatus.text();assert.match(ownerHtml,/Telemetry source timestamps/);assert.match(ownerHtml,/Latest:/);assert.match(ownerHtml,/Incidents:/);assert.match(ownerHtml,/History:/);assert.match(ownerHtml,/OWNER_V2_RUNTIME_SENTINEL/);
+    assert.ok(ownerHtml.includes(v2.generatedAt.slice(0,16).replace('T',' ')));
     for(const route of ['/proposals/fixture?test=1','/api/proposals?test=1','/api/agents?test=1']) {
       const proxy=await fetch(base+route,{method:'POST',body:'proxy-fixture'}); assert.equal(proxy.status,200);
       const body=await proxy.json();assert.equal(body.path,route.split('?')[0]);assert.equal(body.query,'?test=1');assert.equal(body.method,'POST');assert.equal(body.body,'proxy-fixture');assert.equal(body.token,'local-proxy-token');
@@ -58,6 +288,18 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     }finally{await browser.close();}
     await runtime.stop();runtime=await startRuntime();
     assert.match(await (await fetch(base+'/admin/projects',{headers:{cookie:await cookie('runtime-owner')}})).text(),/PRIVATE SQL RUNTIME DRAFT SENTINEL/);
+    const restartedLatest=await fetch(base+'/api/owner/latest',{headers:ownerHeaders});assert.equal(restartedLatest.status,200);privateNoStore(restartedLatest);assert.match(await restartedLatest.text(),/OWNER_V2_RUNTIME_SENTINEL/);
+    const restartedHistoryRequestStartedAt=Date.now();
+    const restartedHistory=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});
+    const restartedHistoryResponseReceivedAt=Date.now();assert.equal(restartedHistory.status,200);privateNoStore(restartedHistory);
+    const restartedHistoryBody=await restartedHistory.json();
+    const latestFixtureTimestamp=historyFixture.timestamps.at(-1);
+    const latestFixtureIndex=restartedHistoryBody.timestamps.indexOf(latestFixtureTimestamp);
+    assert.ok(latestFixtureIndex>=0,`restarted history must retain fixture sample ${latestFixtureTimestamp}`);
+    assert.equal(restartedHistoryBody.series[0].values[latestFixtureIndex],31.2);
+    const restartedLastClosedSlot=Date.parse(restartedHistoryBody.timestamps.at(-1));
+    assert.ok(restartedLastClosedSlot>=Math.floor(restartedHistoryRequestStartedAt/15_000)*15_000);
+    assert.ok(restartedLastClosedSlot<=Math.floor(restartedHistoryResponseReceivedAt/15_000)*15_000);
   } finally {await runtime.stop();}
 });
 test('missing Worker binding fails closed', {timeout:60000},async()=>{const runtime=await startRuntime({missingBinding:true});try{assert.equal((await fetch(base+'/api/health')).status,500);}finally{await runtime.stop();}});

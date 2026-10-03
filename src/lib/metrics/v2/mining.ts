@@ -13,56 +13,272 @@ export interface PearlMiningV2 {
   worker_agent: string;
   worker_login_ms: number;
   uptime_seconds: number | null;
-  collected_at: string;
-  error?: string;
+}
+
+// This is the existing public disclosure. New pool fields must not be added
+// here without an owner decision. The coarser activity-only projection remains
+// a recommendation pending that decision.
+export type PublicPearlMiningV2 = Pick<
+  PearlMiningV2,
+  | "hashrate"
+  | "hashrate_avg_1h"
+  | "accepted_shares"
+  | "last_share_at_ms"
+  | "worker_name"
+  | "uptime_seconds"
+>;
+
+export interface MiningFetchResult {
+  data: PublicPearlMiningV2 | null;
+  sourceSampleAt: null;
+  observedAt: string | null;
+  observationAgeMs: number | null;
+  freshness: "unknown" | "stale" | "unavailable";
 }
 
 const LUCKYPOOL_URL =
   "https://pearl.luckypool.io/api/stats_address?address=prl1pzgyla44gfqf3q996w6kxrtcrdr3djkc90lwxrvea9up7x0umxrcskfpac2";
+const FETCH_DEADLINE_MS = 5_000;
+const MAX_RESPONSE_BYTES = 64 * 1024;
+const CACHE_TTL_MS = 5 * 60_000;
+const MAX_STALE_MS = 60 * 60_000;
 
-export async function fetchMiningV2(): Promise<{
-  data: PearlMiningV2 | null;
-  age: number | null;
-}> {
-  try {
-    const res = await fetch(LUCKYPOOL_URL, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      next: { revalidate: 300 }, // ponytail: 5min ISR cache
-    });
-    if (!res.ok) return { data: null, age: null };
-    const body = (await res.json()) as {
-      stats?: Record<string, string>;
-      workers?: Array<Record<string, string>>;
-    };
-    const stats = body.stats ?? {};
-    const worker = (body.workers ?? [])[0] ?? {};
-    const loginMs = parseInt(worker.loginTime ?? "0", 10);
-    const uptime_s = loginMs
-      ? Math.floor(Date.now() / 1000 - loginMs / 1000)
+type JsonRecord = Record<string, unknown>;
+
+function record(value: unknown): JsonRecord | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
+}
+
+function finiteNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER
+      ? value
       : null;
-
-    const avg = stats.hashrateAvg as unknown as Record<string, string> | undefined;
-    return {
-      data: {
-        hashrate: parseInt(stats.hashrate ?? "0", 10),
-        hashrate_avg_1h: parseInt(avg?.["1h"] ?? "0", 10),
-        hashrate_avg_6h: parseInt(avg?.["6h"] ?? "0", 10),
-        hashrate_avg_24h: parseInt(avg?.["24h"] ?? "0", 10),
-        accepted_shares: parseInt(stats.acceptedShares ?? "0", 10),
-        rejected_shares: parseInt(stats.rejectedShares ?? "0", 10),
-        paid: parseInt(stats.paid ?? "0", 10),
-        balance_unlocked: parseInt(stats.unlocked ?? "0", 10),
-        balance_locked: parseInt(stats.locked ?? "0", 10),
-        last_share_at_ms: parseInt(stats.lastShare ?? "0", 10),
-        worker_name: worker.name ?? "",
-        worker_agent: worker.minerAgent ?? "",
-        worker_login_ms: loginMs,
-        uptime_seconds: uptime_s,
-        collected_at: new Date().toISOString(),
-      },
-      age: 0,
-    };
-  } catch {
-    return { data: null, age: null };
   }
+  if (typeof value !== "string" || !/^(?:\d+)(?:\.\d+)?$/.test(value.trim())) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed <= Number.MAX_SAFE_INTEGER ? parsed : null;
+}
+
+function numberField(
+  source: JsonRecord,
+  key: string,
+  fallback = 0,
+): number | null {
+  return source[key] === undefined ? fallback : finiteNumber(source[key]);
+}
+
+function stringField(source: JsonRecord, key: string): string | null {
+  const value = source[key];
+  if (value === undefined) return "";
+  if (typeof value !== "string" || value.length > 120) return null;
+  return value.trim();
+}
+
+export function parsePearlMiningPayload(
+  payload: unknown,
+  nowMs = Date.now(),
+): PearlMiningV2 | null {
+  const body = record(payload);
+  const stats = record(body?.stats);
+  if (!stats) return null;
+
+  const averagesValue = stats.hashrateAvg;
+  const averages = averagesValue === undefined ? {} : record(averagesValue);
+  if (!averages) return null;
+
+  const workersValue = body?.workers;
+  if (workersValue !== undefined && !Array.isArray(workersValue)) return null;
+  const workers = (workersValue ?? []) as unknown[];
+  const worker = workers.length === 0 ? {} : record(workers[0]);
+  if (!worker) return null;
+
+  const hashrate = finiteNumber(stats.hashrate);
+  const hashrateAvg1h = numberField(averages, "1h");
+  const hashrateAvg6h = numberField(averages, "6h");
+  const hashrateAvg24h = numberField(averages, "24h");
+  const acceptedShares = numberField(stats, "acceptedShares");
+  const rejectedShares = numberField(stats, "rejectedShares");
+  const paid = numberField(stats, "paid");
+  const unlocked = numberField(stats, "unlocked");
+  const locked = numberField(stats, "locked");
+  const lastShare = numberField(stats, "lastShare");
+  const loginTime = numberField(worker, "loginTime");
+  const workerName = stringField(worker, "name");
+  const workerAgent = stringField(worker, "minerAgent");
+
+  const numericValues = [
+    hashrate,
+    hashrateAvg1h,
+    hashrateAvg6h,
+    hashrateAvg24h,
+    acceptedShares,
+    rejectedShares,
+    paid,
+    unlocked,
+    locked,
+    lastShare,
+    loginTime,
+  ];
+  if (numericValues.some((value) => value === null) || workerName === null || workerAgent === null) {
+    return null;
+  }
+  if (
+    !Number.isFinite(nowMs) ||
+    lastShare! > nowMs ||
+    loginTime! > nowMs ||
+    (lastShare! > 0 && !Number.isFinite(new Date(lastShare!).getTime())) ||
+    (loginTime! > 0 && !Number.isFinite(new Date(loginTime!).getTime()))
+  ) {
+    return null;
+  }
+
+  return {
+    hashrate: hashrate!,
+    hashrate_avg_1h: hashrateAvg1h!,
+    hashrate_avg_6h: hashrateAvg6h!,
+    hashrate_avg_24h: hashrateAvg24h!,
+    accepted_shares: acceptedShares!,
+    rejected_shares: rejectedShares!,
+    paid: paid!,
+    balance_unlocked: unlocked!,
+    balance_locked: locked!,
+    last_share_at_ms: lastShare!,
+    worker_name: workerName,
+    worker_agent: workerAgent,
+    worker_login_ms: loginTime!,
+    uptime_seconds: loginTime! > 0 ? Math.floor((nowMs - loginTime!) / 1000) : null,
+  };
+}
+
+export function projectPublicMiningV2(
+  data: PearlMiningV2,
+): PublicPearlMiningV2 {
+  return {
+    hashrate: data.hashrate,
+    hashrate_avg_1h: data.hashrate_avg_1h,
+    accepted_shares: data.accepted_shares,
+    last_share_at_ms: data.last_share_at_ms,
+    worker_name: data.worker_name,
+    uptime_seconds: data.uptime_seconds,
+  };
+}
+
+async function readBoundedJson(response: Response): Promise<unknown | null> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    return null;
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+interface MiningCache {
+  data: PublicPearlMiningV2;
+  observedAtMs: number;
+}
+
+function resultFromCache(
+  cached: MiningCache,
+  nowMs: number,
+  freshness: "unknown" | "stale",
+): MiningFetchResult {
+  return {
+    data: cached.data,
+    sourceSampleAt: null,
+    observedAt: new Date(cached.observedAtMs).toISOString(),
+    observationAgeMs: Math.max(0, nowMs - cached.observedAtMs),
+    freshness,
+  };
+}
+
+function unavailable(): MiningFetchResult {
+  return {
+    data: null,
+    sourceSampleAt: null,
+    observedAt: null,
+    observationAgeMs: null,
+    freshness: "unavailable",
+  };
+}
+
+export function createMiningFetcher({
+  fetcher = fetch,
+  now = Date.now,
+}: {
+  fetcher?: typeof fetch;
+  now?: () => number;
+} = {}): () => Promise<MiningFetchResult> {
+  let cache: MiningCache | null = null;
+
+  return async () => {
+    const requestedAt = now();
+    if (cache && requestedAt - cache.observedAtMs < CACHE_TTL_MS) {
+      return resultFromCache(cache, requestedAt, "unknown");
+    }
+
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort(), FETCH_DEADLINE_MS);
+    try {
+      const response = await fetcher(LUCKYPOOL_URL, {
+        cache: "no-store",
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Pool response failed.");
+      const body = await readBoundedJson(response);
+      if (body === null) throw new Error("Pool response was invalid or too large.");
+      const parsed = parsePearlMiningPayload(body, now());
+      if (!parsed) throw new Error("Pool response did not match the expected schema.");
+
+      cache = { data: projectPublicMiningV2(parsed), observedAtMs: now() };
+      return resultFromCache(cache, cache.observedAtMs, "unknown");
+    } catch {
+      const failedAt = now();
+      if (cache && failedAt - cache.observedAtMs <= MAX_STALE_MS) {
+        return resultFromCache(cache, failedAt, "stale");
+      }
+      return unavailable();
+    } finally {
+      clearTimeout(deadline);
+    }
+  };
+}
+
+const fetchMining = createMiningFetcher();
+
+export async function fetchMiningV2(): Promise<MiningFetchResult> {
+  return fetchMining();
 }
