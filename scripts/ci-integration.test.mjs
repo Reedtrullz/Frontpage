@@ -53,6 +53,9 @@ test("Docker validation builds and smoke-tests each Linux architecture on dispat
   const names = dockerCheck.steps.map((step) => step.name);
   assert.ok(names.indexOf("Set up QEMU") < names.indexOf("Set up Docker Buildx"));
   assert.ok(dockerCheck.steps.some((step) => step.uses === "docker/setup-qemu-action@v4"));
+  const nodeSetup = dockerCheck.steps.find((step) => step.uses === "actions/setup-node@v6");
+  assert.ok(nodeSetup);
+  assert.equal(nodeSetup.with["node-version"], "${{ env.NODE_VERSION }}");
   const build = dockerCheck.steps.find((step) => step.name === "Build image");
   assert.equal(build.with.platforms, "${{ matrix.platform }}");
   assert.equal(build.with.load, true);
