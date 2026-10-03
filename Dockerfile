@@ -2,10 +2,10 @@
 # Frontpage — production image
 # Multi-stage build using Next.js standalone output.
 
-ARG NODE_VERSION=22
+ARG NODE_IMAGE=node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752
 
 # ---------- 1. Dependencies ----------
-FROM node:${NODE_VERSION}-slim AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 ARG TARGETARCH
 
@@ -23,8 +23,8 @@ RUN set -eux; \
           @tailwindcss/oxide-linux-x64-gnu@4.3.2 \
           @rolldown/binding-linux-x64-gnu@1.1.5 \
           @unrs/resolver-binding-linux-x64-gnu@1.11.1 \
-          @img/sharp-linux-x64@0.35.3 \
-          @img/sharp-libvips-linux-x64@1.3.2 \
+          @img/sharp-linux-x64@0.35.4 \
+          @img/sharp-libvips-linux-x64@1.3.3 \
         ;; \
       arm64|aarch64) \
         npm install --no-save --no-package-lock --legacy-peer-deps \
@@ -32,8 +32,8 @@ RUN set -eux; \
           @tailwindcss/oxide-linux-arm64-gnu@4.3.2 \
           @rolldown/binding-linux-arm64-gnu@1.1.5 \
           @unrs/resolver-binding-linux-arm64-gnu@1.11.1 \
-          @img/sharp-linux-arm64@0.35.3 \
-          @img/sharp-libvips-linux-arm64@1.3.2 \
+          @img/sharp-linux-arm64@0.35.4 \
+          @img/sharp-libvips-linux-arm64@1.3.3 \
         ;; \
       *) \
         echo "Unsupported Docker target architecture: ${TARGETARCH:-$(dpkg --print-architecture)}"; \
@@ -42,7 +42,7 @@ RUN set -eux; \
     esac
 
 # ---------- 2. Build ----------
-FROM node:${NODE_VERSION}-slim AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 ARG VERSION=latest
@@ -55,7 +55,7 @@ COPY . .
 RUN npm run build
 
 # ---------- 3. Runtime ----------
-FROM node:${NODE_VERSION}-slim AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \
