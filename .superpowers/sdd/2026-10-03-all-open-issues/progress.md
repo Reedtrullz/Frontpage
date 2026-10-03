@@ -121,3 +121,11 @@ Task-level RED→GREEN commands, focused commits, final self-review, and parent 
 - RED: `node --test tests/e2e/metric-fixture-times.test.mjs` failed before the helper existed. GREEN: the focused Node 22 test passes for 15-second, minute, and quarter-hour UTC buckets.
 - Change: fixture timestamps now end at the latest closed bucket; the owner chart regression requires the keyboard readout to include the selected CPU value and exclude “No measured samples in this range.”
 - Runtime v2 Worker route harness and owner/latest/feed/restart/privacy checks remain the next follow-up commit; no build or Worker harness was run while parent build is in progress.
+
+## Runtime follow-up checkpoint — local Worker harness
+
+- Commit: `216ef822048961b2d5dd9cd1db6db64ce40ba149` — `Exercise v2 owner telemetry in Worker runtime`.
+- The Worker harness now ingests existing v2 fixtures through real local hashed uploads, prepare, commit, and activation with a synthetic 48-hour gate. A test-only entry replaces network access with one fixture response for the mining endpoint and throws for every other outbound fetch.
+- Added runtime assertions for owner/latest 401 and 403 with `private, no-store`, owner 200/304 ETag behavior, 1h window bounds/closed timestamps/coverage, public feed source timestamps and owner-field redaction, public status HTML redaction, owner SSR latest/incidents/history timestamps, streamed compressed-body and decoded-size limits, and v2 reads after Worker restart.
+- Added browser regression for 401-clearing private telemetry and no further 15-second poll. Targeted syntax checks, fixture-time Node test, changed-file ESLint and `git diff --check` pass. The built Worker runtime and Playwright suite were not run in this worktree; parent owns those runs.
+- Local SDD bookkeeping was removed from the Git index with `git rm --cached` and remains on disk, as requested; it is excluded from the source PR diff.
