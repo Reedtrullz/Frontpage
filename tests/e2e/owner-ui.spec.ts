@@ -108,20 +108,69 @@ test.describe("owner workspace", () => {
     await page.getByRole("button", { name: "Discard all project drafts" }).click();
   });
 
-  test("new project starts with honest empty fields and blocks navigation while edits are unsaved", async ({ page }) => {
-    await page.goto("/admin/projects/new");
+  test("new project starts honestly and canceled then accepted Back uses one entry each", async ({ page }) => {
+    await page.goto("/admin/projects");
+    await page.getByRole("link", { name: "Create project draft" }).click();
     await expect(page.getByRole("heading", { name: "Create project draft" })).toBeVisible();
     await expect(page.getByLabel("Name")).toHaveValue("");
     await expect(page.getByLabel("Evidence note")).toHaveValue("");
     await page.getByLabel("Name").fill("Unpublished draft");
     page.once("dialog", (dialog) => dialog.dismiss());
-    await page.getByRole("link", { name: "All project editors" }).click();
-    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
-    await expect(page.getByLabel("Name")).toHaveValue("Unpublished draft");
-    page.once("dialog", (dialog) => dialog.dismiss());
     await page.goBack();
     await expect(page).toHaveURL(/\/admin\/projects\/new$/);
     await expect(page.getByLabel("Name")).toHaveValue("Unpublished draft");
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    await expect(page.getByRole("heading", { name: "Project content" })).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(page.getByRole("heading", { name: "Create project draft" })).toBeVisible();
+  });
+
+  test("popstate fallback cancels before routing and accepted Back leaves in one action", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects");
+    await page.getByRole("link", { name: "Create project draft" }).click();
+    await page.getByLabel("Name").fill("Fallback unsaved draft");
+
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(page.getByLabel("Name")).toHaveValue("Fallback unsaved draft");
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    await expect(page.getByRole("heading", { name: "Project content" })).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+  });
+
+  test("modified and new-tab links do not prompt or disturb unsaved fields", async ({ page }) => {
+    await page.goto("/admin/projects/new");
+    await page.getByLabel("Name").fill("Keep this editor open");
+    let dialogCount = 0;
+    page.on("dialog", async (dialog) => {
+      dialogCount += 1;
+      await dialog.dismiss();
+    });
+
+    const editorsLink = page.getByRole("link", { name: "All project editors" });
+    const modifiedPopup = page.waitForEvent("popup");
+    await editorsLink.click({ modifiers: ["Control"] });
+    await expect(await modifiedPopup).toHaveURL(/\/admin\/projects$/);
+
+    await editorsLink.evaluate((anchor: HTMLAnchorElement) => { anchor.target = "_blank"; });
+    const newTab = page.waitForEvent("popup");
+    await editorsLink.click();
+    await expect(await newTab).toHaveURL(/\/admin\/projects$/);
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(page.getByLabel("Name")).toHaveValue("Keep this editor open");
+    expect(dialogCount).toBe(0);
   });
 
   test("creates, previews, archives, then discards one complete project draft", async ({ page }) => {
@@ -201,6 +250,22 @@ test.describe("owner workspace", () => {
     await page.getByRole("button", { name: "Discard draft", exact: true }).click();
     await expect(page.getByText(/discard request failed/i)).toBeVisible();
     await expect(bio).toHaveValue(new RegExp("network regression"));
+  });
+
+  test("offline project save preserves unsaved fields and retry remains guarded", async ({ page }) => {
+    await page.goto("/admin/projects/rfs");
+    const name = page.getByLabel("Name");
+    await name.fill("RFS offline owner edit");
+    await page.context().setOffline(true);
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText(/save request failed/i)).toBeVisible();
+    await expect(name).toHaveValue("RFS offline owner edit");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.getByRole("link", { name: "All project editors" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/rfs$/);
+    await expect(name).toHaveValue("RFS offline owner edit");
   });
 
   test("supports keyboard owner-menu dismissal and mobile parity", async ({ page }) => {

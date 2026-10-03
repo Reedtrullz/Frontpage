@@ -19,7 +19,7 @@ import {
   TextAreaField,
   TextField,
 } from "./EditorFields";
-import { confirmUnsavedNavigation, useUnsavedChanges } from "./useUnsavedChanges";
+import { allowUnsavedProgrammaticTransition, confirmUnsavedNavigation, useUnsavedChanges } from "./useUnsavedChanges";
 
 function asLines(value: string): string[] {
   return value === "" ? [] : value.split("\n");
@@ -163,7 +163,9 @@ export function ProjectEditor({
       setDraftExists(true);
       setMessage("Projects draft saved locally. It is not published.");
       if (!exists || validation.candidate.slug !== originalSlug) {
-        router.replace(`/admin/projects/${validation.candidate.slug}`);
+        const destination = `/admin/projects/${validation.candidate.slug}`;
+        allowUnsavedProgrammaticTransition(destination);
+        router.replace(destination);
       } else {
         router.refresh();
       }
@@ -188,6 +190,7 @@ export function ProjectEditor({
       setRevision(null);
       setDraftExists(false);
       setMessage("Projects draft discarded. Published content is unchanged.");
+      allowUnsavedProgrammaticTransition("/admin/projects");
       router.replace("/admin/projects");
       router.refresh();
     } catch {
