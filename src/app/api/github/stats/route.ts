@@ -3,6 +3,7 @@ import { getProjects } from "@/lib/data";
 import {
   extractRepoPairs,
   fetchAllRepoStats,
+  normalizeGitHubRepository,
   type GitHubStats,
 } from "@/lib/github-stats";
 
@@ -17,10 +18,8 @@ export async function GET() {
   const result: Record<string, GitHubStats> = {};
   for (const p of projects) {
     if (!p.repoUrl) continue;
-    const key = p.repoUrl
-      .replace("https://github.com/", "")
-      .replace(/\.git$/, "");
-    const stats = statsMap.get(key);
+    const repository = normalizeGitHubRepository(p.repoUrl);
+    const stats = repository ? statsMap.get(repository.key) : undefined;
     if (stats) {
       result[p.slug] = stats;
     }
