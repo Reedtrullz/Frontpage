@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Search } from "lucide-react";
+import { ArrowRight, Plus, Search } from "lucide-react";
 import type { ProjectContent } from "@/lib/content/schema";
 import type { ProjectDraftMarker } from "@/lib/content/admin-view";
 import { PostureBadge } from "@/components/ui/PostureBadge";
@@ -29,6 +29,8 @@ export function ProjectWorkspaceList({
 
   return (
     <div>
+      <Link href="/admin/projects/new" className="primary-command mb-5 inline-flex"><Plus className="h-4 w-4" aria-hidden="true" />Create project draft</Link>
+      <p className="mb-4 text-sm text-[var(--text-muted)]">Discarding a projects draft removes the entire saved projects bundle. Review its scope in the editor before confirming.</p>
       <section aria-label="Project editor filters" className="grid gap-3 border-y border-[var(--border)] py-4 md:grid-cols-[minmax(220px,1fr)_180px_180px]">
         <label className="relative">
           <span className="sr-only">Search editable projects</span>

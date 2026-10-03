@@ -12,7 +12,7 @@ import {
   TextAreaField,
   TextField,
 } from "./EditorFields";
-import { useUnsavedChanges } from "./useUnsavedChanges";
+import { confirmUnsavedNavigation, useUnsavedChanges } from "./useUnsavedChanges";
 
 function issueText(input: unknown): string[] {
   const result = personalSchema.safeParse(input);
@@ -80,15 +80,17 @@ export function PersonalEditor({
       setMessage("Personal draft saved locally. It is not published.");
       router.refresh();
     } catch {
-      setMessage("The draft could not be saved.");
+      setMessage("The save request failed. Your personal edits remain in this editor; retry when connected.");
     } finally {
       setBusy(false);
     }
   }
 
   async function discardDraft() {
+    if (!confirmUnsavedNavigation(dirty)) return;
     if (!window.confirm("Discard the saved personal draft?")) return;
     setBusy(true);
+    setMessage("");
     try {
       const response = await fetch("/api/data/personal", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({expectedRevision: revision}) });
       if (!response.ok) {
@@ -101,6 +103,8 @@ export function PersonalEditor({
       setDraftExists(false);
       setMessage("Personal draft discarded. Published content is unchanged.");
       router.refresh();
+    } catch {
+      setMessage("The discard request failed. Your editor values remain available; retry when connected.");
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,6 @@
 import type { ProjectContent, PublicRepository } from "@/lib/content/schema";
 import type { GitHubStats } from "@/lib/github-stats";
+import type { ProjectEvidence, ProjectMilestone } from "@/lib/content/schema";
 
 export type ProjectSort = "featured" | "evidence" | "name";
 export type ProjectLifecycleFilter = ProjectContent["lifecycle"] | "all" | "current";
@@ -19,6 +20,24 @@ export interface RepositoryActivity {
 }
 
 export type RepositoryStatus = "no-repository" | "unavailable" | "no-commits" | "updated";
+
+export type EvidenceReviewAge = { kind: "known"; days: number } | { kind: "unknown" | "invalid" };
+
+export function evidenceReviewAge(reviewedAt: string, now: Date): EvidenceReviewAge {
+  const reviewed = Date.parse(reviewedAt);
+  if (!Number.isFinite(reviewed)) return { kind: "invalid" };
+  const elapsed = now.getTime() - reviewed;
+  if (elapsed < 0) return { kind: "unknown" };
+  return { kind: "known", days: Math.floor(elapsed / 86_400_000) };
+}
+
+export function evidenceReference(evidence: ProjectEvidence): { url?: string; commitSha?: string; scope: ProjectEvidence["level"] } {
+  return { url: evidence.url, commitSha: evidence.commitSha, scope: evidence.level };
+}
+
+export function sortProjectMilestones(milestones: readonly ProjectMilestone[]): ProjectMilestone[] {
+  return milestones.toSorted((left, right) => right.occurredAt.localeCompare(left.occurredAt) || left.id.localeCompare(right.id));
+}
 
 function searchableText(project: ProjectContent): string {
   return [

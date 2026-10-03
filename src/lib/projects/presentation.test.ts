@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { getCanonicalProjects } from "@/lib/content";
 import {
   filterPublicRepositories,
+  evidenceReviewAge,
+  sortProjectMilestones,
   filterProjects,
   repositoryActivity,
   repositoryStatus,
@@ -12,6 +14,24 @@ import {
 const projects = getCanonicalProjects();
 
 describe("project presentation", () => {
+  it("reports review age independently and handles invalid or future dates", () => {
+    const now = new Date("2026-10-03T00:00:00Z");
+    expect(evidenceReviewAge("2026-10-01T00:00:00Z", now)).toEqual({ kind: "known", days: 2 });
+    expect(evidenceReviewAge("2026-10-04T00:00:00Z", now)).toEqual({ kind: "unknown" });
+    expect(evidenceReviewAge("not-a-date", now)).toEqual({ kind: "invalid" });
+  });
+
+  it("orders optional milestones newest first with stable ID tie breaks without mutation", () => {
+    const milestones = [
+      { id: "zeta", occurredAt: "2026-09-01", title: "First entry", summary: "A source reviewed entry.", scope: "source-reviewed" as const, evidenceUrl: "https://example.com/a", reviewedAt: "2026-09-02T00:00:00Z" },
+      { id: "alpha", occurredAt: "2026-09-01", title: "Second entry", summary: "Another source reviewed entry.", scope: "ci-verified" as const, evidenceUrl: "https://example.com/b", reviewedAt: "2026-09-02T00:00:00Z" },
+      { id: "newer", occurredAt: "2026-10-01", title: "Newer entry", summary: "The newest recorded entry.", scope: "live-verified" as const, evidenceUrl: "https://example.com/c", reviewedAt: "2026-10-02T00:00:00Z" },
+    ];
+    expect(sortProjectMilestones(milestones).map((entry) => entry.id)).toEqual(["newer", "alpha", "zeta"]);
+    expect(milestones.map((entry) => entry.id)).toEqual(["zeta", "alpha", "newer"]);
+    expect(sortProjectMilestones([])).toEqual([]);
+  });
+
   it("sorts flagships by featured rank", () => {
     expect(selectFlagships(projects).map((project) => project.slug)).toEqual([
       "nytt",
