@@ -1,0 +1,26 @@
+{
+  "projectSlug": "frontpage",
+  "publicationStatus": "owner-editorial-review-pending",
+  "milestones": [
+    {
+      "id": "gated-v2-transport",
+      "occurredAt": "2026-10-02",
+      "title": "Gated Cloudflare v2 transport prepared",
+      "summary": "Merged bounded transport and a separate acceptance-controlled read pointer. This milestone records source changes; the real shadow gate still governs activation.",
+      "scope": "source-reviewed",
+      "evidenceUrl": "https://github.com/Reedtrullz/Frontpage/pull/59",
+      "reviewedAt": "2026-10-03T14:37:35Z",
+      "commitSha": "d8896f25db61fc70b43b3efaff379102a12cd7a1"
+    },
+    {
+      "id": "collector-overrun-ci",
+      "occurredAt": "2026-10-02",
+      "title": "Collector deadline change passed CI",
+      "summary": "The exact main commit passed repository CI after adding bounded v2 service checks and cycle-overrun reporting. CI does not establish the 48-hour shadow acceptance.",
+      "scope": "ci-verified",
+      "evidenceUrl": "https://github.com/Reedtrullz/Frontpage/actions/runs/37037653299",
+      "reviewedAt": "2026-10-03T14:37:35Z",
+      "commitSha": "c45bc2a5517eb2435bea89fd4194b638fd48a96c"
+    }
+  ]
+}

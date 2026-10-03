@@ -113,6 +113,399 @@ test.describe("owner workspace", () => {
     await expect(page.getByText("Personal draft discarded. Published content is unchanged.")).toBeVisible();
   });
 
+  test("keeps invalid gallery JSON visible, links its error, and focuses it on save", async ({ page }) => {
+    let saveNumber = 0;
+    let savedGallery: unknown;
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      const payload = route.request().postDataJSON() as { content: Array<{ slug: string; media?: { gallery?: unknown[] } }> };
+      savedGallery = payload.content.find((project) => project.slug === "rfs")?.media?.gallery;
+      saveNumber += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ revision: `00000000-0000-4000-8000-${String(saveNumber).padStart(12, "0")}` }),
+      });
+    });
+    await page.goto("/admin/projects/rfs");
+    const gallery = page.getByLabel("Gallery JSON");
+
+    // Seed a real saved value using the canonical approved cover already shown in this editor.
+    const cover = {
+      src: await page.getByLabel("Cover source").inputValue(),
+      alt: await page.getByLabel("Cover alt text").inputValue(),
+      width: Number(await page.getByLabel("Width").inputValue()),
+      height: Number(await page.getByLabel("Height").inputValue()),
+      caption: await page.getByLabel("Caption").inputValue(),
+    };
+    await gallery.fill(JSON.stringify([cover], null, 2));
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    expect(savedGallery).toEqual([cover]);
+
+    await gallery.fill("{}");
+    await expect(gallery).toHaveAttribute("aria-invalid", "true");
+    await expect(gallery).toHaveAttribute("aria-describedby", "project-gallery-error");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(gallery).toBeFocused();
+    await expect(gallery).toHaveValue("{}");
+
+    await gallery.fill("[]");
+    await expect(gallery).toHaveAttribute("aria-invalid", "false");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    expect(savedGallery).toEqual([]);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Discard all project drafts" }).click();
+  });
+
+  test("new project starts honestly and canceled then accepted Back uses one entry each", async ({ page }) => {
+    await page.goto("/admin/projects");
+    await page.getByRole("link", { name: "Create project draft" }).click();
+    await expect(page.getByRole("heading", { name: "Create project draft" })).toBeVisible();
+    await expect(page.getByLabel("Name")).toHaveValue("");
+    await expect(page.getByLabel("Evidence note")).toHaveValue("");
+    await page.getByLabel("Name").fill("Unpublished draft");
+    const editorUrl = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
+    await expect.poll(() => page.url()).toBe(editorUrl);
+    await expect(page.getByLabel("Name")).toHaveValue("Unpublished draft");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    await expect(page.getByRole("heading", { name: "Project content" })).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(page.getByRole("heading", { name: "Create project draft" })).toBeVisible();
+  });
+
+  test("popstate fallback cancels before routing and accepted Back leaves in one action", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects");
+    await page.getByRole("link", { name: "Create project draft" }).click();
+    await page.getByLabel("Name").fill("Fallback unsaved draft");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => (window as Window & { navigation?: unknown }).navigation)).toBeUndefined();
+
+    const editorUrl = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
+    await expect.poll(() => page.url()).toBe(editorUrl);
+    await expect(page.getByLabel("Name")).toHaveValue("Fallback unsaved draft");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    await expect(page.getByRole("heading", { name: "Project content" })).toBeVisible();
+    await page.goForward();
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+  });
+
+  test("popstate fallback cancels Forward by restoring the prior entry", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects/new");
+    await page.evaluate(() => {
+      history.pushState({ ...history.state, forwardProbe: "earlier" }, "", location.href);
+      history.pushState({ ...history.state, forwardProbe: "later" }, "", location.href);
+      history.back();
+    });
+    await page.waitForFunction(() => history.state?.forwardProbe === "earlier");
+
+    const name = page.getByLabel("Name");
+    await name.fill("Keep fields after rejected Forward");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+    const historyLength = await page.evaluate(() => history.length);
+    const canceledForward = page.waitForEvent("dialog");
+    await page.evaluate(() => history.forward());
+    await (await canceledForward).dismiss();
+    await expect(name).toHaveValue("Keep fields after rejected Forward");
+    await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("earlier");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goForward();
+    await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("later");
+  });
+
+  test("failed programmatic push does not corrupt fallback position for a later canceled Back", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects/new");
+    const failedPushWasRejected = await page.evaluate(() => {
+      try {
+        history.pushState({ ...history.state, uncloneable: () => undefined }, "", location.href);
+      } catch {
+        return true;
+      }
+      return false;
+    });
+    expect(failedPushWasRejected).toBe(true);
+
+    await page.evaluate(() => {
+      history.pushState({ ...history.state, pushProbe: "earlier" }, "", location.href);
+      history.pushState({ ...history.state, pushProbe: "later" }, "", location.href);
+      history.back();
+    });
+    await page.waitForFunction(() => history.state?.pushProbe === "earlier");
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => history.state?.pushProbe === undefined);
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => history.state?.pushProbe === "earlier");
+
+    const name = page.getByLabel("Name");
+    await name.fill("Retain fields after failed push");
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
+    await expect(name).toHaveValue("Retain fields after failed push");
+    await expect.poll(() => page.evaluate(() => history.state?.pushProbe)).toBe("earlier");
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect.poll(() => page.evaluate(() => history.state?.pushProbe)).toBeUndefined();
+  });
+
+  test("modified and new-tab links do not prompt or disturb unsaved fields", async ({ page }) => {
+    await page.goto("/admin/projects/new");
+    await page.getByLabel("Name").fill("Keep this editor open");
+    let dialogCount = 0;
+    page.on("dialog", async (dialog) => {
+      dialogCount += 1;
+      await dialog.dismiss();
+    });
+
+    const editorsLink = page.getByRole("link", { name: "All project editors" });
+    const modifiedPopup = page.context().waitForEvent("page");
+    await editorsLink.click({ modifiers: ["ControlOrMeta"] });
+    await expect(await modifiedPopup).toHaveURL(/\/admin\/projects$/);
+
+    await editorsLink.evaluate((anchor: HTMLAnchorElement) => { anchor.target = "_blank"; });
+    const newTab = page.context().waitForEvent("page");
+    await editorsLink.click();
+    await expect(await newTab).toHaveURL(/\/admin\/projects$/);
+    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    await expect(page.getByLabel("Name")).toHaveValue("Keep this editor open");
+    expect(dialogCount).toBe(0);
+  });
+
+  test("accepted same-tab links show one unsaved warning", async ({ page }) => {
+    await page.goto("/admin/projects/new");
+    await page.getByLabel("Name").fill("Navigate after accepting once");
+    let dialogCount = 0;
+    page.on("dialog", async (dialog) => {
+      dialogCount += 1;
+      await dialog.accept();
+    });
+    await page.getByRole("link", { name: "All project editors" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+    expect(dialogCount).toBe(1);
+  });
+
+  test("creates, previews, archives, then discards one complete project draft", async ({ page }) => {
+    const submittedRenames: Array<{ slug: string; aliases?: string[] }> = [];
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON() as { content: Array<{ name: string; slug: string; aliases?: string[] }> };
+        const candidate = body.content.find((project) => project.name === "E2E Owner Draft");
+        if (candidate) submittedRenames.push({ slug: candidate.slug, aliases: candidate.aliases });
+      }
+      await route.continue();
+    });
+    await page.goto("/admin/projects/new");
+    await expect(page.getByRole("button", { name: "Discard all project drafts" })).toHaveCount(0);
+    await page.getByLabel("Name").fill("E2E Owner Draft");
+    await page.getByLabel("Slug").fill("rfs");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByLabel("Slug")).toBeFocused();
+    await expect(page.getByLabel("Slug")).toHaveAttribute("aria-describedby", "project-slug-error");
+    await page.getByLabel("Slug").fill("e2e-owner-draft");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByLabel("Outcome")).toBeFocused();
+    await expect(page.getByLabel("Outcome")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByLabel("Outcome")).toHaveAttribute("aria-describedby", "project-outcome-error");
+    await page.getByLabel("Outcome").fill("Demonstrates a complete owner-created draft.");
+    await page.getByLabel("Short description").fill("A local-only project draft for browser regression.");
+    await page.getByLabel("Long description").fill("This content is created in the isolated browser test runtime and is never published.");
+    await page.getByLabel("What it solves").fill("Makes the create workflow verifiable.");
+    await page.getByLabel("Current state").fill("This is an unpublished test candidate.");
+    await page.getByLabel("How it works").fill("The owner fills required evidence and saves the bundle.");
+    await page.getByLabel("Reviewed at (UTC)").fill("2026-10-03T15:00:00Z");
+    await page.getByLabel("Evidence note").fill("Synthetic browser fixture only; no public claim.");
+    await page.getByLabel("Milestones JSON").fill(JSON.stringify([{ id: "fixture-first-release", occurredAt: "2026-10-02", title: "Synthetic timeline fixture", summary: "A local browser fixture with a documented source reference.", scope: "source-reviewed", evidenceUrl: "https://example.com/test-evidence", reviewedAt: "2026-10-03T15:00:00Z" }], null, 2));
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.getByRole("button", { name: "Preview" }).click();
+    const preview = page.getByRole("region", { name: "Project draft preview" });
+    const previewHeading = preview.getByRole("heading", { name: "What it solves" });
+    await expect(previewHeading).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Project timeline" })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Synthetic timeline fixture" })).toBeVisible();
+    const [previewWidth, validationWidth] = await Promise.all([
+      preview.evaluate((element) => element.getBoundingClientRect().width),
+      page.getByRole("heading", { name: "Validation" }).evaluate((element) => element.parentElement!.getBoundingClientRect().width),
+    ]);
+    expect(previewWidth).toBeGreaterThan(validationWidth + 100);
+    expect(await preview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(previewHeading).toBeVisible();
+    expect(await preview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(page.getByText("Current limitations")).toHaveCount(0);
+    const createdDraft = page.waitForResponse((response) =>
+      response.url().endsWith("/api/data/projects") && response.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    expect((await createdDraft).status()).toBe(200);
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft$/);
+    await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Name")).toHaveValue("E2E Owner Draft");
+    await expect(page.getByLabel("Evidence note")).toHaveValue("Synthetic browser fixture only; no public claim.");
+    const publicDraftResponse = await page.request.get("/projects/e2e-owner-draft");
+    const publicDraftHtml = await publicDraftResponse.text();
+    expect(publicDraftHtml).toContain("Page not found");
+    expect(publicDraftHtml).not.toContain("E2E Owner Draft");
+    expect(publicDraftHtml).not.toContain("Synthetic browser fixture only; no public claim.");
+    await page.getByLabel("Slug").fill("e2e-owner-draft-renamed");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-renamed$/);
+    await page.getByLabel("Slug").fill("e2e-owner-draft-final");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-final$/);
+    await page.getByLabel("Slug").fill("e2e-owner-draft");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft$/);
+    expect(submittedRenames.at(-1)).toEqual({ slug: "e2e-owner-draft", aliases: ["e2e-owner-draft-renamed", "e2e-owner-draft-final"] });
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Archive project" }).click();
+    await expect(page.getByText(/Project archived in the local draft/)).toBeVisible();
+    await expect(page.getByLabel("Evidence note")).toHaveValue("Synthetic browser fixture only; no public claim.");
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Discard all project drafts" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects$/);
+  });
+
+  test("archives the current saved project while the post-save server refresh is delayed", async ({ page }) => {
+    const submitted: Array<Record<string, unknown>> = [];
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      const body = route.request().postDataJSON() as { content: Array<Record<string, unknown>> };
+      const project = body.content.find((item) => item.slug === "rfs");
+      if (project) submitted.push(project);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ revision: `00000000-0000-4000-8000-${String(submitted.length).padStart(12, "0")}` }),
+      });
+    });
+
+    let releaseRefresh!: () => void;
+    let signalRefreshStarted!: () => void;
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const refreshStarted = new Promise<void>((resolve) => { signalRefreshStarted = resolve; });
+    let delayNextRefresh = false;
+    await page.route("**/admin/projects/rfs**", async (route) => {
+      const url = new URL(route.request().url());
+      if (delayNextRefresh && url.searchParams.has("_rsc")) {
+        delayNextRefresh = false;
+        signalRefreshStarted();
+        await refreshGate;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/admin/projects/rfs");
+    const savedName = "RFS recent saved name before archive";
+    const savedDescription = "This recent saved description must survive a delayed server refresh during archive.";
+    const savedEvidence = "Owner saved these details before archiving; preserve this evidence text.";
+    await page.getByLabel("Name").fill(savedName);
+    await page.getByLabel("Short description").fill(savedDescription);
+    await page.getByLabel("Evidence note").fill(savedEvidence);
+    const cover = {
+      src: await page.getByLabel("Cover source").inputValue(),
+      alt: await page.getByLabel("Cover alt text").inputValue(),
+      width: Number(await page.getByLabel("Width").inputValue()),
+      height: Number(await page.getByLabel("Height").inputValue()),
+      caption: await page.getByLabel("Caption").inputValue(),
+    };
+    await page.getByLabel("Gallery JSON").fill(JSON.stringify([cover], null, 2));
+    delayNextRefresh = true;
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    await refreshStarted;
+    expect(submitted).toHaveLength(1);
+
+    try {
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: "Archive project" }).click();
+      await expect(page.getByText(/Project archived in the local draft/)).toBeVisible();
+      expect(submitted).toHaveLength(2);
+      expect(submitted[1]).toMatchObject({
+        name: savedName,
+        shortDescription: savedDescription,
+        evidence: { note: savedEvidence },
+        media: { gallery: [cover] },
+        lifecycle: "archived",
+      });
+    } finally {
+      releaseRefresh();
+    }
+  });
+
+  test("offline save and discard failures preserve personal editor text and recover busy state", async ({ page }) => {
+    let saveAttempt = 0;
+    await page.route("**/api/data/personal", async (route) => {
+      if (route.request().method() === "DELETE") return route.abort();
+      saveAttempt += 1;
+      if (saveAttempt === 1) return route.abort();
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ revision: "personal-network-revision" }) });
+    });
+    await page.goto("/admin/personal");
+    const bio = page.getByLabel("Bio");
+    await bio.fill(`${await bio.inputValue()} network regression`);
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByText(/save request failed/i)).toBeVisible();
+    await expect(bio).toHaveValue(new RegExp("network regression"));
+    await expect(page.getByRole("button", { name: "Save draft", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Save draft", exact: true }).click();
+    await expect(page.getByText("Personal draft saved locally. It is not published.")).toBeVisible();
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Discard draft", exact: true }).click();
+    await expect(page.getByText(/discard request failed/i)).toBeVisible();
+    await expect(bio).toHaveValue(new RegExp("network regression"));
+  });
+
+  test("offline project save preserves unsaved fields and retry remains guarded", async ({ page }) => {
+    await page.goto("/admin/projects/rfs");
+    const name = page.getByLabel("Name");
+    await name.fill("RFS offline owner edit");
+    await page.context().setOffline(true);
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText(/save request failed/i)).toBeVisible();
+    await expect(name).toHaveValue("RFS offline owner edit");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
+
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.getByRole("link", { name: "All project editors" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/rfs$/);
+    await expect(name).toHaveValue("RFS offline owner edit");
+  });
+
   test("supports keyboard owner-menu dismissal and mobile parity", async ({ page }) => {
     await page.goto("/");
     const ownerButton = page.getByRole("button", { name: "Owner" });

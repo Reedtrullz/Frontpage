@@ -71,10 +71,31 @@ const projectMediaItemSchema = z
   })
   .strict();
 
+export const projectGallerySchema = z.array(projectMediaItemSchema).max(8);
+
+const calendarDateSchema = z.string().superRefine((value, ctx) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+    ctx.addIssue({ code: "custom", message: "Must be a valid calendar date (YYYY-MM-DD)." });
+  }
+});
+
+export const projectMilestoneSchema = z.object({
+  id: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),
+  occurredAt: calendarDateSchema,
+  title: z.string().trim().min(4).max(120),
+  summary: z.string().trim().min(8).max(320),
+  scope: evidenceLevelSchema,
+  evidenceUrl: httpUrlSchema,
+  reviewedAt: utcDateTimeSchema,
+  commitSha: z.string().regex(/^[a-f0-9]{7,40}$/).optional(),
+}).strict();
+
+export const projectMilestonesSchema = z.array(projectMilestoneSchema).max(20);
+
 export const projectMediaSchema = z
   .object({
     cover: projectMediaItemSchema,
-    gallery: z.array(projectMediaItemSchema).max(8).optional(),
+    gallery: projectGallerySchema.optional(),
   })
   .strict();
 
@@ -105,6 +126,7 @@ export const projectSchema = z
       .min(1)
       .max(80)
       .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a URL-safe slug."),
+    aliases: z.array(z.string().trim().min(1).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a URL-safe slug.")).max(32).superRefine(uniqueStrings).optional(),
     name: z.string().trim().min(1).max(100),
     outcome: z.string().trim().min(8).max(180),
     shortDescription: z.string().trim().min(8).max(360),
@@ -127,6 +149,7 @@ export const projectSchema = z
       .superRefine(uniqueStrings)
       .optional(),
     evidence: projectEvidenceSchema,
+    milestones: projectMilestonesSchema.optional(),
     sections: projectSectionsSchema,
     limitations: z.array(z.string().trim().min(1)).max(12).default([]),
   })
@@ -204,6 +227,7 @@ export type ProjectMaturity = z.infer<typeof maturitySchema>;
 export type ProjectEvidenceLevel = z.infer<typeof evidenceLevelSchema>;
 export type ProjectCategory = z.infer<typeof projectCategorySchema>;
 export type ProjectMedia = z.infer<typeof projectMediaSchema>;
+export type ProjectMilestone = z.infer<typeof projectMilestoneSchema>;
 export type ProjectEvidence = z.infer<typeof projectEvidenceSchema>;
 export type ProjectContent = z.infer<typeof projectSchema>;
 export type PublicRepository = z.infer<typeof publicRepositorySchema>;
@@ -211,23 +235,54 @@ export type PersonalContent = z.infer<typeof personalSchema>;
 export type SocialLink = z.infer<typeof socialLinkSchema>;
 export type MaintenanceWindow = z.infer<typeof maintenanceWindowSchema>;
 
+export class ProjectCatalogueValidationError extends Error {}
+
 export function parseProjects(input: unknown): ProjectContent[] {
   const projects = projectsSchema.parse(input);
   const slugs = new Set<string>();
   const names = new Set<string>();
+  const identifiers = new Map<string, string>();
 
   for (const project of projects) {
-    if (slugs.has(project.slug)) {
-      throw new Error(`Duplicate project slug: ${project.slug}`);
+    const allSlugs = [project.slug, ...(project.aliases ?? [])];
+    if (new Set(allSlugs).size !== allSlugs.length) throw new ProjectCatalogueValidationError(`Project ${project.slug} has duplicate or self-referential aliases.`);
+    if ((project.milestones ?? []).some((milestone, index, milestones) => milestones.findIndex((item) => item.id === milestone.id) !== index)) throw new ProjectCatalogueValidationError(`Project ${project.slug} has duplicate milestone IDs.`);
+    for (const slug of allSlugs) {
+      const owner = identifiers.get(slug);
+      if (owner) {
+        if (owner === project.slug && slug === project.slug) throw new ProjectCatalogueValidationError(`Duplicate project slug: ${slug}`);
+        throw new ProjectCatalogueValidationError(`Project slug or alias collision: ${slug} belongs to both ${owner} and ${project.slug}.`);
+      }
+      identifiers.set(slug, project.slug);
     }
+    if (slugs.has(project.slug)) throw new ProjectCatalogueValidationError(`Duplicate project slug: ${project.slug}`);
     if (names.has(project.name.toLowerCase())) {
-      throw new Error(`Duplicate project name: ${project.name}`);
+      throw new ProjectCatalogueValidationError(`Duplicate project name: ${project.name}`);
     }
     slugs.add(project.slug);
     names.add(project.name.toLowerCase());
   }
 
   return projects;
+}
+
+export type ProjectSlugResolution =
+  | { kind: "current"; project: ProjectContent }
+  | { kind: "redirect"; project: ProjectContent }
+  | { kind: "not-found" };
+
+export function resolveProjectSlug(slug: string, projects: readonly ProjectContent[]): ProjectSlugResolution {
+  const current = projects.find((project) => project.slug === slug);
+  if (current) return { kind: "current", project: current };
+  const aliased = projects.find((project) => project.aliases?.includes(slug));
+  return aliased ? { kind: "redirect", project: aliased } : { kind: "not-found" };
+}
+
+export function preserveProjectSlugAliases(project: ProjectContent, previousSlug: string): ProjectContent {
+  if (!previousSlug || previousSlug === project.slug) return project;
+  const aliases = (project.aliases ?? []).filter((alias) => alias !== project.slug);
+  aliases.push(previousSlug);
+  return { ...project, aliases: Array.from(new Set(aliases)) };
 }
 
 export function parsePublicRepositories(input: unknown): PublicRepository[] {

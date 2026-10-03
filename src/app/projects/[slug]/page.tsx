@@ -6,16 +6,12 @@ import {
   ArrowUpRight,
   ExternalLink,
   GitFork,
-  TriangleAlert,
 } from "lucide-react";
 import { PostureBadge } from "@/components/ui/PostureBadge";
-import { ProjectMedia } from "@/components/ui/ProjectMedia";
-import { RelativeTime } from "@/components/ui/RelativeTime";
-import {
-  getCanonicalProject,
-  getCanonicalProjects,
-} from "@/lib/content";
-import type { ProjectContent } from "@/lib/content/schema";
+import { ProjectDetailContent } from "@/components/projects/ProjectDetailContent";
+import { permanentRedirect } from "next/navigation";
+import { getCanonicalProjects } from "@/lib/content";
+import { resolveProjectSlug, type ProjectContent } from "@/lib/content/schema";
 import { derivePublicMetrics, getMetricsDir, readMetricsFromDir } from "@/lib/metrics/reader";
 import { deriveProjectHealth } from "@/lib/metrics/status-page";
 
@@ -24,16 +20,18 @@ interface Props {
 }
 
 export function generateStaticParams() {
-  return getCanonicalProjects().map((project) => ({ slug: project.slug }));
+  return getCanonicalProjects().flatMap((project) => [project.slug, ...(project.aliases ?? [])].map((slug) => ({ slug })));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const project = getCanonicalProject(slug);
-  if (!project) return { title: "Project not found" };
+  const resolution = resolveProjectSlug(slug, getCanonicalProjects());
+  if (resolution.kind === "not-found") return { title: "Project not found" };
+  const project = resolution.project;
   return {
     title: project.name,
     description: project.shortDescription,
+    alternates: { canonical: `/projects/${project.slug}` },
     openGraph: project.media
       ? { images: [{ url: project.media.cover.src, alt: project.media.cover.alt }] }
       : undefined,
@@ -55,26 +53,12 @@ function relatedProjects(project: ProjectContent): ProjectContent[] {
     .slice(0, 3);
 }
 
-function DetailSection({ title, items }: { title: string; items: string[] }) {
-  return (
-    <section className="border-t border-[var(--border)] pt-7">
-      <h2 className="text-xl font-semibold text-[var(--text)]">{title}</h2>
-      <ul className="mt-4 space-y-3 text-base leading-7 text-[var(--text-muted)]">
-        {items.map((item) => (
-          <li key={item} className="flex gap-3">
-            <span className="mt-3 h-1.5 w-1.5 shrink-0 bg-[var(--accent)]" aria-hidden="true" />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
 export default async function ProjectDetail({ params }: Props) {
   const { slug } = await params;
-  const project = getCanonicalProject(slug);
-  if (!project) notFound();
+  const resolution = resolveProjectSlug(slug, getCanonicalProjects());
+  if (resolution.kind === "not-found") notFound();
+  if (resolution.kind === "redirect") permanentRedirect(`/projects/${resolution.project.slug}`);
+  const project = resolution.project;
   const related = relatedProjects(project);
   const now = new Date();
   const metrics = derivePublicMetrics(readMetricsFromDir(getMetricsDir(), now), now);
@@ -117,63 +101,7 @@ export default async function ProjectDetail({ params }: Props) {
         </div>
       </header>
 
-      {project.media ? (
-        <div className="mx-auto max-w-7xl border-y border-[var(--border)] bg-[var(--surface-raised)] sm:border-x">
-          <ProjectMedia media={project.media.cover} priority showCaption sizes="(min-width: 1280px) 1200px, 100vw" />
-        </div>
-      ) : null}
-
-      <div className="mx-auto grid max-w-7xl gap-12 px-4 py-12 sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="space-y-10">
-          <p className="text-lg leading-8 text-[var(--text-muted)]">{project.longDescription}</p>
-          <DetailSection title="What it solves" items={project.sections.whatItSolves} />
-          <DetailSection title="Current state" items={project.sections.currentState} />
-          <DetailSection title="How it works" items={project.sections.howItWorks} />
-          {project.sections.nextPriorities?.length ? (
-            <DetailSection title="Next priorities" items={project.sections.nextPriorities} />
-          ) : null}
-        </div>
-
-        <aside className="border-t border-[var(--border)] pt-8 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-          <dl className="space-y-7 text-sm">
-            <div>
-              <dt className="font-mono text-xs uppercase text-[var(--text-subtle)]">Evidence reviewed</dt>
-              <dd className="mt-2 text-[var(--text)]">
-                <RelativeTime value={project.evidence.reviewedAt} now={now} />
-              </dd>
-              <dd className="mt-2 leading-6 text-[var(--text-muted)]">{project.evidence.note}</dd>
-            </div>
-            <div>
-              <dt className="font-mono text-xs uppercase text-[var(--text-subtle)]">Technology</dt>
-              <dd className="mt-2 flex flex-wrap gap-2">
-                {project.techStack.map((tech) => (
-                  <span key={tech} className="rounded border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-muted)]">{tech}</span>
-                ))}
-              </dd>
-            </div>
-            <div>
-              <dt className="font-mono text-xs uppercase text-[var(--text-subtle)]">Tags</dt>
-              <dd className="mt-2 leading-6 text-[var(--text-muted)]">{project.tags.join(" / ")}</dd>
-            </div>
-          </dl>
-        </aside>
-      </div>
-
-      {project.limitations.length ? (
-        <section className="border-y border-[var(--role-warning-border)] bg-[var(--role-warning-soft)]">
-          <div className="mx-auto max-w-7xl px-4 py-9 sm:px-6">
-            <div className="flex gap-4">
-              <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[var(--role-warning)]" aria-hidden="true" />
-              <div>
-                <h2 className="text-lg font-semibold text-[var(--role-warning)]">Current limitations</h2>
-                <ul className="mt-3 space-y-2 text-sm leading-6 text-[var(--text-muted)]">
-                  {project.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}
-                </ul>
-              </div>
-            </div>
-          </div>
-        </section>
-      ) : null}
+      <ProjectDetailContent project={project} now={now} />
 
       <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16">
         <h2 className="text-2xl font-semibold text-[var(--text)]">Related projects</h2>
