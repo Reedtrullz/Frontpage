@@ -12,7 +12,7 @@ export async function startRuntime({ missingBinding = false } = {}) {
   await mkdir(scratch, { recursive: true });
   const upstream = { name: 'frontpage-test-upstream', main: path.join(root, 'tests/cloudflare/upstream.mjs'), compatibility_date: '2026-09-28' };
   const config = {
-    name: 'frontpage-runtime-test', main: path.join(root, '.open-next/do-entry.mjs'), compatibility_date: '2026-09-28', compatibility_flags: ['nodejs_compat'],
+    name: 'frontpage-runtime-test', main: path.join(root, 'tests/cloudflare/entry.mjs'), compatibility_date: '2026-09-28', compatibility_flags: ['nodejs_compat'],
     assets: { directory: path.join(root, '.open-next/assets'), binding: 'ASSETS' },
     durable_objects: { bindings: missingBinding ? [] : [{ name: 'FRONTPAGE', class_name: 'FrontpageDO' }] },
     migrations: [{tag: 'v1', new_sqlite_classes: ['FrontpageDO']}],

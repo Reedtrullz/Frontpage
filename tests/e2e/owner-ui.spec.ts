@@ -77,6 +77,26 @@ test.describe("owner workspace", () => {
     expect(chart!.y).toBeLessThan(attribution!.y);
   });
 
+  test("clears owner telemetry and stops polling after an authorization failure", async ({ page }) => {
+    await page.clock.install();
+    const requests: string[] = [];
+    await page.route("**/api/owner/**", async (route) => {
+      requests.push(new URL(route.request().url()).pathname);
+      await route.fulfill({ status: 401, contentType: "application/json", body: '{"error":"Unauthorized"}' });
+    });
+
+    await page.goto("/status");
+    const panel = page.locator('section[aria-labelledby="owner-observability-heading"]');
+    await expect(panel.getByText(/Owner session expired\. Private telemetry was cleared/)).toBeVisible();
+    await expect(panel.getByText("Frontpage internal", { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("heading", { name: "CPU total" })).toHaveCount(0);
+    await expect.poll(() => new Set(requests).size).toBe(3);
+
+    const expiredRequestCount = requests.length;
+    await page.clock.fastForward(16_000);
+    expect(requests).toHaveLength(expiredRequestCount);
+  });
+
   test("saves and discards a personal draft", async ({ page }) => {
     await page.goto("/admin/personal");
     const bio = page.getByLabel("Bio");
