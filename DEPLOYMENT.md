@@ -110,12 +110,14 @@ The environment checker prints missing names and profile only; it never prints v
 ```bash
 node scripts/check-environment.mjs --profile public-local
 node scripts/check-environment.mjs --profile owner-local
-node scripts/check-environment.mjs --profile cloudflare
+node scripts/check-environment.mjs --profile cloudflare --wrangler-config wrangler.jsonc
 node scripts/check-environment.mjs --profile collector
 FRONTPAGE_VAULT_PASSWORD_FILE=.vault_pass node scripts/check-environment.mjs --profile rollback
 ```
 
-A public-local profile intentionally needs no owner secrets. Cloudflare's `FRONTPAGE_SQL` is a runtime binding and must be configured in the Worker; it cannot be supplied by a local shell export. The collector profile checks the configured secret-file path is readable without reading or printing its contents.
+The Cloudflare profile reads secret names from the shell but does not expect `FRONTPAGE_SQL` there: the Durable Object entry injects that runtime SQL handle. Pass `--wrangler-config` to verify the `FRONTPAGE` Durable Object binding and its SQLite migration. Without an inspected config the command reports this as unverified and exits unsuccessfully; a shell variable named `FRONTPAGE_SQL` cannot satisfy the configuration check.
+
+A public-local profile intentionally needs no owner secrets. `FRONTPAGE_SQL` is injected by the DO entry from its SQLite storage and cannot be supplied by a local shell export; the checked Wrangler config must bind `FRONTPAGE` and declare the SQLite class migration. The collector profile checks the configured secret-file path is readable without reading or printing its contents.
 
 To preserve existing notes, generate a state inventory only at a new destination:
 
@@ -131,11 +133,11 @@ CI must load the operator-verified public host key from protected `RACKNERD_KNOW
 
 ### Toolchain pins
 
-Docker uses the Node 22.22.3 Bookworm slim manifest digest recorded in the Dockerfile. Install Ansible from `ops/requirements-ansible.txt` and `ops/ansible/requirements.yml` so local validation and CI can use the same exact versions. The Linux native packages must match `package-lock.json`; see [the CI integration handoff](docs/superpowers/plans/2026-10-03-release-ops-parent-integration.md) for lock findings and parent-owned workflow edits. Verify clean amd64 and arm64 installs in CI before removing any supplemental native package workaround.
+Docker uses the Node 22.22.3 Bookworm slim manifest digest recorded in the Dockerfile. Install Ansible from `ops/requirements-ansible.txt` and `ops/ansible/requirements.yml` so local validation and CI can use the same exact versions. The Linux native packages must match `package-lock.json`; the lock records exact optional package versions and `os`/`cpu` selectors for both supported architectures. CI and Docker install from that lock with `npm ci --include=optional`; CI builds and smoke-tests amd64 and arm64 independently. The CI integration details and remaining remote evidence are in [the release-ops handoff](docs/superpowers/plans/2026-10-03-release-ops-parent-integration.md).
 
 ### Cloudflare headroom evidence
 
-`scripts/measure-cloudflare-headroom.mjs` implements a bounded mixed-workload harness for issue #55. **Do not run it until the parent has verified the preview Worker bindings, distinct Durable Object/storage, synthetic owner session, isolated collector credential, current account quota, and authorized request allowance, and explicitly coordinated the run.** It refuses `reidar.tech`, its subdomains, and the production `frontpage.reidjoss.workers.dev` origin. Only the verified `frontpage-do-preview` or `frontpage-migration-preview` Workers are accepted in the isolation evidence.
+`scripts/measure-cloudflare-headroom.mjs` implements a bounded mixed-workload harness for issue #55. **Do not run it until the parent has verified the preview Worker bindings, distinct Durable Object/storage, synthetic owner session, isolated collector credential, current account quota, and authorized request allowance, and explicitly coordinated the run.** It refuses `reidar.tech`, its subdomains, and the production `frontpage.reidjoss.workers.dev` origin. Only the verified `frontpage-do-preview`, `frontpage-migration-preview`, or a freshly inspected dedicated `frontpage-headroom-*` Worker is accepted in the isolation evidence. Prefer a new isolated headroom Worker over overwriting an existing preview; the harness itself creates no Cloudflare resources.
 
 Every live invocation requires all of these preconditions before the first request: `FRONTPAGE_BENCHMARK_ISOLATED_APPROVED=1`, `FRONTPAGE_BENCHMARK_COORDINATED=1`, an exact `FRONTPAGE_BENCHMARK_ALLOWED_ORIGIN`, non-secret budget reference, configured request cap, fresh provider observability evidence, fresh origin-matched preview-binding evidence, and a non-secret coordination reference. Provider evidence must contain actual observed Worker CPU ms, Durable Object CPU ms, account quota name/used/limit/unit, and an operator-authorized request allowance no greater than observed remaining quota. Those values are copied to the report; the harness does not infer CPU or account headroom. Evidence must be no older than 15 minutes. Missing, stale, insufficient, or mismatched evidence prevents network access.
 
@@ -152,7 +154,7 @@ The provider evidence JSON shape is:
     "used": 0,
     "limit": 100000,
     "unit": "requests/month",
-    "authorizedRequestBudget": 181
+    "authorizedRequestBudget": 182
   }
 }
 ```
@@ -164,7 +166,7 @@ The isolation evidence file must bind the exact allowed origin to an inspected p
   "observedAt": "<UTC timestamp from the bindings inspection>",
   "source": "Wrangler preview bindings inventory",
   "origin": "https://<verified-preview-host>",
-  "candidateWorker": "frontpage-do-preview",
+  "candidateWorker": "frontpage-headroom-<unique-name>",
   "candidateDurableObjectNamespace": "<preview DO namespace identity>",
   "productionDurableObjectNamespace": "<production DO namespace identity>",
   "candidateCollectorSecretBinding": "COLLECTOR_UPLOAD_SECRET",
@@ -178,29 +180,30 @@ The isolation evidence file must bind the exact allowed origin to an inspected p
 
 Replace example CPU/quota values with measurements actually read from current provider observability. The sample values above are shape examples only and never benchmark evidence.
 
-The workload is 80% public GETs, 15% authenticated owner GETs, and 5% collector requests at concurrency 1/2/4. A logical synthetic v1 writer is exactly three requests: exact-SHA health preflight, gzip PUT of `latest.json`, and gzip PUT of `history.json`. The bodies are locally validated schema-v1 snapshots with the same new, monotonically increasing timestamp; their logical identity is SHA-256 of the uncompressed `latest.json` bytes, NUL, then uncompressed `history.json` bytes. Writers are serialized so concurrent stages cannot interleave the two independently stored v1 snapshots. The per-writer deadline is shared across all three calls and bounded by the stage deadline. A failed second upload is recorded as a partial generation. Public/owner traffic continues in the same stages so queued or deadline-starved writes are reported directly; generation queue delay is reported separately.
+The two global setup requests are an anonymous `/api/health` GET that proves the exact candidate SHA and an authenticated `GET /__collector/v1/capabilities` that must advertise `{schema_version:1,atomic_generations:true}`. Both count against the total request cap and happen before stage traffic. The steady-stage mix is 80% public GETs, 15% authenticated owner GETs, and 5% collector writes at concurrency 1/2/4; setup preflights are reported separately from those mix percentages. One logical synthetic v1 generation is exactly three PUTs: gzip `latest.json`, gzip `history.json`, then `/__collector/v1/commit`. Each PUT carries the same `X-Frontpage-Generation` SHA-256 of the uncompressed latest bytes, NUL, then history bytes. The locally validated schema-v1 pair has the same new monotonic timestamp. Writers serialize the complete atomic triplet, and a generation counts completed only after the commit returns 204. The shared write deadline is five seconds and also bounded by the 60-second stage deadline. Failed history or commit operations are reported as incomplete generations. Stage requests are paced across the requested stage duration; each report contains the time actually measured and the configured maximum, so an early end never claims a full 60 seconds.
 
-The hard cap is 2,000 HTTP requests total, including the initial exact-SHA preflight and all three requests for every logical write; each of the three stages is at most 60 seconds. At least 181 requests are required to include a collector generation at each concurrency level. For a run, provide owner cookie and collector bearer token only through separate regular files with mode `0400` or `0600`; their values never enter the JSON report. Example invocation after the parent has prepared evidence and coordinated the run:
+The hard cap is 2,000 HTTP requests total, including both setup preflights and every generation triplet. At least 182 requests are needed for one 60-request mixed cycle at each of the three concurrency levels plus setup. Each stage can run for at most 60 seconds. Supply parent-approved p95 threshold targets for public, owner, collector-request, and complete generation latency; the generation target cannot exceed five seconds. Threshold provenance, targets, measured p95 values and per-category outcomes are reported. Do not invent targets: missing target evidence blocks the run. Supply owner-cookie and collector-bearer values only through separate regular files with mode `0400` or `0600`; their values never enter the JSON report. Example invocation after the parent has prepared evidence and coordinated the run:
 
 ```bash
 FRONTPAGE_BENCHMARK_ISOLATED_APPROVED=1 \
 FRONTPAGE_BENCHMARK_COORDINATED=1 \
 FRONTPAGE_BENCHMARK_ALLOWED_ORIGIN=https://<verified-preview-host> \
 FRONTPAGE_BENCHMARK_BUDGET_REFERENCE='<current quota evidence reference>' \
-FRONTPAGE_BENCHMARK_MAX_REQUESTS=181 \
+FRONTPAGE_BENCHMARK_MAX_REQUESTS=182 \
 node scripts/measure-cloudflare-headroom.mjs \
   --base-url https://<verified-preview-host> \
   --expected-sha <full-candidate-sha> \
-  --max-requests 181 \
+  --max-requests 182 \
   --stage-seconds 60 \
   --owner-cookie-file <0400-or-0600-owner-cookie-file> \
   --collector-token-file <0400-or-0600-preview-collector-token-file> \
   --provider-evidence-file <current-provider-observability.json> \
   --isolation-evidence-file <verified-preview-bindings.json> \
+  --latency-targets-file <parent-approved-thresholds.json> \
   --coordination-reference <parent-coordination-reference>
 ```
 
-The JSON result reports exact SHA, preflight, request mix/counts, per-stage concurrency/duration, public/owner/collector latency, HTTP/network/deadline failures, partial and completed writes, queued write starvation, generation hashes, and the supplied actual provider CPU/quota evidence. It does not make a keep/change decision automatically: provider measurements, storage/decompression cost, correctness/privacy, and account-plan fit still require operator review. Tests use mocked fetch only; no provider measurement is implied by local regressions.
+The JSON result reports exact SHA, both preflights, steady-stage request mix/counts, measured stage duration versus its budget, public/owner/collector/generation latency and category thresholds, HTTP/network/deadline failures, partial and completed writes, queued writer starvation, generation hashes, and supplied actual provider CPU/quota evidence. It does not make a keep/change decision automatically: provider measurements, storage/decompression cost, correctness/privacy, and account-plan fit still require operator review. Tests use mocked fetch only; no provider measurement is implied by local regressions.
 
 ## VPS metrics collector
 

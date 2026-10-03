@@ -68,8 +68,16 @@ test("Cloudflare config passes only with the FRONTPAGE SQLite DO binding and mig
     assert.equal(missingMigration.ok, false);
     assert.deepEqual(missingMigration.missingBindings, ["FrontpageDO (Wrangler SQLite migration)"]);
 
-    fs.writeFileSync(configPath, JSON.stringify(valid));
+    fs.writeFileSync(configPath, `{
+      // JSONC comments/trailing commas are valid Wrangler syntax.
+      "durable_objects": { "bindings": [{ "name": "FRONTPAGE", "class_name": "FrontpageDO" },] },
+      "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FrontpageDO"], },],
+    }`);
     assert.equal(checkEnvironment("cloudflare", { ...env, FRONTPAGE_SQL: "spoofed" }, { wranglerConfigPath: configPath }).ok, true);
+    fs.writeFileSync(configPath, "{ invalid-jsonc }");
+    const invalid = checkEnvironment("cloudflare", env, { wranglerConfigPath: configPath });
+    assert.equal(invalid.ok, false);
+    assert.deepEqual(invalid.invalid, ["Wrangler config (missing, unreadable, or invalid JSONC)"]);
     const repoConfig = fileURLToPath(new URL("../wrangler.jsonc", import.meta.url));
     assert.equal(checkEnvironment("cloudflare", env, { wranglerConfigPath: repoConfig }).ok, true);
   } finally {

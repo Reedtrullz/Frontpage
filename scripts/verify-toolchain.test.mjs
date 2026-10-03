@@ -5,7 +5,7 @@ import fs from "node:fs";
 const lock = JSON.parse(fs.readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
 const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
 
-test("Docker native pins agree with both Linux architecture resolutions in package-lock", () => {
+test("npm ci selects the exact optional native packages for both Linux architectures", () => {
   const expected = {
     "node_modules/lightningcss-linux-x64-gnu": "1.32.0",
     "node_modules/lightningcss-linux-arm64-gnu": "1.32.0",
@@ -22,12 +22,16 @@ test("Docker native pins agree with both Linux architecture resolutions in packa
   };
   for (const [name, version] of Object.entries(expected)) {
     assert.equal(lock.packages[name]?.version, version, `${name} lock resolution`);
-    assert.ok(dockerfile.includes(`${name.slice("node_modules/".length)}@${version}`), `${name} Docker install pin`);
+    assert.equal(lock.packages[name]?.optional, true, `${name} is an optional platform package`);
+    assert.equal(lock.packages[name]?.os?.[0], "linux", `${name} operating system`);
+    assert.equal(lock.packages[name]?.cpu?.[0], name.includes("arm64") ? "arm64" : "x64", `${name} architecture`);
   }
 });
 
 test("tool pins target the verified Node image digest and exact Ansible toolchain", () => {
   assert.match(dockerfile, /node:22\.22\.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752/);
+  assert.match(dockerfile, /RUN npm ci --include=optional/);
+  assert.doesNotMatch(dockerfile, /npm install --no-save/);
   assert.equal(fs.readFileSync(new URL("../ops/requirements-ansible.txt", import.meta.url), "utf8").trim(), "ansible-core==2.21.2");
   const collections = fs.readFileSync(new URL("../ops/ansible/requirements.yml", import.meta.url), "utf8");
   assert.match(collections, /ansible\.posix\n\s+version: 2\.2\.2/);
