@@ -19,6 +19,7 @@ The VPS remains a collector host, protected proposals origin, and rollback targe
 `npm run build:cloudflare` uses OpenNext. The forwarding Worker serves static assets and sends application requests to a SQLite Durable Object, where SSR and owner draft/receipt storage run. The direct OpenNext Worker exceeded the Free HTTP CPU limit; verify forwarding Worker and Durable Object CPU separately in observability. The named Worker is `frontpage.reidjoss.workers.dev`.
 
 The DO stores compressed copies of `latest.json` and `history.json`, uploaded once per minute by the existing VPS collector host. The upload route accepts only those two names, requires `COLLECTOR_UPLOAD_SECRET`, and enforces compressed and expanded size caps. Public/owner metric filtering and schema validation remain in the application. The v2 collector remains in shadow mode; do not promote or delete it as part of this migration.
+The latest shadow-gate report supplied on 3 October 2026 had 20.367 hours of the required 48-hour window, 0.01362769% public-service mismatches against a required 0%, and one historic incomplete v2 minute. This evidence is not an activation approval. Do not activate v2 or restart a collector to reset the window; preserve the current epoch and follow the [v2 activation runbook](docs/cloudflare-v2-activation.md) only after a newly generated gate is approved.
 
 The forwarding Worker passes `/proposals`, `/api/proposals`, and `/api/agents` to `PROPOSALS_ORIGIN` at `proposals-origin.reidar.tech`. `ansible-cloudflare-proposals-origin.yml` installs a private Caddy snippet with an exact token and path matcher; anonymous direct requests receive 403. The VPS reverse SSH tunnel to the local dashboard remains a separate dependency. Rotate the 1Password variable and Worker secret together, then rerun that playbook.
 
@@ -86,6 +87,55 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://reidar.tech/
 curl -fsS -o /dev/null -w '%{http_code}\n' https://reidar.tech/api/proposals
 ssh Racknerd-Deploy 'systemctl is-active frontpage-metrics-collector.timer frontpage-metrics-upload.timer frontpage-metrics-collector-v2-shadow.service'
 ```
+
+
+## Release identity and operator preflight
+
+After a Cloudflare deployment finishes, verify the exact expected full commit and the intended custom domain:
+
+```bash
+node scripts/verify-release.mjs \
+  --base-url https://reidar.tech \
+  --expected-sha "$GITHUB_SHA"
+```
+
+The bounded, read-only smoke checks `/api/health`, `/`, `/projects`, `/status`, anonymous owner metrics denial, and `/proposals`, `/api/proposals`, and `/api/agents` forwarding. A successful workers.dev preview alone does not establish the custom-domain release identity.
+
+For a Cloudflare Worker code rollback, first identify the previously accepted Worker version and its source SHA. From this checkout, run `npx wrangler rollback <VERSION_ID> --name frontpage` with the scoped Cloudflare credentials, then repeat the exact-domain smoke using that version's full source SHA. Cloudflare's version rollback preserves external resources and Durable Object state; it does not restore old SQL data. Follow the separate [v2 activation runbook](docs/cloudflare-v2-activation.md) to deactivate the v2 read pointer with the authenticated collector uploader's `--deactivate` operation when that read contract itself must be disabled. This is a separate action from Worker rollback and from restoring VPS owner state. See the [owner-state recovery runbook](docs/owner-state-recovery.md) for versioned backup/restore, state-target confirmation, and the optional Cloudflare operator transport.
+
+### Runtime environment profiles
+
+The environment checker prints missing names and profile only; it never prints values:
+
+```bash
+node scripts/check-environment.mjs --profile public-local
+node scripts/check-environment.mjs --profile owner-local
+node scripts/check-environment.mjs --profile cloudflare
+node scripts/check-environment.mjs --profile collector
+FRONTPAGE_VAULT_PASSWORD_FILE=.vault_pass node scripts/check-environment.mjs --profile rollback
+```
+
+A public-local profile intentionally needs no owner secrets. Cloudflare's `FRONTPAGE_SQL` is a runtime binding and must be configured in the Worker; it cannot be supplied by a local shell export. The collector profile checks the configured secret-file path is readable without reading or printing its contents.
+
+To preserve existing notes, generate a state inventory only at a new destination:
+
+```bash
+node scripts/current-state.mjs --output docs/generated/frontpage-state-$(date -u +%Y%m%dT%H%M%SZ).md
+```
+
+The report covers local branch/SHA/dirty count, registered worktrees and selected source paths. It does not query CI or production.
+
+### SSH host identity for retained VPS operations
+
+CI must load the operator-verified public host key from protected `RACKNERD_KNOWN_HOSTS` using `scripts/install-known-hosts.mjs`; live `ssh-keyscan` output must never establish trust. The value must contain one key for `198.23.137.16` and must be independently verified before it is configured. Keep `StrictHostKeyChecking=yes`, `IdentitiesOnly=yes`, `IdentityAgent=none`, and `UserKnownHostsFile` pointed at that generated file. For a planned rotation, verify the replacement fingerprint through the provider/operator channel first, review the old and new fingerprints, then replace the protected pin. This work does not supply a replacement key.
+
+### Toolchain pins
+
+Docker uses the Node 22.22.3 Bookworm slim manifest digest recorded in the Dockerfile. Install Ansible from `ops/requirements-ansible.txt` and `ops/ansible/requirements.yml` so local validation and CI can use the same exact versions. The Linux native packages must match `package-lock.json`; see [the CI integration handoff](docs/superpowers/plans/2026-10-03-release-ops-parent-integration.md) for lock findings and parent-owned workflow edits. Verify clean amd64 and arm64 installs in CI before removing any supplemental native package workaround.
+
+### Cloudflare headroom evidence
+
+`scripts/measure-cloudflare-headroom.mjs` is a bounded, read-only preliminary harness. It requires an explicitly allowlisted isolated origin, owner session, exact SHA, a current budget evidence reference, and a maximum request budget no greater than 2,000. It reports route latency and HTTP failures. It does not measure collector writes, write starvation, Worker/DO CPU or monthly quota, so its output is not issue #55 acceptance by itself. Do not run it against production.
 
 ## VPS metrics collector
 
