@@ -1,4 +1,8 @@
 import json
+import os
+import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -53,6 +57,125 @@ class MetricsStoreTests(unittest.TestCase):
         self.store.close()
         replacement = MetricsStore.open(self.path)
         replacement.close()
+
+    def _start_process_writer(self, path):
+        code = r"""
+import sys
+from pathlib import Path
+from ops.frontpage_metrics_v2.store import MetricsStore
+store = MetricsStore.open(Path(sys.argv[1]))
+store.write_cycle({
+    "ts_ms": 2000000000000,
+    "host": {"cpu_percent": 25.0},
+    "host_coverage_percent": 100.0,
+    "workloads": [],
+    "services": [],
+    "capabilities": [{"key": "psi", "state": "available", "detail": "available"}],
+})
+print("READY", flush=True)
+sys.stdin.readline()
+store.close()
+"""
+        process = subprocess.Popen(
+            [sys.executable, "-c", code, str(path)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            close_fds=True,
+        )
+        self.assertEqual(process.stdout.readline().strip(), "READY")
+        return process
+
+    def _assert_separate_writer_rejected(self, path):
+        code = "from pathlib import Path; import sys; from ops.frontpage_metrics_v2.store import MetricsStore; MetricsStore.open(Path(sys.argv[1]))"
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("active writer", result.stderr)
+
+    @staticmethod
+    def _close_process_pipes(process):
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+
+    def test_separate_process_writer_excludes_symlink_alias_and_releases_on_clean_exit(self):
+        self.store.close()
+        alias = self.path.parent / "metrics-alias.sqlite3"
+        alias.symlink_to(self.path)
+        process = self._start_process_writer(self.path)
+        try:
+            self._assert_separate_writer_rejected(alias)
+        finally:
+            process.stdin.write("close\n")
+            process.stdin.flush()
+            self.assertEqual(process.wait(timeout=5), 0, process.stderr.read())
+            self._close_process_pipes(process)
+
+        replacement = MetricsStore.open(alias)
+        self.assertEqual(replacement.count("host_points", "15s"), 1)
+        replacement.close()
+
+    def test_sigkill_releases_process_lock_without_removing_database_history(self):
+        self.store.close()
+        process = self._start_process_writer(self.path)
+        process.kill()
+        process.wait(timeout=5)
+        self._close_process_pipes(process)
+
+        replacement = MetricsStore.open(self.path)
+        try:
+            self.assertEqual(replacement.count("host_points", "15s"), 1)
+            self.assertTrue(self.path.with_name(self.path.name + ".writer.lock").exists())
+        finally:
+            replacement.close()
+
+    def test_readonly_snapshot_and_sqlite_backup_work_while_another_process_writes(self):
+        self.store.close()
+        process = self._start_process_writer(self.path)
+        destination_path = self.path.parent / "backup.sqlite3"
+        try:
+            self.assertEqual(len(self.store.read_projection_snapshot()["host"]), 1)
+            reader = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+            destination = sqlite3.connect(destination_path)
+            try:
+                reader.backup(destination)
+                self.assertEqual(destination.execute("SELECT count(*) FROM host_points").fetchone()[0], 1)
+                self.assertEqual(destination.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            finally:
+                reader.close()
+                destination.close()
+        finally:
+            process.stdin.write("close\n")
+            process.stdin.flush()
+            self.assertEqual(process.wait(timeout=5), 0, process.stderr.read())
+            self._close_process_pipes(process)
+
+    def test_failed_initialization_releases_process_and_thread_locks(self):
+        failed_path = self.path.parent / "failed.sqlite3"
+        with mock.patch("ops.frontpage_metrics_v2.store.migrate", side_effect=RuntimeError("synthetic failure")):
+            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                MetricsStore.open(failed_path)
+        replacement = MetricsStore.open(failed_path)
+        replacement.close()
+
+    def test_lock_descriptor_is_not_inheritable_and_lock_file_is_stable(self):
+        lock_path = self.path.with_name(self.path.name + ".writer.lock")
+        descriptor = self.store._lock_fd
+        self.assertFalse(os.get_inheritable(descriptor))
+        first_inode = lock_path.stat().st_ino
+        self.store.close()
+        self.assertTrue(lock_path.exists())
+        replacement = MetricsStore.open(self.path)
+        try:
+            self.assertEqual(lock_path.stat().st_ino, first_inode)
+        finally:
+            replacement.close()
 
     def test_write_cycle_is_atomic_and_validates_payloads(self):
         self.store.write_cycle(cycle())
