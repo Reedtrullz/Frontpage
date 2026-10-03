@@ -11,6 +11,72 @@ const jsonHeaders = async sub => ({cookie: await cookie(sub), origin:base, 'cont
 const fixture = name => JSON.parse(readFileSync(new URL(`../../ops/tests/fixtures/observability-v2/${name}`, import.meta.url), 'utf8'));
 const privateNoStore = response => assert.equal(response.headers.get('cache-control'), 'private, no-store');
 
+function assertHistoryMatchesFixture(history, fixtureHistory, requestBounds) {
+  const resolutionMs = history.resolution_seconds * 1000;
+  const timestamps = history.timestamps.map(Date.parse);
+  assert.ok(resolutionMs > 0);
+  assert.ok(timestamps.length > 0);
+  assert.ok(timestamps.every(Number.isFinite));
+  assert.ok(timestamps.every(timestamp => timestamp % resolutionMs === 0));
+
+  const firstPossibleSlot = Math.floor(requestBounds.startedAt / resolutionMs) * resolutionMs;
+  const lastPossibleSlot = Math.floor(requestBounds.finishedAt / resolutionMs) * resolutionMs;
+  const lastReturnedSlot = timestamps.at(-1);
+  assert.ok(
+    lastReturnedSlot >= firstPossibleSlot && lastReturnedSlot <= lastPossibleSlot,
+    `last closed slot ${new Date(lastReturnedSlot).toISOString()} must fall within request clock bounds`,
+  );
+  assert.ok(timestamps.every((timestamp, index) =>
+    timestamp === lastReturnedSlot - (timestamps.length - 1 - index) * resolutionMs));
+
+  const fixtureIndexByTimestamp = new Map(
+    fixtureHistory.timestamps.map((timestamp, index) => [Date.parse(timestamp), index]),
+  );
+  const fixtureSeriesById = new Map(fixtureHistory.series.map(series => [series.id, series]));
+  assert.equal(history.series.length, fixtureHistory.series.length);
+  let measuredValues = 0;
+  let possibleValues = 0;
+  for (const series of history.series) {
+    const fixtureSeries = fixtureSeriesById.get(series.id);
+    assert.ok(fixtureSeries, `fixture series ${series.id} must exist`);
+    const expectedValues = timestamps.map(timestamp => {
+      const fixtureIndex = fixtureIndexByTimestamp.get(timestamp);
+      return fixtureIndex === undefined ? null : fixtureSeries.values[fixtureIndex] ?? null;
+    });
+    assert.deepEqual(series.values, expectedValues, `${series.id} must map by returned timestamp`);
+    measuredValues += expectedValues.filter(value => value !== null).length;
+    possibleValues += expectedValues.length;
+  }
+  assert.equal(history.coverage_percent, possibleValues ? (measuredValues / possibleValues) * 100 : 0);
+}
+
+test('maps owner history by returned timestamps when a request crosses a closed-slot boundary', () => {
+  const resolutionMs = 15_000;
+  const boundary = Date.parse('2026-10-03T15:00:00.000Z');
+  const fixtureHistory = {
+    timestamps: [-60_000, -45_000, -30_000, -15_000].map(offset => new Date(boundary + offset).toISOString()),
+    series: [{id:'cpu-total', values:[22.1, 24.4, null, 31.2]}],
+  };
+  const timestamps = Array.from({length:240}, (_, index) =>
+    new Date(boundary - (239 - index) * resolutionMs).toISOString(),
+  );
+  const values = Array(240).fill(null);
+  values.splice(-5, 5, 22.1, 24.4, null, 31.2, null);
+  const history = {
+    resolution_seconds: 15,
+    timestamps,
+    series: [{id:'cpu-total', values}],
+    coverage_percent: (3 / 240) * 100,
+  };
+
+  assertHistoryMatchesFixture(history, fixtureHistory, {
+    startedAt: boundary - 1,
+    finishedAt: boundary + 1,
+  });
+  assert.deepEqual(history.series[0].values.slice(-4), [24.4, null, 31.2, null]);
+  assert.equal(history.coverage_percent, (3 / 240) * 100);
+});
+
 function v2FixtureSnapshot() {
   const now = Date.now();
   const generatedAt = new Date(now).toISOString();
@@ -187,14 +253,13 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     assert.match(await ownerLatest.text(),new RegExp(v2.ownerSentinel));
     const latestEtag=ownerLatest.headers.get('etag');assert.match(latestEtag,/^"[a-f0-9]{64}"$/);
     const latest304=await fetch(base+'/api/owner/latest',{headers:{...ownerHeaders,'if-none-match':latestEtag}});assert.equal(latest304.status,304);privateNoStore(latest304);assert.equal(await latest304.text(),'');
-    const history=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});assert.equal(history.status,200);privateNoStore(history);
+    const historyRequestStartedAt=Date.now();
+    const history=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});
+    const historyResponseReceivedAt=Date.now();assert.equal(history.status,200);privateNoStore(history);
     const historyBody=await history.json();
     assert.equal(historyBody.range,'1h');assert.equal(historyBody.resolution_seconds,15);assert.equal(historyBody.timestamps.length,240);
-    const expectedLastSlot=Math.floor(Date.now()/15_000)*15_000;
-    assert.equal(Date.parse(historyBody.timestamps.at(-1)),expectedLastSlot);
-    assert.equal(Date.parse(historyBody.timestamps[0]),expectedLastSlot-239*15_000);
-    assert.deepEqual(historyBody.series[0].values.slice(-4),[22.1,24.4,null,31.2]);
-    assert.equal(historyBody.coverage_percent,1.25);
+    const historyFixture=v2.payloads['owner/host/1h.v2.json'];
+    assertHistoryMatchesFixture(historyBody,historyFixture,{startedAt:historyRequestStartedAt,finishedAt:historyResponseReceivedAt});
     const feedResponse=await fetch(base+'/status/feed.json');assert.equal(feedResponse.status,200);
     const feedText=await feedResponse.text();const feed=JSON.parse(feedText);
     assert.equal(feed._frontpage.availability,'available');assert.equal(feed._frontpage.collected_at,v2.generatedAt);
@@ -224,7 +289,17 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     await runtime.stop();runtime=await startRuntime();
     assert.match(await (await fetch(base+'/admin/projects',{headers:{cookie:await cookie('runtime-owner')}})).text(),/PRIVATE SQL RUNTIME DRAFT SENTINEL/);
     const restartedLatest=await fetch(base+'/api/owner/latest',{headers:ownerHeaders});assert.equal(restartedLatest.status,200);privateNoStore(restartedLatest);assert.match(await restartedLatest.text(),/OWNER_V2_RUNTIME_SENTINEL/);
-    const restartedHistory=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});assert.equal(restartedHistory.status,200);privateNoStore(restartedHistory);assert.equal((await restartedHistory.json()).series[0].values.at(-1),31.2);
+    const restartedHistoryRequestStartedAt=Date.now();
+    const restartedHistory=await fetch(base+'/api/owner/metrics?range=1h&view=host',{headers:ownerHeaders});
+    const restartedHistoryResponseReceivedAt=Date.now();assert.equal(restartedHistory.status,200);privateNoStore(restartedHistory);
+    const restartedHistoryBody=await restartedHistory.json();
+    const latestFixtureTimestamp=historyFixture.timestamps.at(-1);
+    const latestFixtureIndex=restartedHistoryBody.timestamps.indexOf(latestFixtureTimestamp);
+    assert.ok(latestFixtureIndex>=0,`restarted history must retain fixture sample ${latestFixtureTimestamp}`);
+    assert.equal(restartedHistoryBody.series[0].values[latestFixtureIndex],31.2);
+    const restartedLastClosedSlot=Date.parse(restartedHistoryBody.timestamps.at(-1));
+    assert.ok(restartedLastClosedSlot>=Math.floor(restartedHistoryRequestStartedAt/15_000)*15_000);
+    assert.ok(restartedLastClosedSlot<=Math.floor(restartedHistoryResponseReceivedAt/15_000)*15_000);
   } finally {await runtime.stop();}
 });
 test('missing Worker binding fails closed', {timeout:60000},async()=>{const runtime=await startRuntime({missingBinding:true});try{assert.equal((await fetch(base+'/api/health')).status,500);}finally{await runtime.stop();}});
