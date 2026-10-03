@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { OwnerNavigationBootstrap } from "@/components/admin/OwnerNavigationBootstrap";
 import { getPersonal } from "@/lib/data";
 import "./globals.css";
 
@@ -47,6 +48,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-[var(--surface)] text-[var(--text)]">
+        <OwnerNavigationBootstrap />
         <a href="#main-content" className="skip-link">Skip to content</a>
         <Header />
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
