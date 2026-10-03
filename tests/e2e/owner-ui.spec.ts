@@ -90,9 +90,35 @@ test.describe("owner workspace", () => {
   });
 
   test("keeps invalid gallery JSON visible, links its error, and focuses it on save", async ({ page }) => {
-    await page.route("**/api/data/projects", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ revision: "gallery-test-revision" }) }));
+    let saveNumber = 0;
+    let savedGallery: unknown;
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      const payload = route.request().postDataJSON() as { content: Array<{ slug: string; media?: { gallery?: unknown[] } }> };
+      savedGallery = payload.content.find((project) => project.slug === "rfs")?.media?.gallery;
+      saveNumber += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ revision: `00000000-0000-4000-8000-${String(saveNumber).padStart(12, "0")}` }),
+      });
+    });
     await page.goto("/admin/projects/rfs");
     const gallery = page.getByLabel("Gallery JSON");
+
+    // Seed a real saved value using the canonical approved cover already shown in this editor.
+    const cover = {
+      src: await page.getByLabel("Cover source").inputValue(),
+      alt: await page.getByLabel("Cover alt text").inputValue(),
+      width: Number(await page.getByLabel("Width").inputValue()),
+      height: Number(await page.getByLabel("Height").inputValue()),
+      caption: await page.getByLabel("Caption").inputValue(),
+    };
+    await gallery.fill(JSON.stringify([cover], null, 2));
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    expect(savedGallery).toEqual([cover]);
+
     await gallery.fill("{}");
     await expect(gallery).toHaveAttribute("aria-invalid", "true");
     await expect(gallery).toHaveAttribute("aria-describedby", "project-gallery-error");
@@ -102,8 +128,10 @@ test.describe("owner workspace", () => {
 
     await gallery.fill("[]");
     await expect(gallery).toHaveAttribute("aria-invalid", "false");
+    await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    expect(savedGallery).toEqual([]);
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Discard all project drafts" }).click();
   });
@@ -175,6 +203,44 @@ test.describe("owner workspace", () => {
     page.once("dialog", (dialog) => dialog.accept());
     await page.goForward();
     await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("later");
+  });
+
+  test("failed programmatic push does not corrupt fallback position for a later canceled Back", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "navigation", { configurable: true, value: undefined });
+    });
+    await page.goto("/admin/projects/new");
+    const failedPushWasRejected = await page.evaluate(() => {
+      try {
+        history.pushState({ ...history.state, uncloneable: () => undefined }, "", location.href);
+      } catch {
+        return true;
+      }
+      return false;
+    });
+    expect(failedPushWasRejected).toBe(true);
+
+    await page.evaluate(() => {
+      history.pushState({ ...history.state, pushProbe: "earlier" }, "", location.href);
+      history.pushState({ ...history.state, pushProbe: "later" }, "", location.href);
+      history.back();
+    });
+    await page.waitForFunction(() => history.state?.pushProbe === "earlier");
+    await page.evaluate(() => history.back());
+    await page.waitForFunction(() => history.state?.pushProbe === undefined);
+    await page.evaluate(() => history.forward());
+    await page.waitForFunction(() => history.state?.pushProbe === "earlier");
+
+    const name = page.getByLabel("Name");
+    await name.fill("Retain fields after failed push");
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await page.goBack();
+    await expect(name).toHaveValue("Retain fields after failed push");
+    await expect.poll(() => page.evaluate(() => history.state?.pushProbe)).toBe("earlier");
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.goBack();
+    await expect.poll(() => page.evaluate(() => history.state?.pushProbe)).toBeUndefined();
   });
 
   test("modified and new-tab links do not prompt or disturb unsaved fields", async ({ page }) => {

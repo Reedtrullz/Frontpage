@@ -48,8 +48,10 @@ export function useHistoryPositionTracking() {
 
     history.replaceState(withHistoryPosition(history.state, currentPosition), "", location.href);
     history.pushState = function pushState(data, unused, url) {
-      currentPosition += 1;
-      return originalPushState(withHistoryPosition(data, currentPosition), unused, url);
+      const nextPosition = currentPosition + 1;
+      const result = originalPushState(withHistoryPosition(data, nextPosition), unused, url);
+      currentPosition = readHistoryPosition(history.state) ?? currentPosition;
+      return result;
     };
     history.replaceState = function replaceState(data, unused, url) {
       currentPosition = readHistoryPosition(history.state) ?? currentPosition;
