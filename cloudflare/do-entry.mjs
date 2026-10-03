@@ -28,7 +28,8 @@ export class FrontpageDO {
       const name = url.pathname.slice('/__collector/'.length);
       if ((request.method !== 'PUT' && !(request.method === 'GET' && name === 'v1/capabilities')) || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
       if (!authorized(request, this.env.COLLECTOR_UPLOAD_SECRET)) {
-        await request.body?.cancel();
+        // Let the transport dispose of the forwarded body after the response.
+        // Canceling it here invalidates the outer Worker request stream.
         return new Response('Unauthorized', { status: 401 });
       }
       if (name === 'v1/capabilities') return Response.json({schema_version: 1, atomic_generations: true}, {headers: {'Cache-Control': 'no-store'}});
