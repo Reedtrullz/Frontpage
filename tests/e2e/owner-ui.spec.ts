@@ -341,6 +341,73 @@ test.describe("owner workspace", () => {
     await expect(page).toHaveURL(/\/admin\/projects$/);
   });
 
+  test("archives the current saved project while the post-save server refresh is delayed", async ({ page }) => {
+    const submitted: Array<Record<string, unknown>> = [];
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      const body = route.request().postDataJSON() as { content: Array<Record<string, unknown>> };
+      const project = body.content.find((item) => item.slug === "rfs");
+      if (project) submitted.push(project);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ revision: `00000000-0000-4000-8000-${String(submitted.length).padStart(12, "0")}` }),
+      });
+    });
+
+    let releaseRefresh!: () => void;
+    let signalRefreshStarted!: () => void;
+    const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const refreshStarted = new Promise<void>((resolve) => { signalRefreshStarted = resolve; });
+    let delayNextRefresh = false;
+    await page.route("**/admin/projects/rfs**", async (route) => {
+      const url = new URL(route.request().url());
+      if (delayNextRefresh && url.searchParams.has("_rsc")) {
+        delayNextRefresh = false;
+        signalRefreshStarted();
+        await refreshGate;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/admin/projects/rfs");
+    const savedName = "RFS recent saved name before archive";
+    const savedDescription = "This recent saved description must survive a delayed server refresh during archive.";
+    const savedEvidence = "Owner saved these details before archiving; preserve this evidence text.";
+    await page.getByLabel("Name").fill(savedName);
+    await page.getByLabel("Short description").fill(savedDescription);
+    await page.getByLabel("Evidence note").fill(savedEvidence);
+    const cover = {
+      src: await page.getByLabel("Cover source").inputValue(),
+      alt: await page.getByLabel("Cover alt text").inputValue(),
+      width: Number(await page.getByLabel("Width").inputValue()),
+      height: Number(await page.getByLabel("Height").inputValue()),
+      caption: await page.getByLabel("Caption").inputValue(),
+    };
+    await page.getByLabel("Gallery JSON").fill(JSON.stringify([cover], null, 2));
+    delayNextRefresh = true;
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    await refreshStarted;
+    expect(submitted).toHaveLength(1);
+
+    try {
+      page.once("dialog", (dialog) => dialog.accept());
+      await page.getByRole("button", { name: "Archive project" }).click();
+      await expect(page.getByText(/Project archived in the local draft/)).toBeVisible();
+      expect(submitted).toHaveLength(2);
+      expect(submitted[1]).toMatchObject({
+        name: savedName,
+        shortDescription: savedDescription,
+        evidence: { note: savedEvidence },
+        media: { gallery: [cover] },
+        lifecycle: "archived",
+      });
+    } finally {
+      releaseRefresh();
+    }
+  });
+
   test("offline save and discard failures preserve personal editor text and recover busy state", async ({ page }) => {
     let saveAttempt = 0;
     await page.route("**/api/data/personal", async (route) => {

@@ -207,9 +207,7 @@ export function ProjectEditor({
       return;
     }
     if (!window.confirm(`Archive ${project.name}? This changes its lifecycle in the project draft and preserves its history and evidence.`)) return;
-    const savedProject = allProjects.find((item) => item.slug === originalSlug);
-    if (!savedProject) return;
-    const candidate = { ...savedProject, lifecycle: "archived" as const };
+    const candidate = { ...project, lifecycle: "archived" as const };
     setProject(candidate);
     const projects = allProjects.map((item) => item.slug === originalSlug ? candidate : item);
     setBusy(true);
