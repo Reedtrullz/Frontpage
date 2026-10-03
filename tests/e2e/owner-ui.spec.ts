@@ -290,12 +290,12 @@ test.describe("owner workspace", () => {
     });
 
     const editorsLink = page.getByRole("link", { name: "All project editors" });
-    const modifiedPopup = page.waitForEvent("popup");
+    const modifiedPopup = page.context().waitForEvent("page");
     await editorsLink.click({ modifiers: ["ControlOrMeta"] });
     await expect(await modifiedPopup).toHaveURL(/\/admin\/projects$/);
 
     await editorsLink.evaluate((anchor: HTMLAnchorElement) => { anchor.target = "_blank"; });
-    const newTab = page.waitForEvent("popup");
+    const newTab = page.context().waitForEvent("page");
     await editorsLink.click();
     await expect(await newTab).toHaveURL(/\/admin\/projects$/);
     await expect(page).toHaveURL(/\/admin\/projects\/new$/);
