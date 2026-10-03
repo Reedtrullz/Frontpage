@@ -162,8 +162,8 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     const admin=await (await fetch(base+'/admin/projects',{headers:{cookie:await cookie('runtime-owner')}})).text();
     assert.match(admin,/PRIVATE SQL RUNTIME DRAFT SENTINEL/);
     for(const route of ['/', '/projects', '/api/data']) assert.doesNotMatch(await (await fetch(base+route)).text(),/PRIVATE SQL RUNTIME DRAFT SENTINEL/);
-    assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',body:'unparsed'})).status,401);
-    assert.equal((await fetch(base+'/__collector/v2/commit',{method:'PUT',body:'{}'})).status,401);
+    assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT'})).status,401);
+    assert.equal((await fetch(base+'/__collector/v2/commit',{method:'PUT'})).status,401);
     assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:gzipSync('{}')})).status,400);
     const latest={schema_version:1,collected_at:new Date().toISOString(),host:{cpu_percent:1,ram_used_bytes:1,ram_total_bytes:2,disk_used_bytes:1,disk_total_bytes:2,load_1m:1,load_5m:1,load_15m:1,uptime_seconds:1},services:[],containers:[]};
     const latestRaw=JSON.stringify(latest),historyRaw=JSON.stringify({schema_version:1,samples:[latest]}),generation=createHash('sha256').update(latestRaw).update('\0').update(historyRaw).digest('hex');
