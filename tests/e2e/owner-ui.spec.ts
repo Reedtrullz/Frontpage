@@ -143,10 +143,14 @@ test.describe("owner workspace", () => {
     await expect(page.getByLabel("Name")).toHaveValue("");
     await expect(page.getByLabel("Evidence note")).toHaveValue("");
     await page.getByLabel("Name").fill("Unpublished draft");
-    page.once("dialog", (dialog) => dialog.dismiss());
-    await page.goBack();
-    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    const editorUrl = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
+    await expect.poll(() => page.url()).toBe(editorUrl);
     await expect(page.getByLabel("Name")).toHaveValue("Unpublished draft");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.goBack();
@@ -165,10 +169,14 @@ test.describe("owner workspace", () => {
     await page.getByRole("link", { name: "Create project draft" }).click();
     await page.getByLabel("Name").fill("Fallback unsaved draft");
 
-    page.once("dialog", (dialog) => dialog.dismiss());
-    await page.goBack();
-    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    const editorUrl = page.url();
+    const historyLength = await page.evaluate(() => history.length);
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
+    await expect.poll(() => page.url()).toBe(editorUrl);
     await expect(page.getByLabel("Name")).toHaveValue("Fallback unsaved draft");
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.goBack();
@@ -193,9 +201,9 @@ test.describe("owner workspace", () => {
     const name = page.getByLabel("Name");
     await name.fill("Keep fields after rejected Forward");
     const historyLength = await page.evaluate(() => history.length);
-    page.once("dialog", (dialog) => dialog.dismiss());
-    await page.goForward();
-    await expect(page).toHaveURL(/\/admin\/projects\/new$/);
+    const canceledForward = page.waitForEvent("dialog");
+    await page.evaluate(() => history.forward());
+    await (await canceledForward).dismiss();
     await expect(name).toHaveValue("Keep fields after rejected Forward");
     await expect.poll(() => page.evaluate(() => history.state?.forwardProbe)).toBe("earlier");
     expect(await page.evaluate(() => history.length)).toBe(historyLength);
@@ -233,8 +241,9 @@ test.describe("owner workspace", () => {
 
     const name = page.getByLabel("Name");
     await name.fill("Retain fields after failed push");
-    page.once("dialog", (dialog) => dialog.dismiss());
-    await page.goBack();
+    const canceledBack = page.waitForEvent("dialog");
+    await page.evaluate(() => history.back());
+    await (await canceledBack).dismiss();
     await expect(name).toHaveValue("Retain fields after failed push");
     await expect.poll(() => page.evaluate(() => history.state?.pushProbe)).toBe("earlier");
 
