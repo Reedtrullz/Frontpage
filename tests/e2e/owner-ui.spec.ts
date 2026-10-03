@@ -86,10 +86,12 @@ test.describe("owner workspace", () => {
     });
 
     await page.goto("/status");
-    const panel = page.locator('section[aria-labelledby="owner-observability-heading"]');
-    await expect(panel.getByText(/Owner session expired\. Private telemetry was cleared/)).toBeVisible();
-    await expect(panel.getByText("Frontpage internal", { exact: true })).toHaveCount(0);
-    await expect(panel.getByRole("heading", { name: "CPU total" })).toHaveCount(0);
+    await expect(
+      page.getByRole("status").filter({ hasText: /Owner session expired\. Private telemetry was cleared/ }),
+    ).toBeVisible();
+    await expect(page.locator("[data-observability-v2]")).toHaveCount(0);
+    await expect(page.getByText("Frontpage internal", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "CPU total" })).toHaveCount(0);
     await expect.poll(() => new Set(requests).size).toBe(3);
 
     const expiredRequestCount = requests.length;
