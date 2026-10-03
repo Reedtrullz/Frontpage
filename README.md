@@ -142,3 +142,7 @@ ansible-playbook -i inventory/hosts.yml ansible-playbook.yml --vault-password-fi
 The playbook records the prior image ID and deployed `VERSION`, replaces the container with a brief maintenance window, polls `/api/health`, and restores the previous immutable image identity if the new container fails health checks.
 
 This README does not claim the current working tree is live. Verify the exact CI run, deployed `VERSION`, image digest/commit, and live browser/API behavior before reporting deployment success.
+
+## Operations
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for exact-version release checks, Cloudflare Worker rollback versus v2 read-pointer deactivation, environment profiles, pinned operator tools, and retained VPS access. The [owner-state recovery guide](docs/owner-state-recovery.md) covers private draft backup/restore boundaries. Generated Git state notes must use a new output path and do not establish CI or production status.
