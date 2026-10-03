@@ -77,8 +77,10 @@ describe("canonical project content", () => {
   it("keeps every prior slug across repeated project renames", () => {
     const original = projectSchema.parse(validProject);
     const second = preserveProjectSlugAliases({ ...original, slug: "second-name" }, original.slug);
-    const third = preserveProjectSlugAliases({ ...second, slug: "third-name" }, second.slug);
-    expect(third.aliases).toEqual(["sample-project", "second-name"]);
+    const renamedBack = preserveProjectSlugAliases({ ...second, slug: original.slug }, second.slug);
+    expect(renamedBack.aliases).toEqual(["second-name"]);
+    const third = preserveProjectSlugAliases({ ...renamedBack, slug: "third-name" }, renamedBack.slug);
+    expect(third.aliases).toEqual(["second-name", "sample-project"]);
     expect(resolveProjectSlug("sample-project", [third])).toEqual({ kind: "redirect", project: third });
     expect(resolveProjectSlug("second-name", [third])).toEqual({ kind: "redirect", project: third });
   });
