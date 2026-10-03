@@ -7,7 +7,7 @@ const privateHeaders={'Cache-Control':'private, no-store','Content-Type':'applic
 const response=(status:number,message:string)=>new Response(JSON.stringify({message}),{status,headers:privateHeaders});
 export async function authorizeOwnerMaintenance(request:Request,env:Env,key?:JWTVerifyGetKey):Promise<boolean> {
  const host=env.OWNER_OPERATOR_HOST;
- if(!host || new URL(request.url).hostname!==host || !/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(env.OWNER_ACCESS_TEAM ?? '') || !env.OWNER_ACCESS_AUD || !env.OWNER_MAINTENANCE_SECRET)return false;
+ if(!host || ['reidar.tech','www.reidar.tech'].includes(host) || host.endsWith('.workers.dev') || new URL(request.url).hostname!==host || !/^[a-z0-9-]+\.cloudflareaccess\.com$/.test(env.OWNER_ACCESS_TEAM ?? '') || !env.OWNER_ACCESS_AUD || !env.OWNER_MAINTENANCE_SECRET)return false;
  const token=request.headers.get('Authorization')?.replace(/^Bearer /,'') ?? '';
  const expected=Buffer.from(env.OWNER_MAINTENANCE_SECRET),received=Buffer.from(token);
  if(!expected.length || expected.length!==received.length || !timingSafeEqual(expected,received))return false;

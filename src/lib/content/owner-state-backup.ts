@@ -22,18 +22,20 @@ export type OwnerBackup = z.infer<typeof envelope>;
 type RecordInput = {key:string;value:unknown};
 type Sql = {exec(query:string,...bindings:string[]):{toArray():Record<string,unknown>[]}};
 type Storage = {sql:Sql;transactionSync<T>(action:()=>T):T};
-const digest = (records:RecordInput[])=>createHash('sha256').update(JSON.stringify(records)).digest('hex');
+const digest = (records:unknown)=>createHash('sha256').update(JSON.stringify(records)).digest('hex');
 
 export function validateOwnerBackup(input:unknown):OwnerBackup {
   if (Buffer.byteLength(JSON.stringify(input) ?? '') > OWNER_BACKUP_CAP) throw new Error('Owner backup exceeds its size cap.');
   const backup=envelope.parse(input);
-  if (digest(backup.records)!==backup.sha256) throw new Error('Owner backup integrity check failed.');
+  const {sha256,...manifest}=backup;
+  if (digest(manifest)!==sha256) throw new Error('Owner backup integrity check failed.');
   if (new Set(backup.records.map(record=>record.key)).size!==backup.records.length) throw new Error('Duplicate owner record.');
   for (const record of backup.records) schemas[record.key].parse(record.value);
   return backup;
 }
 export function createOwnerBackup(records:RecordInput[],source:OwnerBackup['source']):OwnerBackup {
-  return validateOwnerBackup({schemaVersion:1,backupId:randomUUID(),createdAt:new Date().toISOString(),source,records,sha256:digest(records)});
+  const manifest={schemaVersion:1,backupId:randomUUID(),createdAt:new Date().toISOString(),source,records};
+  return validateOwnerBackup({...manifest,sha256:digest(manifest)});
 }
 export function exportFileOwnerState(dataDir:string):OwnerBackup {
   if(fs.lstatSync(dataDir).isSymbolicLink())throw new Error('Owner data root must not be a symlink.');

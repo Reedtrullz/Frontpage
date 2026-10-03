@@ -47,7 +47,7 @@ const worker = {
   fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/__operator/')) {
-      if (url.pathname !== '/__operator/owner-state' || !env.OWNER_OPERATOR_HOST || url.hostname !== env.OWNER_OPERATOR_HOST) return new Response('Not found', {status:404,headers:{'Cache-Control':'private, no-store'}});
+      if (url.pathname !== '/__operator/owner-state' || !env.OWNER_OPERATOR_HOST || ['reidar.tech', 'www.reidar.tech'].includes(env.OWNER_OPERATOR_HOST) || env.OWNER_OPERATOR_HOST.endsWith('.workers.dev') || url.hostname !== env.OWNER_OPERATOR_HOST) return new Response('Not found', {status:404,headers:{'Cache-Control':'private, no-store'}});
     }
     if (url.pathname.startsWith('/__collector/') && request.method !== 'PUT') {
       return new Response('Not found', { status: 404 });

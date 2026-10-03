@@ -8,6 +8,7 @@ it('requires configured operator host, separate secret, signed Access identity a
  const headers={Authorization:'Bearer separate-synthetic-token','Cf-Access-Jwt-Assertion':token};
  expect(await authorizeOwnerMaintenance(new Request('https://operator.example.test/__operator/owner-state',{headers}),env,key)).toBe(true);
  expect(await authorizeOwnerMaintenance(new Request('https://reidar.tech/__operator/owner-state',{headers}),env,key)).toBe(false);
+ expect(await authorizeOwnerMaintenance(new Request('https://reidar.tech/__operator/owner-state',{headers}),{...env,OWNER_OPERATOR_HOST:'reidar.tech'},key)).toBe(false);
  expect(await authorizeOwnerMaintenance(new Request('https://operator.example.test/__operator/owner-state',{headers:{...headers,Authorization:'Bearer collector-token'}}),env,key)).toBe(false);
  expect(await authorizeOwnerMaintenance(new Request('https://operator.example.test/__operator/owner-state',{headers}),{...env,OWNER_ACCESS_AUD:'wrong'},key)).toBe(false);
  expect(await authorizeOwnerMaintenance(new Request('https://operator.example.test/__operator/owner-state',{headers:{...headers,'Cf-Access-Jwt-Assertion':'forged'}}),env,key)).toBe(false);

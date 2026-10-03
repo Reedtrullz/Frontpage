@@ -19,6 +19,7 @@ it('rehearses exact private file export to a fresh destination and rejects corru
  expect(fs.existsSync(path.join(root,'corrupt'))).toBe(false);
  expect(()=>restoreFileOwnerState(backup,target,{backupId:backup.backupId,target})).toThrow();
  expect(()=>validateOwnerBackup({...backup,schemaVersion:99})).toThrow();
+ expect(()=>validateOwnerBackup({...backup,backupId:'12345678-1234-4234-8234-123456789abc'})).toThrow();
 });
 it('validates all SQL records before a transactional replacement and preserves revisions',()=>{
  const {DatabaseSync}=createRequire(import.meta.url)('node:sqlite');const db=new DatabaseSync(':memory:');

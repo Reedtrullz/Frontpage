@@ -37,6 +37,12 @@ export async function uploadCloudflareV1(request:Request,storage:Storage,name:st
     if(!('samples' in history.data) || 'samples' in latest.data || JSON.stringify(history.data.samples.at(-1))!==JSON.stringify(latest.data))throw new Error('Inconsistent pair');
     const hash=createHash('sha256').update(latest.raw).update('\0').update(history.raw).digest('hex');if(hash!==generation)throw new Error('Generation digest mismatch');
     const previous=sql.exec('SELECT collected_at FROM metrics_v1_generations WHERE generation=(SELECT generation FROM metrics_v1_active WHERE id=1)').toArray()[0];if(previous && Date.parse(String(previous.collected_at))>=Date.parse(latest.time))throw new Error('Replay');
+    if(!previous){
+     const legacy=sql.exec("SELECT data FROM metrics_snapshot WHERE name='latest.json'").toArray()[0];
+     if(legacy){let old:ReturnType<typeof decoded>|undefined;try{old=decoded('latest.json',legacy.data as Uint8Array,now);}catch{/* Previously unvalidated legacy data may be replaced by a valid snapshot. */}
+      if(old && (Date.parse(old.time)>Date.parse(latest.time) || (old.time===latest.time && JSON.stringify(old.data)!==JSON.stringify(latest.data))))throw new Error('Replay');
+     }
+    }
     sql.exec('INSERT INTO metrics_v1_generations(generation,collected_at,latest,history) VALUES(?,?,?,?)',generation,latest.time,latestBytes,historyBytes);
     sql.exec('INSERT INTO metrics_v1_active(id,generation) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET generation=excluded.generation',generation);
     sql.exec('DELETE FROM metrics_v1_stage WHERE generation=?',generation);
@@ -55,7 +61,9 @@ export async function uploadCloudflareV1(request:Request,storage:Storage,name:st
   }
   if(sql.exec('SELECT generation FROM metrics_v1_active WHERE id=1').toArray().length)return new Response('A coherent generation is required',{status:409});
   const previous=sql.exec('SELECT data FROM metrics_snapshot WHERE name=?',name).toArray()[0];
-  if(previous){const old=decoded(name,previous.data as Uint8Array,now);if(Date.parse(incoming.time)<Date.parse(old.time) || (incoming.time===old.time && !incoming.raw.equals(old.raw)))throw new Error('Replay');}
+  if(previous){let old:ReturnType<typeof decoded>|undefined;try{old=decoded(name,previous.data as Uint8Array,now);}catch{/* Rejecting an old invalid row must not prevent validated recovery. */}
+   if(old && (Date.parse(incoming.time)<Date.parse(old.time) || (incoming.time===old.time && !incoming.raw.equals(old.raw))))throw new Error('Replay');
+  }
   sql.exec('INSERT INTO metrics_snapshot(name,data) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET data=excluded.data',name,bytes);
   return new Response(null,{status:204});
  }catch(error){return new Response(error instanceof RangeError?'Payload too large':'Invalid snapshot',{status:error instanceof RangeError?413:400});}

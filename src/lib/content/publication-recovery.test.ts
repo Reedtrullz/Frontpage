@@ -27,3 +27,10 @@ it('does not rewrite the receipt when an already complete publication is retried
  const file=path.join(f.dataDir,'receipts/publication.json'),before=fs.readFileSync(file,'utf8');
  expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(fs.readFileSync(file,'utf8')).toBe(before);expect(f.client.createCommit).toHaveBeenCalledTimes(1);
 });
+it('reports local cleanup failure after a confirmed commit and retries only cleanup',async()=>{
+ const f=fixture(),remove=fs.rmSync;
+ const spy=vi.spyOn(fs,'rmSync').mockImplementation(((file,...args)=>{if(String(file).endsWith('/drafts/projects.json'))throw new Error('injected cleanup failure');return remove(file,...args);}) as typeof fs.rmSync);
+ expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published-recovery-pending');
+ expect(readDraftBundle(f.dataDir).receipt?.kind).toBe('published');expect(readDraftBundle(f.dataDir).projects?.revision).toBe(f.input.reviewedRevisions.projects);spy.mockRestore();
+ expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(readDraftBundle(f.dataDir).projects).toBeNull();expect(f.client.createCommit).toHaveBeenCalledTimes(1);
+});
