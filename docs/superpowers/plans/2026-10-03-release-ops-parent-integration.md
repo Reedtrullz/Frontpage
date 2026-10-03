@@ -5,6 +5,7 @@ This integration is applied in the release-ops branch after merging the approved
 ## CI and release integration
 
 - CI pins `NODE_VERSION` to `22.22.3`; npm bundled with that Node release is `10.9.8` in the current local setup.
+- The Docker `amd64`/`arm64` validation matrix also sets up that exact Node version on the runner before invoking the built-in-only image smoke checker; it does not run npm on the host.
 - CI installs the checked-in Ansible pins with `python3 -m pip install -r ops/requirements-ansible.txt` and `ansible-galaxy collection install -r ops/ansible/requirements.yml`.
 - CI keeps `npm run test:cloudflare` immediately after its Chromium install and `npm run build:cloudflare`; this remains ahead of release/deploy gates. The runtime harness owner reports passing Node Worker, SQLite restart, auth, origin and proxy checks.
 - `deploy-cloudflare` runs the read-only exact-domain check after `Verify Worker commit`: `node scripts/verify-release.mjs --base-url https://reidar.tech --expected-sha "$GITHUB_SHA"`. The workers.dev identity check remains supplementary. The custom-domain check requires exact health identity, `/`, `/projects`, `/status`, anonymous owner denial, and successful forwarding on all three paths.
@@ -38,6 +39,8 @@ This is the current operational baseline for T10/#44: release acceptance is bloc
 The parent reports the established trusted `Racknerd-Deploy` known-hosts key matches the server sudo public-key fingerprint `SHA256:jqrn83QeSlKz9fTXj7Tilyjn7m5Dy8IGx+slNFpn8ow`; the protected `RACKNERD_KNOWN_HOSTS` secret exists and its presence/readback was checked. With the explicit identity/options, the expected pin passed and a wrong pin exited 255 before authentication. The [separate host-pin receipt](../../ssh-host-pin-receipt-2026-10-03.md) records this evidence. No fresh provider-console fingerprint was obtained, so do not describe this as a provider-console re-verification or key rotation.
 
 The parent also reports daily GraphQL totals through 14:35 UTC of 15,991 Worker requests and 15,995 Durable Object requests, and a distinct preview namespace. This request/day observation does not prove full-period quota headroom. Subscription lookup returned 403, so plan/budget remains unresolved. A reported current DO duration value of 6,810 has unknown units; Worker CPU 186 ms and active time 53 billion ns are point observations, not monthly quota proof. The parent is still checking storage/GB-second quotas and actual request allowance. No external provider request or measurement was made from this child worktree.
+
+The parent reports `ansible-core==2.21.2`, `community.docker==5.2.1`, and `ansible.posix==2.2.2` installed, with syntax checks passing for all four playbooks. This parent-run validation is separate from the source-level CI workflow regression tests in this branch.
 
 ## Evidence still required
 
