@@ -17,6 +17,17 @@ describe("repository coverage", () => {
     );
   });
 
+  it.each([
+    "http://github.com/Reedtrullz/Frontpage",
+    "https://github.com.evil.test/Reedtrullz/Frontpage",
+    "https://github.com/Reedtrullz/Frontpage/issues",
+    "https://github.com/Reedtrullz/Frontpage?tab=readme",
+    "https://github.com/Reedtrullz/Frontpage#code",
+    "https://user@github.com/Reedtrullz/Frontpage",
+  ])("rejects non-canonical repository URL %s", (value) => {
+    expect(normalizeRepositoryRef(value)).toBeNull();
+  });
+
   it("keeps project aliases visible while matching repository URLs", () => {
     expect(repositoryAlias("Reedtrullz/ReedFS")).toBe("rfs");
     expect(repositoryAlias("Reedtrullz/Handli")).toBe("handleplan");
