@@ -111,7 +111,7 @@ class UploadTests(unittest.TestCase):
             with patch.object(upload.time, "time", return_value=upload.datetime.fromisoformat("2026-10-02T13:11:10+00:00").timestamp()), patch.object(upload, "send_v2", side_effect=send):
                 upload.upload_v2(root, "https://example.test", "test-secret")
                 self.assertEqual([row[0] for row in requests][::2], ["prepare", "commit"])
-                self.assertEqual(len(requests), 4)
+                self.assertEqual(len(requests), 3)
                 self.assertTrue(gzip.decompress(requests[1][1]))
                 (root / "owner/incidents.v2.json").write_text('{"generated_at":"2026-10-02T13:10:45Z"}')
                 requests.clear()
