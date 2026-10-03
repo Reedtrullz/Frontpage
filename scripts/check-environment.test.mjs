@@ -32,12 +32,49 @@ test("owner and collector profiles report missing names without values", () => {
   assert.ok(!JSON.stringify(collector).includes("/private/token-file"));
 });
 
-test("cloudflare reports its SQL binding and absent required environment names", () => {
-  const result = checkEnvironment("cloudflare", { AUTH_SECRET: sentinel });
+test("Cloudflare reports an uninspected binding rather than trusting a shell variable", () => {
+  const result = checkEnvironment("cloudflare", { AUTH_SECRET: sentinel, FRONTPAGE_SQL: "spoofed" });
   assert.equal(result.ok, false);
-  assert.deepEqual(result.missingBindings, ["FRONTPAGE_SQL"]);
+  assert.deepEqual(result.unverifiedConfiguration, ["Wrangler FRONTPAGE binding and SQLite migration (config not inspected)"]);
+  assert.deepEqual(result.invalid, []);
   assert.ok(result.missingVariables.includes("COLLECTOR_UPLOAD_SECRET"));
   assert.ok(!JSON.stringify(result).includes(sentinel));
+});
+
+test("Cloudflare config passes only with the FRONTPAGE SQLite DO binding and migration", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "frontpage-wrangler-config-"));
+  try {
+    const configPath = path.join(directory, "wrangler.jsonc");
+    const env = {
+      AUTH_SECRET: "auth", AUTH_GITHUB_ID: "id", AUTH_GITHUB_SECRET: "secret",
+      OWNER_GITHUB_ID: "owner", GITHUB_TOKEN: "token", COLLECTOR_UPLOAD_SECRET: "collector",
+      PROPOSALS_ORIGIN: "https://example.test", PROPOSALS_ORIGIN_TOKEN: "origin",
+    };
+    const valid = {
+      durable_objects: { bindings: [{ name: "FRONTPAGE", class_name: "FrontpageDO" }] },
+      migrations: [{ tag: "v1", new_sqlite_classes: ["FrontpageDO"] }],
+    };
+    fs.writeFileSync(configPath, JSON.stringify(valid));
+    assert.equal(checkEnvironment("cloudflare", env, { wranglerConfigPath: configPath }).ok, true);
+    assert.deepEqual(checkEnvironment("cloudflare", env, { wranglerConfigPath: configPath }).unverifiedConfiguration, []);
+
+    fs.writeFileSync(configPath, JSON.stringify({ ...valid, durable_objects: { bindings: [] } }));
+    const missingBinding = checkEnvironment("cloudflare", env, { wranglerConfigPath: configPath });
+    assert.equal(missingBinding.ok, false);
+    assert.deepEqual(missingBinding.missingBindings, ["FRONTPAGE (Wrangler durable_objects binding)"]);
+
+    fs.writeFileSync(configPath, JSON.stringify({ ...valid, migrations: [] }));
+    const missingMigration = checkEnvironment("cloudflare", env, { wranglerConfigPath: configPath });
+    assert.equal(missingMigration.ok, false);
+    assert.deepEqual(missingMigration.missingBindings, ["FrontpageDO (Wrangler SQLite migration)"]);
+
+    fs.writeFileSync(configPath, JSON.stringify(valid));
+    assert.equal(checkEnvironment("cloudflare", { ...env, FRONTPAGE_SQL: "spoofed" }, { wranglerConfigPath: configPath }).ok, true);
+    const repoConfig = fileURLToPath(new URL("../wrangler.jsonc", import.meta.url));
+    assert.equal(checkEnvironment("cloudflare", env, { wranglerConfigPath: repoConfig }).ok, true);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("rollback profile requires an explicit flag and a full SHA", () => {
@@ -72,7 +109,7 @@ test("current-state output records source state and never overwrites an existing
       assert.equal(run.status, 0, run.stderr);
     }
     fs.writeFileSync(path.join(repo, "DEPLOYMENT.md"), "source\n");
-    for (const args of [["add", "DEPLOYMENT.md"], ["commit", "-qm", "fixture"]]) {
+    for (const args of [["add", "DEPLOYMENT.md"], ["-c", "commit.gpgsign=false", "commit", "-qm", "fixture"]]) {
       const run = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
       assert.equal(run.status, 0, run.stderr);
     }
