@@ -14,6 +14,19 @@ type NavigationEvent = Event & {
 type RestorePoint = { href: string; state: string; position: number | null };
 
 const approvedNavigations = new Set<string>();
+type WindowWithOwnerNavigation = Window & {
+  __frontpageHistoryPositionTracking?: boolean;
+  __frontpagePopstateDispatcher?: boolean;
+};
+
+let activePopstateGuard: ((event: PopStateEvent) => void) | null = null;
+
+function registerPopstateGuard(guard: (event: PopStateEvent) => void) {
+  activePopstateGuard = guard;
+  return () => {
+    if (activePopstateGuard === guard) activePopstateGuard = null;
+  };
+}
 
 function serializeHistoryState(state: unknown): string {
   try {
@@ -35,33 +48,43 @@ function withHistoryPosition(state: unknown, position: number): Record<string, u
     : { [historyPositionKey]: position, __frontpageOriginalHistoryState: state };
 }
 
-/** Track real entry positions so the popstate fallback can reverse Back and Forward. */
-export function useHistoryPositionTracking() {
-  useLayoutEffect(() => {
-    const trackedWindow = window as Window & { __frontpageHistoryPositionTracking?: boolean };
-    if (trackedWindow.__frontpageHistoryPositionTracking) return;
+/**
+ * Install once from the root layout, before Next registers its popstate router.
+ * A per-editor listener is too late: Next can synchronously route and unmount it
+ * before that listener is reached, regardless of capture/bubble selection.
+ */
+export function installOwnerNavigationGuards() {
+  const trackedWindow = window as WindowWithOwnerNavigation;
 
-    let currentPosition = readHistoryPosition(history.state) ?? 0;
-    trackedWindow.__frontpageHistoryPositionTracking = true;
-    const originalPushState = history.pushState.bind(history);
-    const originalReplaceState = history.replaceState.bind(history);
-
-    history.replaceState(withHistoryPosition(history.state, currentPosition), "", location.href);
-    history.pushState = function pushState(data, unused, url) {
-      const nextPosition = currentPosition + 1;
-      const result = originalPushState(withHistoryPosition(data, nextPosition), unused, url);
-      currentPosition = readHistoryPosition(history.state) ?? currentPosition;
-      return result;
-    };
-    history.replaceState = function replaceState(data, unused, url) {
-      currentPosition = readHistoryPosition(history.state) ?? currentPosition;
-      return originalReplaceState(withHistoryPosition(data, currentPosition), unused, url);
-    };
+  if (!trackedWindow.__frontpagePopstateDispatcher) {
+    trackedWindow.__frontpagePopstateDispatcher = true;
     window.addEventListener("popstate", (event) => {
-      const position = readHistoryPosition(event.state);
-      if (position !== null) currentPosition = position;
+      activePopstateGuard?.(event);
     }, true);
-  }, []);
+  }
+
+  if (trackedWindow.__frontpageHistoryPositionTracking) return;
+
+  let currentPosition = readHistoryPosition(history.state) ?? 0;
+  trackedWindow.__frontpageHistoryPositionTracking = true;
+  const originalPushState = history.pushState.bind(history);
+  const originalReplaceState = history.replaceState.bind(history);
+
+  history.replaceState(withHistoryPosition(history.state, currentPosition), "", location.href);
+  history.pushState = function pushState(data, unused, url) {
+    const nextPosition = currentPosition + 1;
+    const result = originalPushState(withHistoryPosition(data, nextPosition), unused, url);
+    currentPosition = readHistoryPosition(history.state) ?? currentPosition;
+    return result;
+  };
+  history.replaceState = function replaceState(data, unused, url) {
+    currentPosition = readHistoryPosition(history.state) ?? currentPosition;
+    return originalReplaceState(withHistoryPosition(data, currentPosition), unused, url);
+  };
+  window.addEventListener("popstate", (event) => {
+    const position = readHistoryPosition(event.state);
+    if (position !== null) currentPosition = position;
+  }, true);
 }
 
 function approveNavigation(destination: string) {
@@ -177,12 +200,12 @@ export function useUnsavedChanges(dirty: boolean) {
     if (navigation) navigation.addEventListener("navigate", navigate, true);
     // Capture at window before Next's default-phase popstate listener when traversal is
     // unavailable or cannot be canceled through the Navigation API.
-    window.addEventListener("popstate", popstate, true);
+    const unregisterPopstateGuard = registerPopstateGuard(popstate);
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", click, true);
       navigation?.removeEventListener("navigate", navigate, true);
-      window.removeEventListener("popstate", popstate, true);
+      unregisterPopstateGuard();
     };
   }, [dirty]);
 }

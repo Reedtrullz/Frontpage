@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useHistoryPositionTracking } from "./useUnsavedChanges";
 
 const links = [
   { href: "/admin", label: "Overview", exact: true },
@@ -12,7 +11,6 @@ const links = [
 ] as const;
 
 export function AdminNav() {
-  useHistoryPositionTracking();
   const pathname = usePathname();
   return (
     <nav aria-label="Owner workspace" className="overflow-x-auto border-y border-[var(--border)]">
