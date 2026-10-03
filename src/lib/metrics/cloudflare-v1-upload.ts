@@ -45,6 +45,9 @@ export async function uploadCloudflareV1(request:Request,storage:Storage,name:st
     }
     sql.exec('INSERT INTO metrics_v1_generations(generation,collected_at,latest,history) VALUES(?,?,?,?)',generation,latest.time,latestBytes,historyBytes);
     sql.exec('INSERT INTO metrics_v1_active(id,generation) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET generation=excluded.generation',generation);
+    // Compatible code rollback reads an atomically mirrored pair. The new client refuses an old receiver before any member write.
+    sql.exec('INSERT INTO metrics_snapshot(name,data) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET data=excluded.data','latest.json',latestBytes);
+    sql.exec('INSERT INTO metrics_snapshot(name,data) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET data=excluded.data','history.json',historyBytes);
     sql.exec('DELETE FROM metrics_v1_stage WHERE generation=?',generation);
     sql.exec('DELETE FROM metrics_v1_generations WHERE generation NOT IN (SELECT generation FROM metrics_v1_generations ORDER BY collected_at DESC LIMIT 2)');
    });return new Response(null,{status:204});

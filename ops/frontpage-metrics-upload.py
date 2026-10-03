@@ -55,6 +55,15 @@ def upload(root: Path, base_url: str, secret: str) -> None:
     payloads = {name: gzip.compress(data, mtime=0) for name, data in files.items()}
     if any(len(body) > 1024 * 1024 for body in payloads.values()):
         raise ValueError("Snapshot exceeds the compressed upload size cap")
+    capability = Request(f"{base_url.rstrip('/')}/__collector/v1/capabilities",
+                         headers={"Authorization": f"Bearer {secret}"}, method="GET")
+    with urlopen(capability, timeout=20) as response:
+        data = response.read(2049)
+        if response.status != 200 or len(data) > 2048:
+            raise RuntimeError("Collector does not advertise bounded atomic v1 uploads")
+        advertised = json.loads(data)
+        if advertised != {"schema_version": 1, "atomic_generations": True}:
+            raise RuntimeError("Collector does not advertise bounded atomic v1 uploads")
     payloads["v1/commit"] = b""
     for name, body in payloads.items():
         request = Request(

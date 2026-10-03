@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import {parseArgs} from 'node:util';
+import {restoreRemoteOwnerState,UnknownRestoreOutcomeError} from './owner-state-transport.mjs';
 import {OWNER_BACKUP_CAP, validateOwnerBackup, exportFileOwnerState, restoreFileOwnerState} from '../src/lib/content/owner-state-backup';
 const {values}=parseArgs({options:Object.fromEntries(['mode','action','data-dir','endpoint','backup','target','confirm-target','confirm-backup','expected-operator-host','maintenance-secret-file','access-client-id-file','access-client-secret-file'].map(name=>[name,{type:'string'}]))});
 function required(name){const value=values[name];if(!value)throw new Error('Required option: --'+name);return value;}
@@ -28,7 +29,8 @@ try{
  }else{
   const backup=readBackup(),target=mode==='file'?required('data-dir'):required('target');
   if(required('confirm-target')!==target||required('confirm-backup')!==backup.backupId)throw new Error('Backup and destination confirmation mismatch');
-  if(mode==='file')restoreFileOwnerState(backup,target,{target,backupId:backup.backupId});else{await remote('PUT',backup);const readback=validateOwnerBackup(await remote('GET'));if(readback.source.target!==target||JSON.stringify(readback.records)!==JSON.stringify(backup.records))throw new Error('Restored state readback mismatch');}
-  console.log(JSON.stringify({restored:true,backupId:backup.backupId}));
+  let recovery;
+  if(mode==='file')restoreFileOwnerState(backup,target,{target,backupId:backup.backupId});else recovery=await restoreRemoteOwnerState({backup,target,put:input=>remote('PUT',input),read:()=>remote('GET'),validate:validateOwnerBackup});
+  console.log(JSON.stringify({restored:true,backupId:backup.backupId,...recovery}));
  }
-}catch{console.error('Owner-state operation failed. Check options, private file access, target confirmation, and operator configuration. No private record values are printed.');process.exitCode=1;}
+}catch(error){if(error instanceof UnknownRestoreOutcomeError){console.error(error.message);process.exitCode=2;}else{console.error('Owner-state operation failed. Check options, private file access, target confirmation, and operator configuration. No private record values are printed.');process.exitCode=1;}}
