@@ -235,6 +235,8 @@ export type PersonalContent = z.infer<typeof personalSchema>;
 export type SocialLink = z.infer<typeof socialLinkSchema>;
 export type MaintenanceWindow = z.infer<typeof maintenanceWindowSchema>;
 
+export class ProjectCatalogueValidationError extends Error {}
+
 export function parseProjects(input: unknown): ProjectContent[] {
   const projects = projectsSchema.parse(input);
   const slugs = new Set<string>();
@@ -243,19 +245,19 @@ export function parseProjects(input: unknown): ProjectContent[] {
 
   for (const project of projects) {
     const allSlugs = [project.slug, ...(project.aliases ?? [])];
-    if (new Set(allSlugs).size !== allSlugs.length) throw new Error(`Project ${project.slug} has duplicate or self-referential aliases.`);
-    if ((project.milestones ?? []).some((milestone, index, milestones) => milestones.findIndex((item) => item.id === milestone.id) !== index)) throw new Error(`Project ${project.slug} has duplicate milestone IDs.`);
+    if (new Set(allSlugs).size !== allSlugs.length) throw new ProjectCatalogueValidationError(`Project ${project.slug} has duplicate or self-referential aliases.`);
+    if ((project.milestones ?? []).some((milestone, index, milestones) => milestones.findIndex((item) => item.id === milestone.id) !== index)) throw new ProjectCatalogueValidationError(`Project ${project.slug} has duplicate milestone IDs.`);
     for (const slug of allSlugs) {
       const owner = identifiers.get(slug);
       if (owner) {
-        if (owner === project.slug && slug === project.slug) throw new Error(`Duplicate project slug: ${slug}`);
-        throw new Error(`Project slug or alias collision: ${slug} belongs to both ${owner} and ${project.slug}.`);
+        if (owner === project.slug && slug === project.slug) throw new ProjectCatalogueValidationError(`Duplicate project slug: ${slug}`);
+        throw new ProjectCatalogueValidationError(`Project slug or alias collision: ${slug} belongs to both ${owner} and ${project.slug}.`);
       }
       identifiers.set(slug, project.slug);
     }
-    if (slugs.has(project.slug)) throw new Error(`Duplicate project slug: ${project.slug}`);
+    if (slugs.has(project.slug)) throw new ProjectCatalogueValidationError(`Duplicate project slug: ${project.slug}`);
     if (names.has(project.name.toLowerCase())) {
-      throw new Error(`Duplicate project name: ${project.name}`);
+      throw new ProjectCatalogueValidationError(`Duplicate project name: ${project.name}`);
     }
     slugs.add(project.slug);
     names.add(project.name.toLowerCase());
