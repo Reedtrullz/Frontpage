@@ -44,7 +44,7 @@ describe("content drafts", () => {
 
     const bundle = readDraftBundle(dataDir);
     expect(bundle.personal).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       baseVersion: "abc1234",
       savedAt: "2026-07-09T19:00:00.000Z",
     });
@@ -81,7 +81,7 @@ describe("content drafts", () => {
       baseVersion: "abc1234",
     });
 
-    discardPersonalDraft(dataDir);
+    discardPersonalDraft(dataDir, readDraftBundle(dataDir).personal!.revision);
 
     expect(readDraftBundle(dataDir).personal).toBeNull();
     expect(readDraftBundle(dataDir).projects).not.toBeNull();

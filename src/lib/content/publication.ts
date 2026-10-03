@@ -1,5 +1,7 @@
 import {
   clearDrafts,
+  readDraftBundle,
+  type ReviewedRevisions,
   savePublishReceipt,
   type PublishReceipt,
 } from "./drafts";
@@ -31,6 +33,7 @@ export interface PublishCanonicalContentInput {
   personal: PersonalContent;
   projects: ProjectContent[];
   baseVersion: string;
+  reviewedRevisions?: ReviewedRevisions;
   dataDir?: string;
   now?: () => Date;
 }
@@ -100,6 +103,9 @@ export async function publishCanonicalContent(
   const personal = parsePersonal(input.personal);
   const projects = parseProjects(input.projects);
 
+  const bundle = readDraftBundle(input.dataDir);
+  const reviewed = input.reviewedRevisions ?? {personal: bundle.personal?.revision ?? null, projects: bundle.projects?.revision ?? null};
+  if (reviewed.personal !== (bundle.personal?.revision ?? null) || reviewed.projects !== (bundle.projects?.revision ?? null)) return {kind: 'conflict', message: 'The draft changed. Refresh and review before publishing.'};
   try {
     const head = await client.getHead();
     if (!parseFullCommitSha(input.baseVersion) || parseFullCommitSha(input.baseVersion) !== parseFullCommitSha(head.commitSha)) {
@@ -131,7 +137,7 @@ export async function publishCanonicalContent(
       commitUrl,
     };
     savePublishReceipt(receipt, input.dataDir);
-    clearDrafts(input.dataDir);
+    clearDrafts(input.dataDir, reviewed);
     return { kind: "published", commitSha, commitUrl };
   } catch (error) {
     if (isRefConflict(error)) {

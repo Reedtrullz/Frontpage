@@ -25,6 +25,7 @@ export interface ValidationSummary {
 }
 
 export interface AdminContentView {
+  reviewedRevisions: {personal: string | null; projects: string | null};
   deployedVersion: string;
   draftBaseVersion: string | null;
   draftCount: number;
@@ -210,6 +211,7 @@ export function buildAdminContentView(input: {
         : baseVersions.length === 1
           ? baseVersions[0]
           : "mixed",
+    reviewedRevisions: {personal: input.drafts.personal?.revision ?? null, projects: input.drafts.projects?.revision ?? null},
     draftCount,
     hasPersonalDraft: Boolean(input.drafts.personal),
     hasProjectsDraft: Boolean(input.drafts.projects),

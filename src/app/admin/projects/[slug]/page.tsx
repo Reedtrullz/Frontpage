@@ -22,7 +22,7 @@ export default async function ProjectAdminPage({
         <p className="mt-4 text-base leading-7 text-[var(--text-muted)]">Every canonical field is editable here. Saving writes the complete validated project bundle as one local draft.</p>
       </header>
       <div className="mt-10">
-        <ProjectEditor initial={project} allProjects={view.projects} hasDraft={view.hasProjectsDraft} />
+        <ProjectEditor initial={project} allProjects={view.projects} hasDraft={view.hasProjectsDraft} initialRevision={view.reviewedRevisions.projects} />
       </div>
     </div>
   );

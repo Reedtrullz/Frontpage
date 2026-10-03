@@ -24,7 +24,8 @@ const timestampSchema = z.string().datetime({ offset: true });
 function draftEnvelopeSchema<T extends z.ZodType>(content: T) {
   return z
     .object({
-      schemaVersion: z.literal(1),
+      schemaVersion: z.literal(2),
+      revision: z.string().uuid(),
       baseVersion: versionSchema,
       savedAt: timestampSchema,
       content,
@@ -34,6 +35,42 @@ function draftEnvelopeSchema<T extends z.ZodType>(content: T) {
 
 const personalDraftSchema = draftEnvelopeSchema(personalSchema);
 const projectsDraftSchema = draftEnvelopeSchema(projectsSchema);
+const legacyPersonalDraftSchema = personalDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
+const legacyProjectsDraftSchema = projectsDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
+export class DraftConflictError extends Error {
+  readonly code = 'DRAFT_REVISION_CONFLICT';
+  constructor(readonly latestRevision: string | null = null) { super('The draft changed. Refresh and review before trying again.'); }
+}
+export type ReviewedRevisions = { personal: string | null; projects: string | null };
+function withStateLock<T>(dataDir: string | undefined, action: () => T): T {
+  if (cloudflareSql(dataDir)) return action(); // All operations below are synchronous; no actor event can interleave.
+  const root = resolveDataDir(dataDir);
+  fs.mkdirSync(root, {recursive: true, mode: 0o700});
+  const lock = path.join(root, '.owner-state.lock');
+  let descriptor: number;
+  try { descriptor = fs.openSync(lock, 'wx', 0o600); }
+  catch (error) { if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') throw new DraftConflictError(); throw error; }
+  try { return action(); } finally { fs.closeSync(descriptor); fs.unlinkSync(lock); }
+}
+function readPersonal(dataDir?: string): DraftEnvelope<PersonalContent> | null {
+  const file = path.join(resolveDataDir(dataDir), 'drafts/personal.json');
+  const raw = readJson(file, z.union([personalDraftSchema, legacyPersonalDraftSchema]), dataDir);
+  if (!raw) return null;
+  if (raw.schemaVersion === 2) return raw;
+  const upgraded = {...raw, schemaVersion: 2 as const, revision: randomUUID()};
+  atomicWriteJson(file, upgraded, dataDir);
+  return upgraded;
+}
+function readProjects(dataDir?: string): DraftEnvelope<ProjectContent[]> | null {
+  const file = path.join(resolveDataDir(dataDir), 'drafts/projects.json');
+  const raw = readJson(file, z.union([projectsDraftSchema, legacyProjectsDraftSchema]), dataDir);
+  if (!raw) return null;
+  if (raw.schemaVersion === 2) return raw;
+  const upgraded = {...raw, schemaVersion: 2 as const, revision: randomUUID()};
+  atomicWriteJson(file, upgraded, dataDir);
+  return upgraded;
+}
+
 
 const publishedReceiptSchema = z
   .object({
@@ -73,7 +110,8 @@ const publishReceiptSchema = z.discriminatedUnion("kind", [
 ]);
 
 export interface DraftEnvelope<T> {
-  schemaVersion: 1;
+  schemaVersion: 2;
+  revision: string;
   baseVersion: string;
   savedAt: string;
   content: T;
@@ -96,6 +134,7 @@ export type ContentPublicationState =
   | { kind: "publish-failed"; label: "Publish failed"; message: string };
 
 interface DraftWriteOptions {
+  expectedRevision?: string | null;
   dataDir?: string;
   baseVersion: string;
   now?: () => Date;
@@ -192,52 +231,37 @@ function makeEnvelope<T>(
   options: DraftWriteOptions,
 ): DraftEnvelope<T> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    revision: randomUUID(),
     baseVersion: versionSchema.parse(options.baseVersion),
     savedAt: (options.now?.() ?? new Date()).toISOString(),
     content,
   };
 }
 
-export function savePersonalDraft(
-  input: unknown,
-  options: DraftWriteOptions,
-): DraftEnvelope<PersonalContent> {
-  const envelope = makeEnvelope(parsePersonal(input), options);
-  const filePath = path.join(resolveDataDir(options.dataDir), "drafts", "personal.json");
-  atomicWriteJson(filePath, personalDraftSchema.parse(envelope), options.dataDir);
-  return envelope;
+export function savePersonalDraft(input: unknown, options: DraftWriteOptions): DraftEnvelope<PersonalContent> {
+  const envelope = personalDraftSchema.parse(makeEnvelope(parsePersonal(input), options));
+  return withStateLock(options.dataDir, () => {
+    const previous = readPersonal(options.dataDir);
+    if ((previous?.revision ?? null) !== (options.expectedRevision ?? null)) throw new DraftConflictError(previous?.revision ?? null);
+    atomicWriteJson(path.join(resolveDataDir(options.dataDir), 'drafts/personal.json'), envelope, options.dataDir);
+    return envelope;
+  });
 }
-
-export function saveProjectsDraft(
-  input: unknown,
-  options: DraftWriteOptions,
-): DraftEnvelope<ProjectContent[]> {
-  const envelope = makeEnvelope(parseProjects(input), options);
-  const filePath = path.join(resolveDataDir(options.dataDir), "drafts", "projects.json");
-  atomicWriteJson(filePath, projectsDraftSchema.parse(envelope), options.dataDir);
-  return envelope;
+export function saveProjectsDraft(input: unknown, options: DraftWriteOptions): DraftEnvelope<ProjectContent[]> {
+  const envelope = projectsDraftSchema.parse(makeEnvelope(parseProjects(input), options));
+  return withStateLock(options.dataDir, () => {
+    const previous = readProjects(options.dataDir);
+    if ((previous?.revision ?? null) !== (options.expectedRevision ?? null)) throw new DraftConflictError(previous?.revision ?? null);
+    atomicWriteJson(path.join(resolveDataDir(options.dataDir), 'drafts/projects.json'), envelope, options.dataDir);
+    return envelope;
+  });
 }
-
 export function readDraftBundle(dataDir?: string): DraftBundle {
-  const root = resolveDataDir(dataDir);
-  return {
-    personal: readJson(
-      path.join(root, "drafts", "personal.json"),
-      personalDraftSchema,
-      dataDir,
-    ),
-    projects: readJson(
-      path.join(root, "drafts", "projects.json"),
-      projectsDraftSchema,
-      dataDir,
-    ),
-    receipt: readJson(
-      path.join(root, "receipts", "publication.json"),
-      publishReceiptSchema,
-      dataDir,
-    ),
-  };
+  return withStateLock(dataDir, () => ({
+    personal: readPersonal(dataDir), projects: readProjects(dataDir),
+    receipt: readJson(path.join(resolveDataDir(dataDir), 'receipts/publication.json'), publishReceiptSchema, dataDir),
+  }));
 }
 
 export function savePublishReceipt(
@@ -253,18 +277,27 @@ export function savePublishReceipt(
   return parsed;
 }
 
-export function clearDrafts(dataDir?: string): void {
-  const directory = path.join(resolveDataDir(dataDir), "drafts");
-  removeJson(path.join(directory, "personal.json"), dataDir);
-  removeJson(path.join(directory, "projects.json"), dataDir);
+export function clearDrafts(dataDir: string | undefined, expected: ReviewedRevisions): void {
+  withStateLock(dataDir, () => {
+    for (const kind of ['personal', 'projects'] as const) {
+      const current = kind === 'personal' ? readPersonal(dataDir) : readProjects(dataDir);
+      if (expected[kind] !== null && current?.revision === expected[kind]) removeJson(path.join(resolveDataDir(dataDir), 'drafts', kind + '.json'), dataDir);
+    }
+  });
 }
-
-export function discardPersonalDraft(dataDir?: string): void {
-  removeJson(path.join(resolveDataDir(dataDir), "drafts", "personal.json"), dataDir);
+export function discardPersonalDraft(dataDir?: string, expectedRevision?: string | null): void {
+  withStateLock(dataDir, () => {
+    const current = readPersonal(dataDir);
+    if (expectedRevision === undefined || (current?.revision ?? null) !== expectedRevision) throw new DraftConflictError(current?.revision ?? null);
+    removeJson(path.join(resolveDataDir(dataDir), 'drafts/personal.json'), dataDir);
+  });
 }
-
-export function discardProjectsDraft(dataDir?: string): void {
-  removeJson(path.join(resolveDataDir(dataDir), "drafts", "projects.json"), dataDir);
+export function discardProjectsDraft(dataDir?: string, expectedRevision?: string | null): void {
+  withStateLock(dataDir, () => {
+    const current = readProjects(dataDir);
+    if (expectedRevision === undefined || (current?.revision ?? null) !== expectedRevision) throw new DraftConflictError(current?.revision ?? null);
+    removeJson(path.join(resolveDataDir(dataDir), 'drafts/projects.json'), dataDir);
+  });
 }
 
 export function versionsMatch(left: string, right: string): boolean {
