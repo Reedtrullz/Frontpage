@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { alignedTimestamps } from "./metric-fixture-times.mjs";
 
 const rootDir = process.cwd();
 const outputDir = path.join(rootDir, "tests", "e2e", ".metrics");
@@ -202,9 +203,7 @@ writeProjection(ownerV2Dir, "incidents.v2.json", {
 });
 
 function hostSeries(range, resolution, count) {
-  const timestamps = Array.from({ length: count }, (_, index) =>
-    utc(now - (count - 1 - index) * resolution * 1000),
-  );
+  const timestamps = alignedTimestamps(now, count, resolution);
   return {
     schema_version: 2,
     generated_at: generatedAt,

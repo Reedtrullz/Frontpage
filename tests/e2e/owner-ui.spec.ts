@@ -56,7 +56,9 @@ test.describe("owner workspace", () => {
     const cpuChart = page.getByRole("img", { name: /CPU history. Use left and right/ });
     await cpuChart.focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(cpuChart.locator("..").locator('[aria-live="polite"]')).toContainText("CPU total");
+    const chartReadout = cpuChart.locator("..").locator('[aria-live="polite"]');
+    await expect(chartReadout).toContainText("CPU total");
+    await expect(chartReadout).not.toContainText("No measured samples in this range.");
 
     const incident = page.getByRole("button", { name: /Frontpage workload recovered after OOM kill/ });
     await incident.click();
