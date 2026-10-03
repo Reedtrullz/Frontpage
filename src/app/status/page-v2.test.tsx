@@ -10,6 +10,7 @@ const {
   seriesReadMock,
   publicRootMock,
   ownerRootMock,
+  miningMock,
 } = vi.hoisted(() => ({
   authMock: vi.fn(),
   ownerMock: vi.fn(),
@@ -19,6 +20,7 @@ const {
   seriesReadMock: vi.fn(),
   publicRootMock: vi.fn(),
   ownerRootMock: vi.fn(),
+  miningMock: vi.fn(),
 }));
 
 vi.mock("@/auth", () => ({ auth: authMock }));
@@ -66,6 +68,7 @@ vi.mock("@/lib/metrics/status-page", () => ({
     ownerAttention: ownerMock() ? [] : null,
   }),
 }));
+vi.mock("@/lib/metrics/v2/mining", () => ({ fetchMiningV2: miningMock }));
 vi.mock("@/components/dashboard/VpsStatusSummary", () => ({ VpsStatusSummary: () => <div /> }));
 vi.mock("@/components/dashboard/StatusInventory", () => ({ StatusInventory: () => <div /> }));
 vi.mock("@/components/dashboard/CoarseHistoryStrip", () => ({ CoarseHistoryStrip: () => <div /> }));
@@ -110,6 +113,13 @@ describe("StatusPage v2 composition", () => {
     publicIncidentsMock.mockReturnValue({ availability: "unavailable", data: null, diagnostics: [] });
     ownerReadMock.mockReturnValue({ availability: "available", data: ownerLatest, diagnostics: [] });
     seriesReadMock.mockReturnValue(series);
+    miningMock.mockResolvedValue({
+      data: null,
+      sourceSampleAt: null,
+      observedAt: null,
+      observationAgeMs: null,
+      freshness: "unavailable",
+    });
   });
 
   afterEach(() => delete process.env.FRONTPAGE_OBSERVABILITY_V2);
@@ -141,5 +151,58 @@ describe("StatusPage v2 composition", () => {
     expect(seriesReadMock).toHaveBeenCalled();
     expect(markup).toContain("V2 owner panel");
     expect(markup).toContain("data-observability-v2=\"available\"");
+  });
+
+  it("keeps the current public mining disclosure allowlisted and explains unknown sample time", async () => {
+    authMock.mockResolvedValue(null);
+    miningMock.mockResolvedValue({
+      data: {
+        hashrate: 1200,
+        hashrate_avg_1h: 1100,
+        accepted_shares: 12,
+        last_share_at_ms: Date.parse("2026-10-03T13:58:00Z"),
+        worker_name: "rig-main",
+        uptime_seconds: 3600,
+        worker_agent: "private-agent-build",
+        paid: 912345,
+        balance_unlocked: 812345,
+        balance_locked: 712345,
+        rejected_shares: 612345,
+      },
+      sourceSampleAt: null,
+      observedAt: "2026-10-03T14:00:00.000Z",
+      observationAgeMs: 20_000,
+      freshness: "unknown",
+    });
+
+    const markup = renderToStaticMarkup(await StatusPage());
+    expect(markup).toContain("Pool sample time unknown");
+    expect(markup).toContain("rig-main");
+    expect(markup).toContain("1.20 KH/s");
+    for (const privateValue of ["private-agent-build", "912345", "812345", "712345", "612345"]) {
+      expect(markup).not.toContain(privateValue);
+    }
+  });
+
+  it("does not describe stale cached pool data as current mining activity", async () => {
+    authMock.mockResolvedValue(null);
+    miningMock.mockResolvedValue({
+      data: {
+        hashrate: 1200,
+        hashrate_avg_1h: 1100,
+        accepted_shares: 12,
+        last_share_at_ms: Date.parse("2026-10-03T13:58:00Z"),
+        worker_name: "rig-main",
+        uptime_seconds: 3600,
+      },
+      sourceSampleAt: null,
+      observedAt: "2026-10-03T13:00:00.000Z",
+      observationAgeMs: 3_600_000,
+      freshness: "stale",
+    });
+
+    const markup = renderToStaticMarkup(await StatusPage());
+    expect(markup).toContain("Last-known mining stats");
+    expect(markup).not.toContain("Mining PEARL");
   });
 });
