@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect } from "react";
+import { useLayoutEffect } from "react";
 
 const navigationWarning = "Leave without saving this draft?";
 const historyPositionKey = "__frontpageHistoryPosition";
@@ -81,7 +81,7 @@ export function confirmUnsavedNavigation(dirty: boolean): boolean {
 }
 
 export function useUnsavedChanges(dirty: boolean) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!dirty) return;
 
     const beforeUnload = (event: BeforeUnloadEvent) => {
