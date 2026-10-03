@@ -127,9 +127,7 @@ export async function fetchRepoStats(
       return stats;
     } catch (error) {
       console.warn(`GitHub stats unavailable for ${key}: ${summarizeGitHubStatsError(error)}`);
-      const stats = emptyStats();
-      cache.set(key, { data: stats, ts: Date.now() });
-      return stats;
+      return emptyStats();
     }
   });
   inFlight.set(key, request);
