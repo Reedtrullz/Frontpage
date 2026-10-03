@@ -9,7 +9,7 @@ import {
   discardProjectsDraft,
   saveProjectsDraft,
 } from "@/lib/content/drafts";
-import { parseProjects } from "@/lib/content/schema";
+import { parseProjects, ProjectCatalogueValidationError } from "@/lib/content/schema";
 
 function validationMessage(error: z.ZodError): string {
   return error.issues
@@ -66,7 +66,7 @@ export async function PUT(request: Request) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
-    if (error instanceof Error && /duplicate project/i.test(error.message)) {
+    if (error instanceof ProjectCatalogueValidationError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     console.error("Failed to save projects draft", error instanceof Error ? error.name : "Error");
