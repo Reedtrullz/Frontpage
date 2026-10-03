@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getCloudflareMetricsRootV2, readCloudflareProjectionV2 } from "../cloudflare-store";
+import { CloudflareMetricsTooLargeError, getCloudflareMetricsRootV2, readCloudflareProjectionV2 } from "../cloudflare-store";
 import { MANIFEST_PATH_PATTERN } from "./paths";
 import {
   parseIncidentListV2,
@@ -21,6 +21,8 @@ import {
 
 const LATEST_CAP_BYTES = 512 * 1024;
 const SERIES_CAP_BYTES = 4 * 1024 * 1024;
+const MAX_QUERY_CHUNKS = 32;
+const MAX_QUERY_DECODED_BYTES = 32 * 1024 * 1024;
 const FRESH_MS = 45_000;
 const UNAVAILABLE_MS = 120_000;
 const RANGE_MS = {
@@ -81,12 +83,24 @@ function resolveInside(root: string, relative: string): string {
   return resolved;
 }
 
-function readCappedJson(root: string, relative: string, cap: number): unknown {
+interface ReadByteBudget {
+  remainingBytes: number;
+}
+
+function readCappedJson(
+  root: string,
+  relative: string,
+  cap: number,
+  budget?: ReadByteBudget,
+): unknown {
   const filePath = resolveInside(root, relative);
   if (process.env.FRONTPAGE_CLOUDFLARE === "1") {
     try {
-      return readCloudflareProjectionV2(root, relative, cap);
+      return readCloudflareProjectionV2(root, relative, cap, budget);
     } catch (error) {
+      if (error instanceof CloudflareMetricsTooLargeError) {
+        throw new ProjectionReadError("too_large", "Series query exceeds its aggregate read budget.");
+      }
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new ProjectionReadError("unavailable", "Projection file is unavailable.");
       }
@@ -110,6 +124,9 @@ function readCappedJson(root: string, relative: string, cap: number): unknown {
         `Projection exceeds ${cap === SERIES_CAP_BYTES ? "4 MiB" : "512 KiB"}.`,
       );
     }
+    if (budget && stat.size > budget.remainingBytes) {
+      throw new ProjectionReadError("too_large", "Series query exceeds its aggregate read budget.");
+    }
     bytes = fs.readFileSync(descriptor);
   } catch (error) {
     if (error instanceof ProjectionReadError) throw error;
@@ -127,6 +144,12 @@ function readCappedJson(root: string, relative: string, cap: number): unknown {
   }
   if (bytes.byteLength > cap) {
     throw new ProjectionReadError("too_large", "Projection exceeds its size cap.");
+  }
+  if (budget) {
+    if (bytes.byteLength > budget.remainingBytes) {
+      throw new ProjectionReadError("too_large", "Series query exceeds its aggregate read budget.");
+    }
+    budget.remainingBytes -= bytes.byteLength;
   }
   try {
     return JSON.parse(bytes.toString("utf8"));
@@ -313,20 +336,39 @@ function parseManifest(root: string): OwnerManifestV2 {
   return payload as OwnerManifestV2;
 }
 
-function filesForQuery(manifest: OwnerManifestV2, query: OwnerMetricsQuery): string[] {
+function filesForQuery(
+  manifest: OwnerManifestV2,
+  query: OwnerMetricsQuery,
+  now: Date,
+): string[] {
   const base =
     query.view === "workloads"
       ? `workloads/${query.resource}`
       : "host";
-  const expected =
-    query.range === "1h"
-      ? `${base}/1h.v2.json`
-      : `${base}/${query.range === "30d" ? "quarter-hour" : "minute"}/`;
-  const files = manifest.files
-    .filter((file) =>
-      query.range === "1h" ? file === expected : file.startsWith(expected),
-    )
-    .sort();
+  if (query.range === "1h") {
+    const expected = `${base}/1h.v2.json`;
+    const files = manifest.files.filter((file) => file === expected);
+    if (files.length === 0) {
+      throw new ProjectionReadError("unavailable", "Requested series projection is unavailable.");
+    }
+    return files;
+  }
+
+  const tier = query.range === "30d" ? "quarter-hour" : "minute";
+  const prefix = `${base}/${tier}/`;
+  const windowStartMs = now.getTime() - RANGE_MS[query.range];
+  const files = manifest.files.filter((file) => {
+    if (!file.startsWith(prefix)) return false;
+    const date = file.slice(prefix.length, -".v2.json".length);
+    const chunkStartMs = Date.parse(`${date}T00:00:00.000Z`);
+    if (
+      !Number.isFinite(chunkStartMs) ||
+      new Date(chunkStartMs).toISOString().slice(0, 10) !== date
+    ) {
+      throw new ProjectionReadError("invalid", "Series manifest contains an invalid chunk date.");
+    }
+    return chunkStartMs <= now.getTime() && chunkStartMs + 24 * 60 * 60_000 > windowStartMs;
+  }).sort();
   if (files.length === 0) {
     throw new ProjectionReadError("unavailable", "Requested series projection is unavailable.");
   }
@@ -414,9 +456,15 @@ export function readSeriesV2(
     throw new ProjectionReadError("unavailable", "The owner metrics projection root is not configured.");
   }
   const manifest = parseManifest(root);
-  const chunks = filesForQuery(manifest, query).map((file) => {
+  const files = filesForQuery(manifest, query, now);
+  if (files.length > MAX_QUERY_CHUNKS) {
+    throw new ProjectionReadError("too_large", "Series query exceeds its chunk budget.");
+  }
+  const budget = { remainingBytes: MAX_QUERY_DECODED_BYTES };
+  const payloads = files.map((file) => readCappedJson(root, file, SERIES_CAP_BYTES, budget));
+  const chunks = payloads.map((payload) => {
     try {
-      return parseSeriesV2(readCappedJson(root, file, SERIES_CAP_BYTES));
+      return parseSeriesV2(payload);
     } catch (error) {
       if (error instanceof ProjectionReadError) throw error;
       throw new ProjectionReadError("invalid", "Series projection failed schema validation.");
