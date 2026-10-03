@@ -145,9 +145,7 @@ describe("fetchRepoStats in-flight coalescing", () => {
     expect(cached).toBe(firstStats);
   });
 
-  it("clears failed in-flight work and retries after the settled five-minute cache expires", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-03T12:00:00Z"));
+  it("clears failed in-flight work and retries an unavailable result immediately", async () => {
     const repo = `retry-${Date.now()}`;
     const failed = fakeClient(
       {},
@@ -156,11 +154,8 @@ describe("fetchRepoStats in-flight coalescing", () => {
     vi.mocked(failed.repos.get).mockRejectedValue({ status: 404, response: { data: { message: "private-provider-detail" } } });
     const unavailable = await fetchRepoStats("Reedtrullz", repo, failed);
     expect(unavailable.status).toBe("unavailable");
-    const cached = await fetchRepoStats("reedtrullz", repo.toUpperCase(), fakeClient({}, []));
-    expect(cached).toBe(unavailable);
     expect(failed.repos.get).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(5 * 60 * 1000 + 1);
     const recovered = await fetchRepoStats(
       "REEDTRULLZ", repo,
       fakeClient({ stargazers_count: 2, language: "Python", updated_at: null }, []),
