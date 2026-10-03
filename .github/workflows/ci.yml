@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, "codex/frontpage-*"]
   workflow_dispatch:
 
 concurrency:
@@ -39,6 +39,8 @@ jobs:
             typescript-eslint@8.59.2
       - run: npm audit --include=dev --audit-level=critical
       - run: npm test
+      - name: Operator restore transport regressions
+        run: node --test ops/owner-state-transport.test.mjs
       - run: npm run lint
       - run: npx tsc --noEmit
       - name: Install Ansible validation dependencies
@@ -66,6 +68,10 @@ jobs:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
+      - name: Install runtime browser
+        run: npx playwright install --with-deps chromium
+      - name: Exercise built Worker and Durable Object runtime
+        run: npm run test:cloudflare
       - name: Validate Cloudflare upload bundle
         run: npx wrangler deploy --config wrangler.jsonc --dry-run
 

@@ -16,10 +16,11 @@ interface PublishPanelProps {
   receipt: PublishReceipt | null;
   diff: ContentChange[];
   reviewedRevisions: ReviewedRevisions;
+  recoveryRevisions?: ReviewedRevisions | null;
   hasDraft: boolean;
 }
 
-export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions }: PublishPanelProps) {
+export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions, recoveryRevisions }: PublishPanelProps) {
   const router = useRouter();
   const [confirmedRevision, setConfirmedRevision] = useState<string | null>(null);
   const revisionKey = JSON.stringify(reviewedRevisions);
@@ -30,11 +31,11 @@ export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions
     receipt?.kind === "published" ? receipt.commitUrl : null,
   );
 
-  async function publish() {
+  async function publish(recovery = false) {
     setPublishing(true);
     setMessage("");
     try {
-      const response = await fetch("/api/data/publish", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({reviewedRevisions}) });
+      const response = await fetch("/api/data/publish", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({reviewedRevisions: recovery ? recoveryRevisions : reviewedRevisions}) });
       const body = (await response.json()) as {
         error?: string;
         state?: string;
@@ -56,7 +57,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions
     }
   }
 
-  const canPublish = hasDraft && diff.length > 0 && confirmed && !publishing;
+  const canPublish = !recoveryRevisions && hasDraft && diff.length > 0 && confirmed && !publishing;
 
   return (
     <section aria-labelledby="publish-heading" className="border-t border-[var(--border)] pt-8">
@@ -87,6 +88,8 @@ export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions
         </p>
       ) : null}
 
+      {recoveryRevisions ? <div className="mt-5 border border-[var(--border)] p-4"><p className="text-sm text-[var(--text-muted)]">A previous publication needs recovery. Retry its recorded commit before publishing newer drafts. Newer drafts are preserved.</p><button type="button" className="secondary-command mt-3" disabled={publishing} onClick={() => void publish(true)}>Recover publication</button></div> : null}
+
       <label className="mt-5 flex max-w-3xl items-start gap-3 text-sm text-[var(--text-muted)]">
         <input
           type="checkbox"
@@ -99,7 +102,7 @@ export function PublishPanel({ state, receipt, diff, hasDraft, reviewedRevisions
       </label>
 
       <div className="mt-5 flex flex-wrap items-center gap-4">
-        <button type="button" onClick={publish} disabled={!canPublish} className="primary-command disabled:cursor-not-allowed disabled:opacity-40">
+        <button type="button" onClick={() => void publish()} disabled={!canPublish} className="primary-command disabled:cursor-not-allowed disabled:opacity-40">
           <Send className="h-4 w-4" aria-hidden="true" />
           {publishing ? "Publishing" : "Publish to GitHub"}
         </button>

@@ -18,12 +18,15 @@ class UploadTests(unittest.TestCase):
     def test_uploads_only_bounded_v1_snapshots(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "latest.json").write_text('{"sample":1}')
-            (root / "history.json").write_text('{"samples":[]}')
+            (root / "latest.json").write_text('{"schema_version":1,"collected_at":"2026-10-03T12:00:00Z"}')
+            (root / "history.json").write_text('{"schema_version":1,"samples":[{"schema_version":1,"collected_at":"2026-10-03T12:00:00Z"}]}')
             requests = []
 
             class Response:
                 status = 204
+
+                def read(self, _limit):
+                    return b'{"schema_version":1,"atomic_generations":true}'
 
                 def __enter__(self):
                     return self
@@ -34,14 +37,62 @@ class UploadTests(unittest.TestCase):
             def send(request, timeout):
                 self.assertEqual(timeout, 20)
                 requests.append(request)
-                return Response()
+                response = Response()
+                if request.method == 'GET': response.status = 200
+                return response
 
             with patch.object(upload, "urlopen", side_effect=send):
                 upload.upload(root, "https://example.test/", "test-token")
-            self.assertEqual(len(requests), 2)
-            self.assertEqual(requests[0].full_url, "https://example.test/__collector/latest.json")
-            self.assertEqual(gzip.decompress(requests[0].data), b'{"sample":1}')
+            self.assertEqual(len(requests), 4)
+            self.assertEqual(requests[1].full_url, "https://example.test/__collector/latest.json")
+            self.assertEqual(gzip.decompress(requests[1].data), (root / 'latest.json').read_bytes())
             self.assertEqual(requests[0].get_header("Authorization"), "Bearer test-token")
+
+            self.assertEqual(requests[3].full_url, "https://example.test/__collector/v1/commit")
+            generations = [request.get_header("X-frontpage-generation") for request in requests[1:]]
+            self.assertEqual(len(set(generations)), 1)
+            self.assertRegex(generations[0], r"^[a-f0-9]{64}$")
+
+    def test_v1_rejects_inconsistent_pair_before_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "latest.json").write_text('{"schema_version":1,"collected_at":"2026-10-03T12:00:00Z"}')
+            (root / "history.json").write_text('{"schema_version":1,"samples":[{"collected_at":"2026-10-03T11:59:00Z"}]}')
+            with patch.object(upload, "urlopen") as network:
+                with self.assertRaisesRegex(ValueError, "inconsistent"):
+                    upload.upload(root, "https://example.test", "synthetic")
+                network.assert_not_called()
+
+    def test_v1_rejects_oversize_and_symlink_before_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            latest = root / "latest.json"
+            latest.write_bytes(b" " * (512 * 1024 + 1))
+            with patch.object(upload, "urlopen") as network:
+                with self.assertRaisesRegex(ValueError, "cap"):
+                    upload.upload(root, "https://example.test", "synthetic")
+                network.assert_not_called()
+            latest.unlink()
+            latest.symlink_to(root / "history.json")
+            with self.assertRaisesRegex(ValueError, "Symlink"):
+                upload.upload(root, "https://example.test", "synthetic")
+
+    def test_v1_old_receiver_cannot_receive_any_member_before_capability_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            latest = {"schema_version": 1, "collected_at": "2026-10-03T12:00:00Z"}
+            (root / "latest.json").write_text(json.dumps(latest))
+            (root / "history.json").write_text(json.dumps({"schema_version": 1, "samples": [latest]}))
+            class Response:
+                status = 404
+                def read(self, _limit): return b"Not found"
+                def __enter__(self): return self
+                def __exit__(self, *_): pass
+            with patch.object(upload, "urlopen", return_value=Response()) as network:
+                with self.assertRaisesRegex(RuntimeError, "atomic"):
+                    upload.upload(root, "https://example.test", "synthetic")
+                self.assertEqual(network.call_count, 1)
+                self.assertEqual(network.call_args.args[0].method, "GET")
 
 
     def test_v2_rejects_partial_publication_and_uploads_only_missing_hashes(self):

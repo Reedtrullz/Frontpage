@@ -1,4 +1,5 @@
 import { gunzipSync } from "node:zlib";
+import {parseMetricsSnapshot,parseMetricsHistory} from "./schema";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export type SqlStore = {
@@ -9,13 +10,24 @@ export function readCloudflareMetric(filename: string): unknown | null {
   if (process.env.FRONTPAGE_CLOUDFLARE !== "1") return null;
   const sql = (getCloudflareContext().env as { FRONTPAGE_SQL?: SqlStore }).FRONTPAGE_SQL;
   if (!sql) throw new Error("Frontpage Durable Object storage is unavailable.");
-  const row = sql.exec("SELECT data FROM metrics_snapshot WHERE name = ?", filename).toArray()[0];
+  if (!['latest.json','history.json'].includes(filename)) throw new Error('Invalid metrics name.');
+  const pointer = sql.exec('SELECT generation FROM metrics_v1_active WHERE id=1').toArray()[0];
+  if(!pointer){
+    const rows=sql.exec("SELECT name,data FROM metrics_snapshot WHERE name IN ('latest.json','history.json')").toArray();
+    const latestRow=rows.find(row=>row.name==='latest.json'),historyRow=rows.find(row=>row.name==='history.json');
+    if(!latestRow || !historyRow)throw Object.assign(new Error('A complete legacy metrics pair is unavailable.'),{code:'ENOENT'});
+    const latest=parseMetricsSnapshot(JSON.parse(gunzipSync(latestRow.data as Uint8Array,{maxOutputLength:512*1024}).toString('utf8')));
+    const history=parseMetricsHistory(JSON.parse(gunzipSync(historyRow.data as Uint8Array,{maxOutputLength:4*1024*1024}).toString('utf8')));
+    if(JSON.stringify(history.samples.at(-1))!==JSON.stringify(latest))throw new Error('Legacy metrics generations disagree.');
+    return filename==='latest.json'?latest:history;
+  }
+  const row=sql.exec(`SELECT ${filename === 'latest.json' ? 'latest' : 'history'} AS data FROM metrics_v1_generations WHERE generation=?`,String(pointer.generation)).toArray()[0];
   if (!row) {
     const error = new Error(`${filename} is missing.`) as NodeJS.ErrnoException;
     error.code = "ENOENT";
     throw error;
   }
-  return JSON.parse(gunzipSync(row.data as Uint8Array).toString("utf8"));
+  return JSON.parse(gunzipSync(row.data as Uint8Array, {maxOutputLength: filename === 'latest.json' ? 512 * 1024 : 4 * 1024 * 1024}).toString("utf8"));
 }
 
 const V2_ROOT = "/cloudflare/metrics-v2/";
