@@ -5,6 +5,7 @@ import { PublicIncidentHistory } from "@/components/dashboard/PublicIncidentHist
 import { OwnerAttentionSummary } from "@/components/dashboard/OwnerAttentionSummary";
 import { OwnerMetricsPanel } from "@/components/dashboard/OwnerMetricsPanel";
 import { OwnerObservabilityPanel } from "@/components/dashboard/observability/OwnerObservabilityPanel";
+import { OwnerTelemetryBoundary } from "@/components/dashboard/observability/OwnerTelemetryBoundary";
 import { StatusInventory } from "@/components/dashboard/StatusInventory";
 import { VpsStatusSummary } from "@/components/dashboard/VpsStatusSummary";
 import { RelativeTime } from "@/components/ui/RelativeTime";
@@ -323,6 +324,7 @@ function formatDuration(s: number): string {
       {publicStatusV2 ? <PublicIncidentHistory model={publicStatusV2} /> : null}
 
       {ownerAttentionItems ? (
+        <OwnerTelemetryBoundary>
         <>
           <div
             className="border-t border-[var(--border)] pt-14"
@@ -354,6 +356,7 @@ function formatDuration(s: number): string {
           ) : null}
           <OwnerMetricsPanel metrics={model.owner} showResourceOverview={!ownerObservability} />
         </>
+        </OwnerTelemetryBoundary>
       ) : null}
     </div>
   );
