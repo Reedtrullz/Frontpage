@@ -151,7 +151,7 @@ test("mixed workload uses capability preflight and atomic generation commit unde
   const { measureHeadroom } = await import("./measure-cloudflare-headroom.mjs");
   const paths = protectedFiles(t);
   const requests = [];
-  const fetchImpl = async (url, options) => {
+  const fetchImpl = async (url) => {
     const parsed = new URL(url);
     requests.push({ path: parsed.pathname, options });
     if (parsed.pathname === "/api/health") {
@@ -264,7 +264,7 @@ test("failed v1 commit stays failed even after both generation members stage", a
 test("partial uploads and write starvation are explicit and never serialize secrets", async (t) => {
   const { measureHeadroom } = await import("./measure-cloudflare-headroom.mjs");
   const paths = protectedFiles(t);
-  const fetchImpl = async (url, options) => {
+  const fetchImpl = async (url) => {
     const parsed = new URL(url);
     if (parsed.pathname === "/api/health") return new Response(JSON.stringify({ status: "healthy", version: sha }), { status: 200 });
     if (parsed.pathname === "/__collector/v1/capabilities") return Response.json({ schema_version: 1, atomic_generations: true });
@@ -308,7 +308,7 @@ test("three-request atomic collector writes share a five-second transaction dead
   const calls = [];
   const report = await measureHeadroom({
     ...commonTarget(paths), stageSeconds: 1,
-    fetchImpl: async (url, options) => {
+    fetchImpl: async (url) => {
       const route = new URL(url).pathname;
       calls.push(route);
       if (route === "/api/health") return new Response(JSON.stringify({ status: "healthy", version: sha }), { status: 200 });
@@ -340,7 +340,7 @@ test("synthetic atomic generations serialize complete latest/history/commit trip
     ...commonTarget(paths), maxRequests: 362,
     approval: { ...approval, FRONTPAGE_BENCHMARK_MAX_REQUESTS: "400" },
     providerEvidence: { ...providerEvidence, quota: { ...providerEvidence.quota, authorizedRequestBudget: 400 } },
-    fetchImpl: async (url, options) => {
+    fetchImpl: async (url) => {
       const route = new URL(url).pathname;
       if (route === "/api/health") return new Response(JSON.stringify({ status: "healthy", version: sha }), { status: 200 });
       if (route === "/__collector/v1/capabilities") return Response.json({ schema_version: 1, atomic_generations: true });
