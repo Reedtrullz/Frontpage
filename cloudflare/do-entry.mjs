@@ -4,7 +4,7 @@ import { initializeCloudflareV2, uploadCloudflareV2 } from '../src/lib/metrics/v
 import { timingSafeEqual } from 'node:crypto';
 import { initializeCloudflareV1, uploadCloudflareV1 } from '../src/lib/metrics/cloudflare-v1-upload';
 
-const names = new Set(['latest.json', 'history.json', 'v1/commit']);
+const names = new Set(['latest.json', 'history.json', 'v1/commit', 'v1/capabilities']);
 
 function authorized(request, secret) {
   if (!secret || !request.headers.get('authorization')?.startsWith('Bearer ')) return false;
@@ -26,11 +26,12 @@ export class FrontpageDO {
     if (url.pathname === '/__operator/owner-state') return handleOwnerMaintenance(request, this.env, this.state.storage);
     if (url.pathname.startsWith('/__collector/')) {
       const name = url.pathname.slice('/__collector/'.length);
-      if (request.method !== 'PUT' || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
+      if ((request.method !== 'PUT' && !(request.method === 'GET' && name === 'v1/capabilities')) || (!names.has(name) && !name.startsWith('v2/'))) return new Response('Not found', { status: 404 });
       if (!authorized(request, this.env.COLLECTOR_UPLOAD_SECRET)) {
         await request.body?.cancel();
         return new Response('Unauthorized', { status: 401 });
       }
+      if (name === 'v1/capabilities') return Response.json({schema_version: 1, atomic_generations: true}, {headers: {'Cache-Control': 'no-store'}});
       if (name.startsWith('v2/')) return uploadCloudflareV2(request, this.state.storage, this.env.VERSION);
       return uploadCloudflareV1(request, this.state.storage, name);
     }
@@ -49,7 +50,7 @@ const worker = {
     if (url.pathname.startsWith('/__operator/')) {
       if (url.pathname !== '/__operator/owner-state' || !env.OWNER_OPERATOR_HOST || ['reidar.tech', 'www.reidar.tech'].includes(env.OWNER_OPERATOR_HOST) || env.OWNER_OPERATOR_HOST.endsWith('.workers.dev') || url.hostname !== env.OWNER_OPERATOR_HOST) return new Response('Not found', {status:404,headers:{'Cache-Control':'private, no-store'}});
     }
-    if (url.pathname.startsWith('/__collector/') && request.method !== 'PUT') {
+    if (url.pathname.startsWith('/__collector/') && request.method !== 'PUT' && !(url.pathname === '/__collector/v1/capabilities' && request.method === 'GET')) {
       return new Response('Not found', { status: 404 });
     }
     if (/^\/(?:proposals|api\/proposals|api\/agents)(?:\/|$)/.test(url.pathname)) {

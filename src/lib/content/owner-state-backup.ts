@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {personalDraftSchema, projectsDraftSchema, legacyPersonalDraftSchema, legacyProjectsDraftSchema, publishReceiptSchema, withOwnerStateLock} from './drafts';
+import {parseProjects} from './schema';
 import {publicationJournalSchema} from './publication-intents';
 
 export const OWNER_BACKUP_CAP = 8 * 1024 * 1024;
@@ -30,7 +31,10 @@ export function validateOwnerBackup(input:unknown):OwnerBackup {
   const {sha256,...manifest}=backup;
   if (digest(manifest)!==sha256) throw new Error('Owner backup integrity check failed.');
   if (new Set(backup.records.map(record=>record.key)).size!==backup.records.length) throw new Error('Duplicate owner record.');
-  for (const record of backup.records) schemas[record.key].parse(record.value);
+  for (const record of backup.records) {
+    const parsed=schemas[record.key].parse(record.value);
+    if(record.key==='drafts/projects.json' && 'content' in parsed)parseProjects(parsed.content);
+  }
   return backup;
 }
 export function createOwnerBackup(records:RecordInput[],source:OwnerBackup['source']):OwnerBackup {
