@@ -339,7 +339,8 @@ function expectedResolution(range: OwnerMetricsQuery["range"]): 15 | 60 | 900 {
 
 function mergeSeries(chunks: SeriesV2[], query: OwnerMetricsQuery, now: Date): SeriesV2 {
   const resolution = expectedResolution(query.range);
-  const byTimestamp = new Map<string, Map<string, number | null>>();
+  const resolutionMs = resolution * 1000;
+  const byTimestamp = new Map<number, Map<string, number | null>>();
   const metadata = new Map<string, Omit<SeriesPointSetV2, "values">>();
   let generatedAt = "";
   let truncated = false;
@@ -363,22 +364,27 @@ function mergeSeries(chunks: SeriesV2[], query: OwnerMetricsQuery, now: Date): S
     });
     chunk.timestamps.forEach((timestamp, index) => {
       assertNotFuture(timestamp, now, "Series timestamp");
-      const row = byTimestamp.get(timestamp) ?? new Map<string, number | null>();
+      const timestampMs = Date.parse(timestamp);
+      const row = byTimestamp.get(timestampMs) ?? new Map<string, number | null>();
       for (const series of chunk.series) row.set(series.id, series.values[index] ?? null);
-      byTimestamp.set(timestamp, row);
+      byTimestamp.set(timestampMs, row);
     });
   }
 
   const cap = MAX_SERIES_POINTS_BY_RANGE[query.range];
-  const orderedTimestamps = [...byTimestamp.keys()].sort();
-  const latestTimestampMs = Date.parse(orderedTimestamps.at(-1)!);
-  const windowStartMs = latestTimestampMs - RANGE_MS[query.range];
-  const timestamps = orderedTimestamps
-    .filter((timestamp) => Date.parse(timestamp) > windowStartMs)
-    .slice(-cap);
+  const windowStartMs = now.getTime() - RANGE_MS[query.range];
+  const firstClosedSlotMs = Math.floor(windowStartMs / resolutionMs) * resolutionMs + resolutionMs;
+  const lastClosedSlotMs = Math.floor(now.getTime() / resolutionMs) * resolutionMs;
+  const slotCount = Math.max(
+    0,
+    Math.min(cap, Math.floor((lastClosedSlotMs - firstClosedSlotMs) / resolutionMs) + 1),
+  );
+  const timestamps = Array.from({ length: slotCount }, (_, index) =>
+    new Date(firstClosedSlotMs + index * resolutionMs).toISOString(),
+  );
   const series = [...metadata.values()].map((item) => ({
     ...item,
-    values: timestamps.map((timestamp) => byTimestamp.get(timestamp)?.get(item.id) ?? null),
+    values: timestamps.map((timestamp) => byTimestamp.get(Date.parse(timestamp))?.get(item.id) ?? null),
   }));
   const possibleValues = timestamps.length * series.length;
   const availableValues = series.reduce(

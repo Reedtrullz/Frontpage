@@ -97,7 +97,7 @@ export function ResourceChart({
       <figcaption id={descriptionId} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
         <span className="font-semibold text-[var(--text)]">{label}</span>
         <span className="text-[var(--text-muted)]">
-          {rangeLabel(data.range)} · {Math.round(data.coverage_percent)}% coverage
+          {rangeLabel(data.range)} · {Math.round(data.coverage_percent)}% window coverage
           {incidents.length > 0 ? ` · ${incidents.length} incident marker${incidents.length === 1 ? "" : "s"}` : ""}
         </span>
       </figcaption>

@@ -26,7 +26,7 @@ describe("ResourceChart server fallback", () => {
     );
     expect(markup).toContain("CPU history");
     expect(markup).toContain("Last hour");
-    expect(markup).toContain("50% coverage");
+    expect(markup).toContain("50% window coverage");
     expect(markup).toContain("tabindex=\"0\"");
     expect(markup).toContain("<table");
     expect(markup).toContain("CPU total");
