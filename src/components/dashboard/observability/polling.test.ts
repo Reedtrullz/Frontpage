@@ -131,6 +131,7 @@ describe("owner dashboard polling", () => {
     expect(poller.getSnapshot()).toMatchObject({
       incidents: [],
       data: { generated_at: "2026-07-12T19:00:02Z" },
+      seriesGeneratedAt: "2026-07-12T19:00:02Z",
       status: "ready",
     });
     await scheduler.advanceBy(15_000);
@@ -165,7 +166,7 @@ describe("owner dashboard polling", () => {
     const { poller, scheduler, visibility, online } = setup(fetcher as typeof fetch);
     poller.start();
     await flush();
-    expect(poller.getSnapshot()).toMatchObject({ latest: null, incidents: [], data: null, status: "auth-expired" });
+    expect(poller.getSnapshot()).toMatchObject({ latest: null, incidents: [], data: null, seriesGeneratedAt: null, status: "auth-expired" });
     await scheduler.advanceBy(60_000);
     visibility.set(false);
     visibility.set(true);
@@ -247,11 +248,28 @@ describe("owner dashboard polling", () => {
   it("exposes separate source times and an empty incident update", () => {
     const snapshot: OwnerDashboardSnapshot = {
       latest: initial.latest, incidents: initial.incidents.incidents, incidentsGeneratedAt: initial.incidents.generated_at,
-      data: initial.series, status: "ready", etags: { latest: null, incidents: null, series: null },
+      data: initial.series, seriesGeneratedAt: initial.series.generated_at, status: "ready", etags: { latest: null, incidents: null, series: null },
       error: null, queryKey: "/api/owner/metrics?range=1h&view=host", requestGeneration: 1,
     };
     expect(changedLatest().collected_at).not.toBe(changedSeries().generated_at);
     expect(changedIncidents().generated_at).not.toBe(changedSeries().generated_at);
     expect(snapshot.incidentsGeneratedAt).toBe(initial.incidents.generated_at);
+  });
+
+  it("does not attribute the prior range timestamp to a newly requested empty history", () => {
+    const poller = createOwnerDashboardPoller({
+      urls: {
+        latest: "/api/owner/latest",
+        incidents: "/api/owner/incidents",
+        series: "/api/owner/metrics?range=24h&view=host",
+      },
+      initial: { ...initial, seriesGeneratedAt: null },
+      scheduler: new FakeScheduler(),
+      visibility: new FakeSignal(true),
+      online: new FakeSignal(true),
+    });
+
+    expect(poller.getSnapshot().data?.generated_at).toBe(initial.series.generated_at);
+    expect(poller.getSnapshot().seriesGeneratedAt).toBeNull();
   });
 });

@@ -5,10 +5,10 @@ import type {
   ObservabilityRange,
   ObservabilityResource,
   ObservabilityView,
+  IncidentListV2,
   OwnerLatestV2,
   SeriesV2,
 } from "@/lib/metrics/v2/types";
-import { parseIncidentListV2 } from "@/lib/metrics/v2/schema";
 import {
   createOwnerDashboardPoller,
   type OwnerDashboardSnapshot,
@@ -39,7 +39,11 @@ export function useOwnerObservability({
   view,
   resource,
 }: {
-  initial: { latest: OwnerLatestV2; series: SeriesV2 };
+  initial: {
+    latest: OwnerLatestV2;
+    incidents?: IncidentListV2 | null;
+    series: SeriesV2;
+  };
   range: ObservabilityRange;
   view: ObservabilityView;
   resource: ObservabilityResource | null;
@@ -51,6 +55,10 @@ export function useOwnerObservability({
     return query;
   }, [range, resource, view]);
   const seriesUrl = `/api/owner/metrics?${parameters}`;
+  const seriesMatchesQuery =
+    initial.series.range === range &&
+    initial.series.view === view &&
+    initial.series.resource === resource;
   const poller = useMemo(
     () => createOwnerDashboardPoller({
       urls: {
@@ -60,17 +68,14 @@ export function useOwnerObservability({
       },
       initial: {
         latest: initial.latest,
-        incidents: parseIncidentListV2({
-          schema_version: 2,
-          generated_at: initial.latest.generated_at,
-          incidents: initial.latest.incidents,
-        }),
-        series: initial.series.range === range && initial.series.view === view && initial.series.resource === resource
+        incidents: initial.incidents,
+        series: seriesMatchesQuery
           ? initial.series
           : emptySeries(initial.series, range, view, resource),
+        seriesGeneratedAt: seriesMatchesQuery ? initial.series.generated_at : null,
       },
     }),
-    [initial.latest, initial.series, range, resource, seriesUrl, view],
+    [initial.incidents, initial.latest, initial.series, range, resource, seriesMatchesQuery, seriesUrl, view],
   );
   const [snapshot, setSnapshot] = useState<OwnerDashboardSnapshot>(() => poller.getSnapshot());
 

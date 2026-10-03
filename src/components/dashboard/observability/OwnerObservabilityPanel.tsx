@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type {
   IncidentV2,
+  IncidentListV2,
   ObservabilityRange,
   ObservabilityResource,
   OwnerLatestV2,
@@ -16,6 +17,7 @@ import { useOwnerObservability } from "./useOwnerObservability";
 
 export interface OwnerObservabilityInitial {
   latest: OwnerLatestV2;
+  incidents?: IncidentListV2 | null;
   series: SeriesV2;
 }
 
@@ -97,7 +99,7 @@ export function OwnerObservabilityPanel({
   const timestamps = [
     `Latest: ${displayTimestamp(latest.collected_at)}`,
     observed.incidentsGeneratedAt ? `Incidents: ${displayTimestamp(observed.incidentsGeneratedAt)}` : "Incidents: unavailable",
-    `History: ${displayTimestamp(series.generated_at)}`,
+    observed.seriesGeneratedAt ? `History: ${displayTimestamp(observed.seriesGeneratedAt)}` : "History: unavailable",
   ];
 
   return (
