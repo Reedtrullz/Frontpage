@@ -2,6 +2,7 @@
 Description=Frontpage observability collector v2
 After=network-online.target docker.service
 Wants=network-online.target
+Conflicts=frontpage-metrics-collector-v2-shadow.service
 
 [Service]
 Type=simple

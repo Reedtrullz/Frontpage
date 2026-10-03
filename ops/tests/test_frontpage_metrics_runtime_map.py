@@ -111,6 +111,8 @@ class RuntimeMapGeneratorTests(unittest.TestCase):
         self.assertIn("metrics-v2-shadow.sqlite3", shadow)
         self.assertIn("--metrics-dir /var/lib/frontpage-metrics/v2 ", production)
         self.assertIn("metrics-v2-shadow.sqlite3", production)
+        self.assertIn("Conflicts=frontpage-metrics-collector-v2.service", shadow)
+        self.assertIn("Conflicts=frontpage-metrics-collector-v2-shadow.service", production)
 
     def test_ansible_keeps_shadow_v1_only_and_gates_promoted_v2_mounts(self):
         ansible_root = SCRIPT.parent.parent

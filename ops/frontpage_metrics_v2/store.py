@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import fcntl
+import os
 import sqlite3
 import threading
 import time
@@ -78,11 +80,13 @@ class MetricsStore:
         path: Path,
         connection: sqlite3.Connection,
         writer_key: str,
+        lock_fd: int,
         clock: Callable[[], float],
     ) -> None:
         self.path = path
         self._connection = connection
         self._writer_key = writer_key
+        self._lock_fd: int | None = lock_fd
         self._clock = clock
         self._closed = False
 
@@ -93,15 +97,27 @@ class MetricsStore:
         *,
         clock: Callable[[], float] = time.monotonic,
     ) -> "MetricsStore":
-        path = Path(path)
+        path = Path(path).resolve()
         path.parent.mkdir(parents=True, exist_ok=True)
-        writer_key = str(path.resolve())
+        writer_key = str(path)
         with _WRITER_LOCK:
             if writer_key in _WRITER_PATHS:
                 raise RuntimeError("Observability database already has an active writer")
             _WRITER_PATHS.add(writer_key)
         connection: sqlite3.Connection | None = None
+        lock_fd: int | None = None
         try:
+            lock_path = path.with_name(path.name + ".writer.lock")
+            lock_fd = os.open(
+                lock_path,
+                os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0),
+                0o600,
+            )
+            os.set_inheritable(lock_fd, False)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise RuntimeError("Observability database already has an active writer") from error
             connection = sqlite3.connect(path, timeout=5.0)
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA foreign_keys=ON")
@@ -110,12 +126,16 @@ class MetricsStore:
             connection.execute("PRAGMA wal_autocheckpoint=1000")
             migrate(connection)
             connection.commit()
-            return cls(path, connection, writer_key, clock)
+            return cls(path, connection, writer_key, lock_fd, clock)
         except Exception:
-            if connection is not None:
-                connection.close()
-            with _WRITER_LOCK:
-                _WRITER_PATHS.discard(writer_key)
+            try:
+                if connection is not None:
+                    connection.close()
+            finally:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+                with _WRITER_LOCK:
+                    _WRITER_PATHS.discard(writer_key)
             raise
 
     def close(self) -> None:
@@ -124,9 +144,14 @@ class MetricsStore:
         try:
             self._connection.close()
         finally:
-            with _WRITER_LOCK:
-                _WRITER_PATHS.discard(self._writer_key)
-            self._closed = True
+            try:
+                if self._lock_fd is not None:
+                    os.close(self._lock_fd)
+                    self._lock_fd = None
+            finally:
+                with _WRITER_LOCK:
+                    _WRITER_PATHS.discard(self._writer_key)
+                self._closed = True
 
     def scalar(self, sql: str, parameters: Sequence[object] = ()) -> object:
         row = self._connection.execute(sql, parameters).fetchone()
