@@ -10,7 +10,7 @@ const latest = parseOwnerLatestV2(
   JSON.parse(fs.readFileSync(path.join(fixtureRoot, "owner-latest.json"), "utf8")),
 );
 const series = parseSeriesV2(
-  JSON.parse(fs.readFileSync(path.join(fixtureRoot, "host-series-1h.json"), "utf8")),
+  { ...JSON.parse(fs.readFileSync(path.join(fixtureRoot, "host-series-1h.json"), "utf8")), resource: null },
 );
 
 describe("OwnerObservabilityPanel", () => {

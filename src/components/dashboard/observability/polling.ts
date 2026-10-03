@@ -1,23 +1,23 @@
-import { parseSeriesV2 } from "@/lib/metrics/v2/schema";
-import type { SeriesV2 } from "@/lib/metrics/v2/types";
+import { parseIncidentListV2, parseOwnerLatestV2, parseSeriesV2 } from "@/lib/metrics/v2/schema";
+import type { IncidentListV2, IncidentV2, OwnerLatestV2, SeriesV2 } from "@/lib/metrics/v2/types";
+import { markOwnerSessionExpired } from "./owner-session";
 
 const POLL_INTERVAL_MS = 15_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 const VISIBILITY_DEBOUNCE_MS = 500;
 
-export type PollStatus =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "paused"
-  | "offline"
-  | "error"
-  | "auth-expired";
+export type PollStatus = "idle" | "loading" | "ready" | "paused" | "offline" | "error" | "auth-expired";
 
-export interface OwnerPollSnapshot {
-  data: SeriesV2;
+export interface OwnerDashboardSnapshot {
+  latest: OwnerLatestV2 | null;
+  incidents: IncidentV2[];
+  incidentsGeneratedAt: string | null;
+  data: SeriesV2 | null;
   status: PollStatus;
-  etag: string | null;
+  etags: { latest: string | null; incidents: string | null; series: string | null };
   error: string | null;
+  queryKey: string;
+  requestGeneration: number;
 }
 
 export interface PollScheduler {
@@ -30,17 +30,17 @@ export interface BooleanSignal {
   subscribe(listener: (value: boolean) => void): () => void;
 }
 
-export interface OwnerPoller {
+export interface OwnerDashboardPoller {
   start(): void;
   stop(): void;
   refresh(): void;
-  getSnapshot(): OwnerPollSnapshot;
-  subscribe(listener: (snapshot: OwnerPollSnapshot) => void): () => void;
+  getSnapshot(): OwnerDashboardSnapshot;
+  subscribe(listener: (snapshot: OwnerDashboardSnapshot) => void): () => void;
 }
 
-export interface OwnerPollerDependencies {
-  url: string;
-  initial: SeriesV2;
+export interface OwnerDashboardPollerDependencies {
+  urls: { latest: string; incidents: string; series: string };
+  initial: { latest: OwnerLatestV2; incidents: IncidentListV2; series: SeriesV2 };
   fetcher?: typeof fetch;
   scheduler?: PollScheduler;
   visibility?: BooleanSignal;
@@ -79,109 +79,181 @@ export function browserOnlineSignal(): BooleanSignal {
   };
 }
 
-export function createOwnerPoller({
-  url,
+class OwnerAuthExpiredError extends Error {}
+class OwnerRequestTimeoutError extends Error {}
+
+export function createOwnerDashboardPoller({
+  urls,
   initial,
   fetcher = fetch,
   scheduler = browserScheduler,
   visibility = browserVisibilitySignal(),
   online = browserOnlineSignal(),
-}: OwnerPollerDependencies): OwnerPoller {
-  let snapshot: OwnerPollSnapshot = {
-    data: initial,
+}: OwnerDashboardPollerDependencies): OwnerDashboardPoller {
+  const queryKey = urls.series;
+  let snapshot: OwnerDashboardSnapshot = {
+    latest: initial.latest,
+    incidents: initial.incidents.incidents,
+    incidentsGeneratedAt: initial.incidents.generated_at,
+    data: initial.series,
     status: "idle",
-    etag: null,
+    etags: { latest: null, incidents: null, series: null },
     error: null,
+    queryKey,
+    requestGeneration: 0,
   };
   let running = false;
   let authExpired = false;
   let inFlight = false;
+  let cycle = 0;
   let timer: unknown;
-  let abortController: AbortController | null = null;
+  const controllers = new Set<AbortController>();
   let unsubscribeVisibility: (() => void) | null = null;
   let unsubscribeOnline: (() => void) | null = null;
-  const listeners = new Set<(value: OwnerPollSnapshot) => void>();
+  const listeners = new Set<(value: OwnerDashboardSnapshot) => void>();
 
+  const publish = (patch: Partial<OwnerDashboardSnapshot>) => {
+    snapshot = { ...snapshot, ...patch };
+    for (const listener of listeners) listener(snapshot);
+  };
+  const clearTimer = () => {
+    if (timer !== undefined) scheduler.clearTimeout(timer);
+    timer = undefined;
+  };
+  const abortCurrentCycle = () => {
+    cycle += 1;
+    inFlight = false;
+    for (const controller of controllers) controller.abort();
+    controllers.clear();
+  };
   const detachSignals = () => {
     unsubscribeVisibility?.();
     unsubscribeOnline?.();
     unsubscribeVisibility = null;
     unsubscribeOnline = null;
   };
-
-  const publish = (patch: Partial<OwnerPollSnapshot>) => {
-    snapshot = { ...snapshot, ...patch };
-    for (const listener of listeners) listener(snapshot);
-  };
-
-  const clearTimer = () => {
-    if (timer !== undefined) scheduler.clearTimeout(timer);
-    timer = undefined;
-  };
-
-  const isActive = () =>
-    running && !authExpired && visibility.get() && online.get();
-
-  const settledStatus = (): PollStatus =>
-    !online.get() ? "offline" : !visibility.get() ? "paused" : "ready";
-
+  const active = () => running && !authExpired && visibility.get() && online.get();
+  const settledStatus = (): PollStatus => !online.get() ? "offline" : !visibility.get() ? "paused" : "ready";
   const schedule = (delayMs = POLL_INTERVAL_MS) => {
     clearTimer();
-    if (!isActive() || inFlight) return;
+    if (!active() || inFlight) return;
     timer = scheduler.setTimeout(() => {
       timer = undefined;
       void poll();
     }, delayMs);
   };
+  const expireAuthentication = () => {
+    if (authExpired) return;
+    authExpired = true;
+    markOwnerSessionExpired();
+    clearTimer();
+    detachSignals();
+    abortCurrentCycle();
+    publish({
+      latest: null,
+      incidents: [],
+      incidentsGeneratedAt: null,
+      data: null,
+      etags: { latest: null, incidents: null, series: null },
+      status: "auth-expired",
+      error: "Owner session expired.",
+    });
+  };
 
-  const poll = async () => {
-    if (!isActive() || inFlight) return;
-    inFlight = true;
-    abortController = new AbortController();
-    publish({ status: "loading", error: null });
+  const fetchJson = async <T>(
+    url: string,
+    etag: string | null,
+    parse: (input: unknown) => T,
+    cycleAtStart: number,
+  ): Promise<{ data: T | null; etag: string | null }> => {
+    const controller = new AbortController();
+    controllers.add(controller);
+    let timedOut = false;
+    const deadline = scheduler.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
     try {
       const headers: Record<string, string> = {};
-      if (snapshot.etag) headers["If-None-Match"] = snapshot.etag;
+      if (etag) headers["If-None-Match"] = etag;
       const response = await fetcher(url, {
         credentials: "same-origin",
         headers,
-        signal: abortController.signal,
+        signal: controller.signal,
       });
+      if (cycleAtStart !== cycle || !running) throw new DOMException("Request superseded", "AbortError");
       if (response.status === 401 || response.status === 403) {
-        authExpired = true;
-        clearTimer();
-        detachSignals();
-        publish({ status: "auth-expired", error: "Owner session expired." });
-        return;
+        expireAuthentication();
+        throw new OwnerAuthExpiredError();
       }
       if (response.status === 304) {
-        publish({
-          status: settledStatus(),
-          etag: response.headers.get("etag") ?? snapshot.etag,
-          error: null,
-        });
-        return;
+        return { data: null, etag: response.headers.get("etag") ?? etag };
       }
-      if (!response.ok) {
-        throw new Error(`Observability request failed with status ${response.status}.`);
-      }
-      const data = parseSeriesV2(await response.json());
+      if (!response.ok) throw new Error(`Owner telemetry request failed with status ${response.status}.`);
+      const data = parse(await response.json());
+      if (cycleAtStart !== cycle || !running) throw new DOMException("Request superseded", "AbortError");
+      return { data, etag: response.headers.get("etag") };
+    } catch (error) {
+      if (timedOut) throw new OwnerRequestTimeoutError();
+      throw error;
+    } finally {
+      scheduler.clearTimeout(deadline);
+      controllers.delete(controller);
+    }
+  };
+
+  const poll = async () => {
+    if (!active() || inFlight) return;
+    inFlight = true;
+    const thisCycle = ++cycle;
+    publish({ status: "loading", error: null, requestGeneration: thisCycle });
+    try {
+      const [latestResult, incidentsResult, seriesResult] = await Promise.all([
+        fetchJson(urls.latest, snapshot.etags.latest, parseOwnerLatestV2, thisCycle),
+        fetchJson(urls.incidents, snapshot.etags.incidents, parseIncidentListV2, thisCycle),
+        fetchJson(urls.series, snapshot.etags.series, (input) => {
+          const series = parseSeriesV2(input);
+          const parameters = new URL(urls.series, "https://frontpage.invalid").searchParams;
+          if (
+            series.range !== parameters.get("range") ||
+            series.view !== parameters.get("view") ||
+            (parameters.get("resource") ?? null) !== series.resource
+          ) throw new Error("Owner history response does not match the active query.");
+          return series;
+        }, thisCycle),
+      ]);
+      if (thisCycle !== cycle || !running || authExpired) return;
+      const latest = latestResult.data ?? snapshot.latest;
+      const incidents = incidentsResult.data ?? null;
       publish({
-        data,
+        latest,
+        incidents: incidents?.incidents ?? snapshot.incidents,
+        incidentsGeneratedAt: incidents?.generated_at ?? snapshot.incidentsGeneratedAt,
+        data: seriesResult.data ?? snapshot.data,
+        etags: {
+          latest: latestResult.etag,
+          incidents: incidentsResult.etag,
+          series: seriesResult.etag,
+        },
         status: settledStatus(),
-        etag: response.headers.get("etag"),
         error: null,
       });
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
+      if (thisCycle !== cycle || !running || authExpired || error instanceof OwnerAuthExpiredError) return;
+      for (const controller of controllers) controller.abort();
       publish({
         status: online.get() ? "error" : "offline",
-        error: online.get() ? "Chart refresh failed." : null,
+        error: online.get()
+          ? error instanceof OwnerRequestTimeoutError
+            ? "Owner telemetry refresh timed out."
+            : "Owner telemetry refresh failed."
+          : null,
       });
     } finally {
-      inFlight = false;
-      abortController = null;
-      schedule();
+      if (thisCycle === cycle) {
+        inFlight = false;
+        schedule();
+      }
     }
   };
 
@@ -189,16 +261,17 @@ export function createOwnerPoller({
     clearTimer();
     if (!running || authExpired) return;
     if (!visible) {
+      abortCurrentCycle();
       publish({ status: "paused" });
       return;
     }
     if (online.get()) schedule(VISIBILITY_DEBOUNCE_MS);
   };
-
   const onOnline = (connected: boolean) => {
     clearTimer();
     if (!running || authExpired) return;
     if (!connected) {
+      abortCurrentCycle();
       publish({ status: "offline", error: null });
       return;
     }
@@ -218,15 +291,13 @@ export function createOwnerPoller({
     stop() {
       running = false;
       clearTimer();
-      abortController?.abort();
+      abortCurrentCycle();
       detachSignals();
     },
     refresh() {
-      if (isActive()) void poll();
+      if (active()) void poll();
     },
-    getSnapshot() {
-      return snapshot;
-    },
+    getSnapshot() { return snapshot; },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
