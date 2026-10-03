@@ -35,6 +35,8 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:gzipSync(latestRaw.padEnd(512*1024,' '))})).status,204);
     assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:gzipSync(Buffer.alloc(512*1024+1))})).status,413);
     assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',headers:{authorization:'Bearer local-collector-token'},body:'corrupt-gzip'})).status,400);
+    assert.equal((await fetch(base+'/__collector/v1/capabilities')).status,401);
+    const capability=await fetch(base+'/__collector/v1/capabilities',{headers:{authorization:'Bearer local-collector-token'}});assert.equal(capability.status,200);assert.deepEqual(await capability.json(),{schema_version:1,atomic_generations:true});
     const uploadHeaders={authorization:'Bearer local-collector-token','X-Frontpage-Generation':generation};
     assert.equal((await fetch(base+'/__collector/latest.json',{method:'PUT',headers:uploadHeaders,body:gzipSync(latestRaw)})).status,204);
     assert.equal((await fetch(base+'/__collector/v1/commit',{method:'PUT',headers:uploadHeaders})).status,400);

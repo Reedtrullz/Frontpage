@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, "codex/frontpage-*"]
   workflow_dispatch:
 
 concurrency:
@@ -39,6 +39,8 @@ jobs:
             typescript-eslint@8.59.2
       - run: npm audit --include=dev --audit-level=critical
       - run: npm test
+      - name: Operator restore transport regressions
+        run: node --test ops/owner-state-transport.test.mjs
       - run: npm run lint
       - run: npx tsc --noEmit
       - name: Install Ansible validation dependencies
