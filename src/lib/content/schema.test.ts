@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseProjects, projectSchema } from "./schema";
+import { parseProjects, projectGallerySchema, projectSchema, resolveProjectSlug } from "./schema";
 
 const validProject = {
   slug: "sample-project",
@@ -57,5 +57,31 @@ describe("canonical project content", () => {
         liveUrl: "https://token:secret@example.com/product",
       }),
     ).toThrow(/credentials/i);
+  });
+
+  it("requires gallery JSON to be an array and bounds it to eight items", () => {
+    expect(projectGallerySchema.safeParse([]).success).toBe(true);
+    for (const value of [{}, null, "image", 4]) expect(projectGallerySchema.safeParse(value).success).toBe(false);
+    const item = { src: "/projects/sample/image.webp", alt: "An illustrative project view", width: 800, height: 500 };
+    expect(projectGallerySchema.safeParse(Array.from({ length: 8 }, () => item)).success).toBe(true);
+    expect(projectGallerySchema.safeParse(Array.from({ length: 9 }, () => item)).success).toBe(false);
+  });
+
+  it("resolves renamed project aliases directly to the current slug", () => {
+    const renamed = projectSchema.parse({ ...validProject, slug: "current-name", aliases: ["first-name", "previous-name"] });
+    expect(resolveProjectSlug("first-name", [renamed])).toEqual({ kind: "redirect", project: renamed });
+    expect(resolveProjectSlug("current-name", [renamed])).toEqual({ kind: "current", project: renamed });
+    expect(resolveProjectSlug("missing", [renamed])).toEqual({ kind: "not-found" });
+  });
+
+  it("rejects global canonical and alias collisions and duplicate milestone IDs", () => {
+    expect(() => parseProjects([
+      { ...validProject, aliases: ["legacy-name"] },
+      { ...validProject, slug: "legacy-name", name: "Second project" },
+    ])).toThrow(/collision/i);
+    expect(() => parseProjects([{ ...validProject, milestones: [
+      { id: "same", occurredAt: "2026-01-01", title: "First milestone", summary: "A recorded source milestone.", scope: "source-reviewed", evidenceUrl: "https://example.com/evidence", reviewedAt: "2026-01-02T00:00:00Z" },
+      { id: "same", occurredAt: "2026-01-02", title: "Second milestone", summary: "Another recorded source milestone.", scope: "ci-verified", evidenceUrl: "https://example.com/ci", reviewedAt: "2026-01-03T00:00:00Z" },
+    ] }])).toThrow(/duplicate milestone/i);
   });
 });

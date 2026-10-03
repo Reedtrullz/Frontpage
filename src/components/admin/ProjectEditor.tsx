@@ -5,17 +5,18 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, Save, Trash2 } from "lucide-react";
 import {
   projectSchema,
+  projectGallerySchema,
   type ProjectContent,
   type ProjectMedia,
 } from "@/lib/content/schema";
-import { PostureBadge } from "@/components/ui/PostureBadge";
+import { ProjectDetailContent } from "@/components/projects/ProjectDetailContent";
 import {
   EditorSection,
   SelectField,
   TextAreaField,
   TextField,
 } from "./EditorFields";
-import { useUnsavedChanges } from "./useUnsavedChanges";
+import { confirmUnsavedNavigation, useUnsavedChanges } from "./useUnsavedChanges";
 
 function asLines(value: string): string[] {
   return value === "" ? [] : value.split("\n");
@@ -28,35 +29,39 @@ function issueLines(
   originalSlug: string,
 ): { candidate: ProjectContent | null; issues: string[] } {
   let candidate: unknown = project;
+  let galleryIssues: string[] = [];
   if (project.media) {
-    try {
-      const gallery = galleryJson.trim()
-        ? (JSON.parse(galleryJson) as unknown)
-        : [];
-      candidate = {
-        ...project,
-        media: {
-          cover: project.media.cover,
-          ...(Array.isArray(gallery) && gallery.length > 0 ? { gallery } : {}),
-        },
-      };
-    } catch {
-      return { candidate: null, issues: ["media.gallery: Must be valid JSON."] };
-    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(galleryJson); }
+    catch { parsed = undefined; }
+    const galleryResult = projectGallerySchema.safeParse(parsed);
+    galleryIssues = galleryResult.success ? [] : galleryResult.error.issues.map((issue) => `media.gallery${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
+    candidate = { ...project, media: { cover: project.media.cover, gallery: galleryResult.success ? galleryResult.data : [] } };
   }
 
   const result = projectSchema.safeParse(candidate);
-  const issues = result.success
+  const issues = [...(result.success
     ? []
     : result.error.issues.map((issue) => {
         const path = issue.path.map(String).join(".");
         return path ? `${path}: ${issue.message}` : issue.message;
-      });
+      })), ...galleryIssues];
+  let effectiveProject = result.success ? result.data : null;
   if (
     project.slug !== originalSlug &&
-    allProjects.some((item) => item.slug === project.slug)
+    allProjects.some((item) => item.slug === project.slug || item.aliases?.includes(project.slug))
   ) {
     issues.push("slug: Must be unique across projects.");
+  }
+  if (originalSlug && project.slug !== originalSlug) {
+    const aliases = Array.from(new Set([...(project.aliases ?? []), originalSlug]));
+    if (aliases.length > 32) issues.push("aliases: At most 32 historical slugs are allowed.");
+    effectiveProject = effectiveProject ? { ...effectiveProject, aliases } : null;
+    for (const alias of aliases) {
+      if (allProjects.some((item) => item.slug === alias && item.slug !== originalSlug || item.aliases?.includes(alias) && item.slug !== originalSlug)) {
+        issues.push(`aliases: ${alias} is already used by another project.`);
+      }
+    }
   }
   const allowedHealthIds = new Set(
     allProjects.flatMap((item) => item.healthServiceIds ?? []),
@@ -67,7 +72,7 @@ function issueLines(
     }
   }
   return {
-    candidate: result.success && issues.length === 0 ? result.data : null,
+    candidate: effectiveProject && issues.length === 0 ? effectiveProject : null,
     issues,
   };
 }
@@ -100,6 +105,8 @@ export function ProjectEditor({
     () => issueLines(project, galleryJson, allProjects, originalSlug),
     [project, galleryJson, allProjects, originalSlug],
   );
+  const galleryIssues = validation.issues.filter((issue) => issue.startsWith("media.gallery"));
+  const invalid = (path: string) => validation.issues.some((issue) => issue.startsWith(`${path}:`) || issue.startsWith(`${path}.`));
   const dirty = JSON.stringify({ project, galleryJson }) !== baseline;
   useUnsavedChanges(dirty);
 
@@ -114,13 +121,15 @@ export function ProjectEditor({
   async function saveDraft() {
     if (!validation.candidate) {
       setMessage("Resolve validation issues before saving.");
+      document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
       return;
     }
     setBusy(true);
     setMessage("");
-    const nextProjects = allProjects.map((item) =>
-      item.slug === originalSlug ? validation.candidate! : item,
-    );
+    const exists = allProjects.some((item) => item.slug === originalSlug);
+    const nextProjects = exists
+      ? allProjects.map((item) => item.slug === originalSlug ? validation.candidate! : item)
+      : [...allProjects, validation.candidate!];
     try {
       const response = await fetch("/api/data/projects", {
         method: "PUT",
@@ -137,21 +146,23 @@ export function ProjectEditor({
       setRevision(body.revision ?? null);
       setDraftExists(true);
       setMessage("Projects draft saved locally. It is not published.");
-      if (validation.candidate.slug !== originalSlug) {
+      if (!exists || validation.candidate.slug !== originalSlug) {
         router.replace(`/admin/projects/${validation.candidate.slug}`);
       } else {
         router.refresh();
       }
     } catch {
-      setMessage("The project draft could not be saved.");
+      setMessage("The save request failed. Your project edits remain in this editor; retry when connected.");
     } finally {
       setBusy(false);
     }
   }
 
   async function discardDraft() {
-    if (!window.confirm("Discard every saved project draft change?")) return;
+    if (!confirmUnsavedNavigation(dirty)) return;
+    if (!window.confirm("Discard every saved project draft change across the entire projects bundle?")) return;
     setBusy(true);
+    setMessage("");
     try {
       const response = await fetch("/api/data/projects", { method: "DELETE", headers: {"Content-Type":"application/json"}, body: JSON.stringify({expectedRevision: revision}) });
       if (!response.ok) {
@@ -163,9 +174,38 @@ export function ProjectEditor({
       setMessage("Projects draft discarded. Published content is unchanged.");
       router.replace("/admin/projects");
       router.refresh();
+    } catch {
+      setMessage("The projects draft could not be discarded because the request failed. Your editor values are still available; retry when connected.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function archiveProject() {
+    if (dirty) {
+      setMessage("Save or discard the current editor changes first. Archiving then changes only lifecycle in the saved project bundle.");
+      return;
+    }
+    if (!window.confirm(`Archive ${project.name}? This changes its lifecycle in the project draft and preserves its history and evidence.`)) return;
+    const savedProject = allProjects.find((item) => item.slug === originalSlug);
+    if (!savedProject) return;
+    const candidate = { ...savedProject, lifecycle: "archived" as const };
+    setProject(candidate);
+    const projects = allProjects.map((item) => item.slug === originalSlug ? candidate : item);
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/data/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: projects, expectedRevision: revision }) });
+      const body = await response.json() as { error?: string; revision?: string };
+      if (!response.ok) { setMessage(body.error ?? "The project could not be archived in the draft."); return; }
+      setBaseline(JSON.stringify({ project: candidate, galleryJson }));
+      setRevision(body.revision ?? null);
+      setDraftExists(true);
+      setMessage("Project archived in the local draft. Existing URLs and evidence are preserved; publish the reviewed bundle to make this public.");
+      router.refresh();
+    } catch {
+      setMessage("The archive request failed. The project remains in the editor; retry when connected.");
+    } finally { setBusy(false); }
   }
 
   return (
@@ -173,12 +213,12 @@ export function ProjectEditor({
       <form onSubmit={(event) => { event.preventDefault(); void saveDraft(); }} className="space-y-10">
         <EditorSection title="Identity and outcome">
           <div className="grid gap-4 sm:grid-cols-2">
-            <TextField label="Name" value={project.name} onChange={(event) => setProject({ ...project, name: event.target.value })} />
-            <TextField label="Slug" value={project.slug} onChange={(event) => setProject({ ...project, slug: event.target.value })} hint="Lowercase URL-safe and unique." />
+            <TextField label="Name" id="project-name" aria-invalid={invalid("name")} aria-describedby={invalid("name") ? "project-name-error" : undefined} value={project.name} onChange={(event) => setProject({ ...project, name: event.target.value })} />
+            <TextField label="Slug" id="project-slug" aria-invalid={invalid("slug") || invalid("aliases")} aria-describedby={invalid("slug") || invalid("aliases") ? "project-slug-error" : undefined} value={project.slug} onChange={(event) => setProject({ ...project, slug: event.target.value })} hint="Lowercase URL-safe and unique." />
           </div>
-          <TextAreaField label="Outcome" rows={3} value={project.outcome} onChange={(event) => setProject({ ...project, outcome: event.target.value })} />
-          <TextAreaField label="Short description" rows={4} value={project.shortDescription} onChange={(event) => setProject({ ...project, shortDescription: event.target.value })} />
-          <TextAreaField label="Long description" rows={7} value={project.longDescription} onChange={(event) => setProject({ ...project, longDescription: event.target.value })} />
+          <TextAreaField label="Outcome" id="project-outcome" aria-invalid={invalid("outcome")} rows={3} value={project.outcome} onChange={(event) => setProject({ ...project, outcome: event.target.value })} />
+          <TextAreaField label="Short description" id="project-short-description" aria-invalid={invalid("shortDescription")} rows={4} value={project.shortDescription} onChange={(event) => setProject({ ...project, shortDescription: event.target.value })} />
+          <TextAreaField label="Long description" id="project-long-description" aria-invalid={invalid("longDescription")} rows={7} value={project.longDescription} onChange={(event) => setProject({ ...project, longDescription: event.target.value })} />
         </EditorSection>
 
         <EditorSection title="Posture">
@@ -219,11 +259,11 @@ export function ProjectEditor({
             <SelectField label="Evidence level" value={project.evidence.level} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, level: event.target.value as ProjectContent["evidence"]["level"] } })}>
               {['source-reviewed', 'ci-verified', 'live-verified'].map((value) => <option key={value} value={value}>{value}</option>)}
             </SelectField>
-            <TextField label="Reviewed at (UTC)" value={project.evidence.reviewedAt} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, reviewedAt: event.target.value } })} />
+            <TextField label="Reviewed at (UTC)" id="project-reviewed-at" aria-invalid={invalid("evidence.reviewedAt")} value={project.evidence.reviewedAt} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, reviewedAt: event.target.value } })} />
             <TextField label="Commit SHA" value={project.evidence.commitSha ?? ""} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, commitSha: event.target.value || undefined } })} />
             <TextField label="Evidence URL" type="url" value={project.evidence.url ?? ""} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, url: event.target.value || undefined } })} />
           </div>
-          <TextAreaField label="Evidence note" rows={4} value={project.evidence.note} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, note: event.target.value } })} />
+          <TextAreaField label="Evidence note" id="project-evidence-note" aria-invalid={invalid("evidence.note")} rows={4} value={project.evidence.note} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, note: event.target.value } })} />
         </EditorSection>
 
         <EditorSection title="Media" description="Media remains optional. Gallery entries use the canonical media-item JSON shape.">
@@ -245,15 +285,17 @@ export function ProjectEditor({
                 <TextField label="Height" type="number" min={1} value={project.media.cover.height} onChange={(event) => updateCover({ height: Number(event.target.value) })} />
                 <TextField label="Caption" value={project.media.cover.caption ?? ""} onChange={(event) => updateCover({ caption: event.target.value || undefined })} />
               </div>
-              <TextAreaField label="Gallery JSON" rows={8} value={galleryJson} onChange={(event) => setGalleryJson(event.target.value)} />
+              <TextAreaField label="Gallery JSON" id="project-gallery" aria-invalid={galleryIssues.length > 0} aria-describedby={galleryIssues.length ? "project-gallery-error" : undefined} rows={8} value={galleryJson} onChange={(event) => setGalleryJson(event.target.value)} />
+              {galleryIssues.length ? <p id="project-gallery-error" className="text-sm text-[var(--role-failure)]">{galleryIssues.join(" ")}</p> : null}
             </>
           ) : null}
         </EditorSection>
 
         <div className="flex flex-wrap items-center gap-3 border-y border-[var(--border)] bg-[var(--surface)] py-4 sm:sticky sm:bottom-0 sm:z-10">
-          <button type="submit" disabled={busy || !dirty || !validation.candidate} className="primary-command disabled:cursor-not-allowed disabled:opacity-40"><Save className="h-4 w-4" aria-hidden="true" />{busy ? "Saving" : "Save project draft"}</button>
+          <button type="submit" disabled={busy || !dirty} className="primary-command disabled:cursor-not-allowed disabled:opacity-40"><Save className="h-4 w-4" aria-hidden="true" />{busy ? "Saving" : "Save project draft"}</button>
           <button type="button" onClick={() => setPreview((value) => !value)} className="secondary-command">{preview ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}{preview ? "Hide preview" : "Preview"}</button>
           {draftExists ? <button type="button" onClick={discardDraft} disabled={busy} className="secondary-command text-[var(--role-failure)]"><Trash2 className="h-4 w-4" aria-hidden="true" />Discard all project drafts</button> : null}
+          {initial.slug && project.lifecycle !== "archived" ? <button type="button" onClick={archiveProject} disabled={busy || !validation.candidate} className="secondary-command">Archive project</button> : null}
           <span className="text-xs text-[var(--text-subtle)]">{dirty ? "Unsaved changes" : draftExists ? "Draft saved" : "Canonical content"}</span>
         </div>
         <p aria-live="polite" className="text-sm text-[var(--text-muted)]">{message}</p>
@@ -264,14 +306,10 @@ export function ProjectEditor({
         {validation.issues.length ? (
           <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto border-l-2 border-[var(--role-failure)] pl-4 text-sm text-[var(--role-failure)]">{validation.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
         ) : <p className="mt-3 text-sm text-[var(--role-positive)]">All project fields validate.</p>}
+        {invalid("name") ? <p id="project-name-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("name:")).join(" ")}</p> : null}
+        {validation.issues.some((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")) ? <p id="project-slug-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")).join(" ")}</p> : null}
         {preview ? (
-          <div className="mt-8 border-y border-[var(--border)] py-5">
-            <p className="font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW</p>
-            <h3 className="mt-3 text-3xl font-semibold text-[var(--text)]">{project.name}</h3>
-            <p className="mt-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p>
-            <div className="mt-4 flex flex-wrap gap-2"><PostureBadge dimension="lifecycle" value={project.lifecycle} /><PostureBadge dimension="maturity" value={project.maturity} /></div>
-            <p className="mt-4 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p>
-          </div>
+          <div className="mt-8 border-y border-[var(--border)] py-5"><p className="mb-5 font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW · NOT PUBLIC</p><h3 className="mb-4 text-3xl font-semibold text-[var(--text)]">{project.name}</h3><p className="mb-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p><p className="mb-5 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p><ProjectDetailContent project={validation.candidate ?? project} now={new Date()} /></div>
         ) : null}
       </aside>
     </div>
