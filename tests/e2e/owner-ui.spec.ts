@@ -135,6 +135,7 @@ test.describe("owner workspace", () => {
       await route.continue();
     });
     await page.goto("/admin/projects/new");
+    await expect(page.getByRole("button", { name: "Discard all project drafts" })).toHaveCount(0);
     await page.getByLabel("Name").fill("E2E Owner Draft");
     await page.getByLabel("Slug").fill("rfs");
     await page.getByRole("button", { name: "Save project draft" }).click();
