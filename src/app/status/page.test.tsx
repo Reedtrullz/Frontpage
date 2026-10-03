@@ -52,6 +52,15 @@ const { publicModel } = vi.hoisted(() => ({
 
 vi.mock("@/auth", () => ({ auth: async () => null }));
 vi.mock("@/lib/authz", () => ({ isOwnerUser: () => false }));
+vi.mock("@/lib/metrics/v2/mining", () => ({
+  fetchMiningV2: async () => ({
+    data: null,
+    sourceSampleAt: null,
+    observedAt: null,
+    observationAgeMs: null,
+    freshness: "unavailable",
+  }),
+}));
 vi.mock("@/lib/metrics/reader", () => ({
   getMetricsDir: () => undefined,
   readMetricsFromDir: () => ({}) as never,
