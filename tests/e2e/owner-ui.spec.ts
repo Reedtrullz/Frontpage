@@ -342,9 +342,16 @@ test.describe("owner workspace", () => {
     expect(await preview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await expect(page.getByText("Current limitations")).toHaveCount(0);
+    const createdDraft = page.waitForResponse((response) =>
+      response.url().endsWith("/api/data/projects") && response.request().method() === "PUT",
+    );
     await page.getByRole("button", { name: "Save project draft" }).click();
-    await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
+    expect((await createdDraft).status()).toBe(200);
     await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft$/);
+    await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Name")).toHaveValue("E2E Owner Draft");
+    await expect(page.getByLabel("Evidence note")).toHaveValue("Synthetic browser fixture only; no public claim.");
+    expect((await page.request.get("/projects/e2e-owner-draft")).status()).toBe(404);
     await page.getByLabel("Slug").fill("e2e-owner-draft-renamed");
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-renamed$/);
