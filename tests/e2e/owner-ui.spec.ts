@@ -125,9 +125,26 @@ test.describe("owner workspace", () => {
   });
 
   test("creates, previews, archives, then discards one complete project draft", async ({ page }) => {
+    const submittedRenames: Array<{ slug: string; aliases?: string[] }> = [];
+    await page.route("**/api/data/projects", async (route) => {
+      if (route.request().method() === "PUT") {
+        const body = route.request().postDataJSON() as { content: Array<{ name: string; slug: string; aliases?: string[] }> };
+        const candidate = body.content.find((project) => project.name === "E2E Owner Draft");
+        if (candidate) submittedRenames.push({ slug: candidate.slug, aliases: candidate.aliases });
+      }
+      await route.continue();
+    });
     await page.goto("/admin/projects/new");
     await page.getByLabel("Name").fill("E2E Owner Draft");
+    await page.getByLabel("Slug").fill("rfs");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByLabel("Slug")).toBeFocused();
+    await expect(page.getByLabel("Slug")).toHaveAttribute("aria-describedby", "project-slug-error");
     await page.getByLabel("Slug").fill("e2e-owner-draft");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page.getByLabel("Outcome")).toBeFocused();
+    await expect(page.getByLabel("Outcome")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByLabel("Outcome")).toHaveAttribute("aria-describedby", "project-outcome-error");
     await page.getByLabel("Outcome").fill("Demonstrates a complete owner-created draft.");
     await page.getByLabel("Short description").fill("A local-only project draft for browser regression.");
     await page.getByLabel("Long description").fill("This content is created in the isolated browser test runtime and is never published.");
@@ -136,13 +153,23 @@ test.describe("owner workspace", () => {
     await page.getByLabel("How it works").fill("The owner fills required evidence and saves the bundle.");
     await page.getByLabel("Reviewed at (UTC)").fill("2026-10-03T15:00:00Z");
     await page.getByLabel("Evidence note").fill("Synthetic browser fixture only; no public claim.");
+    await page.getByLabel("Milestones JSON").fill(JSON.stringify([{ id: "fixture-first-release", occurredAt: "2026-10-02", title: "Synthetic timeline fixture", summary: "A local browser fixture with a documented source reference.", scope: "source-reviewed", evidenceUrl: "https://example.com/test-evidence", reviewedAt: "2026-10-03T15:00:00Z" }], null, 2));
     await expect(page.getByRole("button", { name: "Save project draft" })).toBeEnabled();
     await page.getByRole("button", { name: "Preview" }).click();
     await expect(page.getByRole("heading", { name: "What it solves" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Project timeline" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Synthetic timeline fixture" })).toBeVisible();
     await expect(page.getByText("Current limitations")).toHaveCount(0);
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page.getByText("Projects draft saved locally. It is not published.")).toBeVisible();
     await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft$/);
+    await page.getByLabel("Slug").fill("e2e-owner-draft-renamed");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-renamed$/);
+    await page.getByLabel("Slug").fill("e2e-owner-draft-final");
+    await page.getByRole("button", { name: "Save project draft" }).click();
+    await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-final$/);
+    expect(submittedRenames.at(-1)).toEqual({ slug: "e2e-owner-draft-final", aliases: ["e2e-owner-draft", "e2e-owner-draft-renamed"] });
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "Archive project" }).click();
     await expect(page.getByText(/Project archived in the local draft/)).toBeVisible();

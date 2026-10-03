@@ -6,10 +6,13 @@ import { Eye, EyeOff, Save, Trash2 } from "lucide-react";
 import {
   projectSchema,
   projectGallerySchema,
+  projectMilestonesSchema,
+  preserveProjectSlugAliases,
   type ProjectContent,
   type ProjectMedia,
 } from "@/lib/content/schema";
 import { ProjectDetailContent } from "@/components/projects/ProjectDetailContent";
+import { PostureBadge } from "@/components/ui/PostureBadge";
 import {
   EditorSection,
   SelectField,
@@ -25,19 +28,28 @@ function asLines(value: string): string[] {
 function issueLines(
   project: ProjectContent,
   galleryJson: string,
+  milestonesJson: string,
   allProjects: ProjectContent[],
   originalSlug: string,
 ): { candidate: ProjectContent | null; issues: string[] } {
   let candidate: unknown = project;
   let galleryIssues: string[] = [];
+  let milestonesIssues: string[] = [];
+  let milestones: unknown;
+  try { milestones = JSON.parse(milestonesJson); }
+  catch { milestones = undefined; }
+  const milestonesResult = projectMilestonesSchema.safeParse(milestones);
+  milestonesIssues = milestonesResult.success ? [] : milestonesResult.error.issues.map((issue) => `milestones${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
+  const nextCandidate: Record<string, unknown> = { ...project, milestones: milestonesResult.success && milestonesResult.data.length ? milestonesResult.data : undefined };
   if (project.media) {
     let parsed: unknown;
     try { parsed = JSON.parse(galleryJson); }
     catch { parsed = undefined; }
     const galleryResult = projectGallerySchema.safeParse(parsed);
     galleryIssues = galleryResult.success ? [] : galleryResult.error.issues.map((issue) => `media.gallery${issue.path.length ? `.${issue.path.join(".")}` : ""}: ${issue.message}`);
-    candidate = { ...project, media: { cover: project.media.cover, gallery: galleryResult.success ? galleryResult.data : [] } };
+    nextCandidate.media = { cover: project.media.cover, gallery: galleryResult.success ? galleryResult.data : [] };
   }
+  candidate = nextCandidate;
 
   const result = projectSchema.safeParse(candidate);
   const issues = [...(result.success
@@ -45,8 +57,8 @@ function issueLines(
     : result.error.issues.map((issue) => {
         const path = issue.path.map(String).join(".");
         return path ? `${path}: ${issue.message}` : issue.message;
-      })), ...galleryIssues];
-  let effectiveProject = result.success ? result.data : null;
+      })), ...galleryIssues, ...milestonesIssues];
+  const effectiveProject = result.success ? preserveProjectSlugAliases(result.data, originalSlug) : null;
   if (
     project.slug !== originalSlug &&
     allProjects.some((item) => item.slug === project.slug || item.aliases?.includes(project.slug))
@@ -54,9 +66,8 @@ function issueLines(
     issues.push("slug: Must be unique across projects.");
   }
   if (originalSlug && project.slug !== originalSlug) {
-    const aliases = Array.from(new Set([...(project.aliases ?? []), originalSlug]));
+    const aliases = effectiveProject?.aliases ?? [];
     if (aliases.length > 32) issues.push("aliases: At most 32 historical slugs are allowed.");
-    effectiveProject = effectiveProject ? { ...effectiveProject, aliases } : null;
     for (const alias of aliases) {
       if (allProjects.some((item) => item.slug === alias && item.slug !== originalSlug || item.aliases?.includes(alias) && item.slug !== originalSlug)) {
         issues.push(`aliases: ${alias} is already used by another project.`);
@@ -82,11 +93,13 @@ export function ProjectEditor({
   allProjects,
   hasDraft,
   initialRevision,
+  previewNow,
 }: {
   initial: ProjectContent;
   allProjects: ProjectContent[];
   hasDraft: boolean;
   initialRevision: string | null;
+  previewNow: string;
 }) {
   const router = useRouter();
   const [revision, setRevision] = useState(initialRevision);
@@ -95,19 +108,22 @@ export function ProjectEditor({
   const [galleryJson, setGalleryJson] = useState(
     JSON.stringify(initial.media?.gallery ?? [], null, 2),
   );
-  const initialBaseline = JSON.stringify({ project: initial, galleryJson: JSON.stringify(initial.media?.gallery ?? [], null, 2) });
+  const [milestonesJson, setMilestonesJson] = useState(JSON.stringify(initial.milestones ?? [], null, 2));
+  const initialBaseline = JSON.stringify({ project: initial, galleryJson: JSON.stringify(initial.media?.gallery ?? [], null, 2), milestonesJson: JSON.stringify(initial.milestones ?? [], null, 2) });
   const [baseline, setBaseline] = useState(initialBaseline);
   const [draftExists, setDraftExists] = useState(hasDraft);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const validation = useMemo(
-    () => issueLines(project, galleryJson, allProjects, originalSlug),
-    [project, galleryJson, allProjects, originalSlug],
+    () => issueLines(project, galleryJson, milestonesJson, allProjects, originalSlug),
+    [project, galleryJson, milestonesJson, allProjects, originalSlug],
   );
   const galleryIssues = validation.issues.filter((issue) => issue.startsWith("media.gallery"));
-  const invalid = (path: string) => validation.issues.some((issue) => issue.startsWith(`${path}:`) || issue.startsWith(`${path}.`));
-  const dirty = JSON.stringify({ project, galleryJson }) !== baseline;
+  const milestoneIssues = validation.issues.filter((issue) => issue.startsWith("milestones"));
+  const fieldIssue = (path: string) => validation.issues.find((issue) => issue.startsWith(`${path}:`) || issue.startsWith(`${path}.`));
+  const invalid = (path: string) => Boolean(fieldIssue(path));
+  const dirty = JSON.stringify({ project, galleryJson, milestonesJson }) !== baseline;
   useUnsavedChanges(dirty);
 
   function updateCover(update: Partial<ProjectMedia["cover"]>) {
@@ -142,7 +158,7 @@ export function ProjectEditor({
         return;
       }
       setProject(validation.candidate);
-      setBaseline(JSON.stringify({ project: validation.candidate, galleryJson }));
+      setBaseline(JSON.stringify({ project: validation.candidate, galleryJson, milestonesJson }));
       setRevision(body.revision ?? null);
       setDraftExists(true);
       setMessage("Projects draft saved locally. It is not published.");
@@ -198,7 +214,7 @@ export function ProjectEditor({
       const response = await fetch("/api/data/projects", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: projects, expectedRevision: revision }) });
       const body = await response.json() as { error?: string; revision?: string };
       if (!response.ok) { setMessage(body.error ?? "The project could not be archived in the draft."); return; }
-      setBaseline(JSON.stringify({ project: candidate, galleryJson }));
+      setBaseline(JSON.stringify({ project: candidate, galleryJson, milestonesJson }));
       setRevision(body.revision ?? null);
       setDraftExists(true);
       setMessage("Project archived in the local draft. Existing URLs and evidence are preserved; publish the reviewed bundle to make this public.");
@@ -216,9 +232,12 @@ export function ProjectEditor({
             <TextField label="Name" id="project-name" aria-invalid={invalid("name")} aria-describedby={invalid("name") ? "project-name-error" : undefined} value={project.name} onChange={(event) => setProject({ ...project, name: event.target.value })} />
             <TextField label="Slug" id="project-slug" aria-invalid={invalid("slug") || invalid("aliases")} aria-describedby={invalid("slug") || invalid("aliases") ? "project-slug-error" : undefined} value={project.slug} onChange={(event) => setProject({ ...project, slug: event.target.value })} hint="Lowercase URL-safe and unique." />
           </div>
-          <TextAreaField label="Outcome" id="project-outcome" aria-invalid={invalid("outcome")} rows={3} value={project.outcome} onChange={(event) => setProject({ ...project, outcome: event.target.value })} />
-          <TextAreaField label="Short description" id="project-short-description" aria-invalid={invalid("shortDescription")} rows={4} value={project.shortDescription} onChange={(event) => setProject({ ...project, shortDescription: event.target.value })} />
-          <TextAreaField label="Long description" id="project-long-description" aria-invalid={invalid("longDescription")} rows={7} value={project.longDescription} onChange={(event) => setProject({ ...project, longDescription: event.target.value })} />
+          <TextAreaField label="Outcome" id="project-outcome" aria-invalid={invalid("outcome")} aria-describedby={invalid("outcome") ? "project-outcome-error" : undefined} rows={3} value={project.outcome} onChange={(event) => setProject({ ...project, outcome: event.target.value })} />
+          {fieldIssue("outcome") ? <p id="project-outcome-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("outcome")}</p> : null}
+          <TextAreaField label="Short description" id="project-short-description" aria-invalid={invalid("shortDescription")} aria-describedby={invalid("shortDescription") ? "project-short-description-error" : undefined} rows={4} value={project.shortDescription} onChange={(event) => setProject({ ...project, shortDescription: event.target.value })} />
+          {fieldIssue("shortDescription") ? <p id="project-short-description-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("shortDescription")}</p> : null}
+          <TextAreaField label="Long description" id="project-long-description" aria-invalid={invalid("longDescription")} aria-describedby={invalid("longDescription") ? "project-long-description-error" : undefined} rows={7} value={project.longDescription} onChange={(event) => setProject({ ...project, longDescription: event.target.value })} />
+          {fieldIssue("longDescription") ? <p id="project-long-description-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("longDescription")}</p> : null}
         </EditorSection>
 
         <EditorSection title="Posture">
@@ -237,9 +256,12 @@ export function ProjectEditor({
         </EditorSection>
 
         <EditorSection title="Structured sections" description="One published item per line.">
-          <TextAreaField label="What it solves" rows={4} value={project.sections.whatItSolves.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, whatItSolves: asLines(event.target.value) } })} />
-          <TextAreaField label="Current state" rows={4} value={project.sections.currentState.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, currentState: asLines(event.target.value) } })} />
-          <TextAreaField label="How it works" rows={4} value={project.sections.howItWorks.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, howItWorks: asLines(event.target.value) } })} />
+          <TextAreaField label="What it solves" id="project-solves" aria-invalid={invalid("sections.whatItSolves")} aria-describedby={invalid("sections.whatItSolves") ? "project-solves-error" : undefined} rows={4} value={project.sections.whatItSolves.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, whatItSolves: asLines(event.target.value) } })} />
+          {fieldIssue("sections.whatItSolves") ? <p id="project-solves-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("sections.whatItSolves")}</p> : null}
+          <TextAreaField label="Current state" id="project-current-state" aria-invalid={invalid("sections.currentState")} aria-describedby={invalid("sections.currentState") ? "project-current-state-error" : undefined} rows={4} value={project.sections.currentState.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, currentState: asLines(event.target.value) } })} />
+          {fieldIssue("sections.currentState") ? <p id="project-current-state-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("sections.currentState")}</p> : null}
+          <TextAreaField label="How it works" id="project-how-it-works" aria-invalid={invalid("sections.howItWorks")} aria-describedby={invalid("sections.howItWorks") ? "project-how-it-works-error" : undefined} rows={4} value={project.sections.howItWorks.join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, howItWorks: asLines(event.target.value) } })} />
+          {fieldIssue("sections.howItWorks") ? <p id="project-how-it-works-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("sections.howItWorks")}</p> : null}
           <TextAreaField label="Next priorities" rows={4} value={(project.sections.nextPriorities ?? []).join("\n")} onChange={(event) => setProject({ ...project, sections: { ...project.sections, nextPriorities: asLines(event.target.value) } })} />
           <TextAreaField label="Limitations" rows={5} value={project.limitations.join("\n")} onChange={(event) => setProject({ ...project, limitations: asLines(event.target.value) })} />
         </EditorSection>
@@ -259,11 +281,18 @@ export function ProjectEditor({
             <SelectField label="Evidence level" value={project.evidence.level} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, level: event.target.value as ProjectContent["evidence"]["level"] } })}>
               {['source-reviewed', 'ci-verified', 'live-verified'].map((value) => <option key={value} value={value}>{value}</option>)}
             </SelectField>
-            <TextField label="Reviewed at (UTC)" id="project-reviewed-at" aria-invalid={invalid("evidence.reviewedAt")} value={project.evidence.reviewedAt} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, reviewedAt: event.target.value } })} />
+            <TextField label="Reviewed at (UTC)" id="project-reviewed-at" aria-invalid={invalid("evidence.reviewedAt")} aria-describedby={invalid("evidence.reviewedAt") ? "project-reviewed-at-error" : undefined} value={project.evidence.reviewedAt} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, reviewedAt: event.target.value } })} />
+            {fieldIssue("evidence.reviewedAt") ? <p id="project-reviewed-at-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("evidence.reviewedAt")}</p> : null}
             <TextField label="Commit SHA" value={project.evidence.commitSha ?? ""} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, commitSha: event.target.value || undefined } })} />
             <TextField label="Evidence URL" type="url" value={project.evidence.url ?? ""} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, url: event.target.value || undefined } })} />
           </div>
-          <TextAreaField label="Evidence note" id="project-evidence-note" aria-invalid={invalid("evidence.note")} rows={4} value={project.evidence.note} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, note: event.target.value } })} />
+          <TextAreaField label="Evidence note" id="project-evidence-note" aria-invalid={invalid("evidence.note")} aria-describedby={invalid("evidence.note") ? "project-evidence-note-error" : undefined} rows={4} value={project.evidence.note} onChange={(event) => setProject({ ...project, evidence: { ...project.evidence, note: event.target.value } })} />
+          {fieldIssue("evidence.note") ? <p id="project-evidence-note-error" className="text-sm text-[var(--role-failure)]">{fieldIssue("evidence.note")}</p> : null}
+        </EditorSection>
+
+        <EditorSection title="Project timeline (optional)" description="Add only curated milestones with source, CI, or live evidence references. Dates record occurrence and review separately; no Git activity is promoted automatically. Maximum 20 entries.">
+          <TextAreaField label="Milestones JSON" id="project-milestones" aria-invalid={milestoneIssues.length > 0} aria-describedby={milestoneIssues.length ? "project-milestones-error" : undefined} rows={10} value={milestonesJson} onChange={(event) => setMilestonesJson(event.target.value)} hint='Use [] for no timeline. Required fields: id, occurredAt, title, summary, scope, evidenceUrl, reviewedAt; optional: commitSha.' />
+          {milestoneIssues.length ? <p id="project-milestones-error" className="text-sm text-[var(--role-failure)]">{milestoneIssues.join(" ")}</p> : null}
         </EditorSection>
 
         <EditorSection title="Media" description="Media remains optional. Gallery entries use the canonical media-item JSON shape.">
@@ -309,7 +338,17 @@ export function ProjectEditor({
         {invalid("name") ? <p id="project-name-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("name:")).join(" ")}</p> : null}
         {validation.issues.some((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")) ? <p id="project-slug-error" className="sr-only">{validation.issues.filter((issue) => issue.startsWith("slug:") || issue.startsWith("aliases:")).join(" ")}</p> : null}
         {preview ? (
-          <div className="mt-8 border-y border-[var(--border)] py-5"><p className="mb-5 font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW · NOT PUBLIC</p><h3 className="mb-4 text-3xl font-semibold text-[var(--text)]">{project.name}</h3><p className="mb-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p><p className="mb-5 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p><ProjectDetailContent project={validation.candidate ?? project} now={new Date()} /></div>
+          <div className="mt-8 border-y border-[var(--border)] py-5">
+            <p className="mb-5 font-mono text-xs text-[var(--accent)]">DRAFT PREVIEW · NOT PUBLIC</p>
+            <p className="font-mono text-xs uppercase text-[var(--text-subtle)]">{project.category} / {project.slug}</p>
+            <h2 className="mb-4 mt-2 text-3xl font-semibold text-[var(--text)]">{project.name}</h2>
+            <p className="mb-3 text-base leading-7 text-[var(--text)]">{project.outcome}</p>
+            <p className="mb-5 text-sm leading-6 text-[var(--text-muted)]">{project.shortDescription}</p>
+            <div className="mb-5 flex flex-wrap gap-2"><PostureBadge dimension="lifecycle" value={project.lifecycle} /><PostureBadge dimension="maturity" value={project.maturity} /><PostureBadge dimension="evidence" value={project.evidence.level} /></div>
+            {(project.liveUrl || project.repoUrl) ? <div className="mb-5 flex flex-wrap gap-3">{project.liveUrl ? <a className="secondary-command" href={project.liveUrl} target="_blank" rel="noopener noreferrer">Open live product</a> : null}{project.repoUrl ? <a className="secondary-command" href={project.repoUrl} target="_blank" rel="noopener noreferrer">View repository</a> : null}</div> : null}
+            <p className="mb-4 text-xs text-[var(--text-subtle)]">Runtime health comes from live public metrics and is not simulated in this draft preview.</p>
+            <ProjectDetailContent project={validation.candidate ?? project} now={new Date(previewNow)} />
+          </div>
         ) : null}
       </aside>
     </div>
