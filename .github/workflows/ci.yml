@@ -112,6 +112,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:

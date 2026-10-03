@@ -151,7 +151,7 @@ test("mixed workload uses capability preflight and atomic generation commit unde
   const { measureHeadroom } = await import("./measure-cloudflare-headroom.mjs");
   const paths = protectedFiles(t);
   const requests = [];
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options) => {
     const parsed = new URL(url);
     requests.push({ path: parsed.pathname, options });
     if (parsed.pathname === "/api/health") {
@@ -228,7 +228,7 @@ test("unsupported collector capability fails before any staged traffic or write"
   const calls = [];
   const report = await measureHeadroom({
     ...commonTarget(paths),
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
       const route = new URL(url).pathname;
       calls.push(route);
       if (route === "/api/health") return Response.json({ status: "healthy", version: sha });
@@ -308,7 +308,7 @@ test("three-request atomic collector writes share a five-second transaction dead
   const calls = [];
   const report = await measureHeadroom({
     ...commonTarget(paths), stageSeconds: 1,
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
       const route = new URL(url).pathname;
       calls.push(route);
       if (route === "/api/health") return new Response(JSON.stringify({ status: "healthy", version: sha }), { status: 200 });
