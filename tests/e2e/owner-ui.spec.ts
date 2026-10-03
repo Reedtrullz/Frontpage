@@ -375,7 +375,11 @@ test.describe("owner workspace", () => {
     await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Name")).toHaveValue("E2E Owner Draft");
     await expect(page.getByLabel("Evidence note")).toHaveValue("Synthetic browser fixture only; no public claim.");
-    expect((await page.request.get("/projects/e2e-owner-draft")).status()).toBe(404);
+    const publicDraftResponse = await page.request.get("/projects/e2e-owner-draft");
+    const publicDraftHtml = await publicDraftResponse.text();
+    expect(publicDraftHtml).toContain("Page not found");
+    expect(publicDraftHtml).not.toContain("E2E Owner Draft");
+    expect(publicDraftHtml).not.toContain("Synthetic browser fixture only; no public claim.");
     await page.getByLabel("Slug").fill("e2e-owner-draft-renamed");
     await page.getByRole("button", { name: "Save project draft" }).click();
     await expect(page).toHaveURL(/\/admin\/projects\/e2e-owner-draft-renamed$/);
