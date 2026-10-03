@@ -15,3 +15,15 @@ it('reports committed recovery pending when receipt persistence fails and retry 
 it('reconciles a lost ref update response and preserves a newer draft',async()=>{const f=fixture();const update=vi.mocked(f.client.updateHead).getMockImplementation()!;vi.mocked(f.client.updateHead).mockImplementation(async sha=>{await update(sha);const previous=readDraftBundle(f.dataDir).projects!;const changed=structuredClone(f.projects);changed[0].shortDescription='saved while GitHub awaited';saveProjectsDraft(changed,{dataDir:f.dataDir,baseVersion:f.base,expectedRevision:previous.revision});throw new Error('response lost');});
  expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(readDraftBundle(f.dataDir).projects?.content[0].shortDescription).toBe('saved while GitHub awaited');expect(f.client.createCommit).toHaveBeenCalledTimes(1);
 });
+it('expires abandoned preparation safely before starting another commit',async()=>{
+ const f=fixture();const {createPublicationIntent}=await import('./publication-intents');
+ vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-03T10:00:00Z'));
+ createPublicationIntent('d'.repeat(64),f.base,f.input.reviewedRevisions,f.dataDir);
+ vi.setSystemTime(new Date('2026-10-03T10:06:00Z'));
+ try{expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(f.client.createCommit).toHaveBeenCalledTimes(1);}finally{vi.useRealTimers();}
+});
+it('does not rewrite the receipt when an already complete publication is retried',async()=>{
+ const f=fixture();expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');
+ const file=path.join(f.dataDir,'receipts/publication.json'),before=fs.readFileSync(file,'utf8');
+ expect((await publishCanonicalContent(f.input,f.client)).kind).toBe('published');expect(fs.readFileSync(file,'utf8')).toBe(before);expect(f.client.createCommit).toHaveBeenCalledTimes(1);
+});

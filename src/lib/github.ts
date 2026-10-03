@@ -18,7 +18,7 @@ export function createGitHubPublicationClient(): GitPublicationClient | null {
   const token = process.env.GITHUB_TOKEN;
   if (!token) return null;
 
-  const octokit = new Octokit({ auth: token });
+  const octokit = new Octokit({ auth: token, request: {timeout: 10_000} });
   const { owner, repo, branch } = repositoryConfig();
 
   return {

@@ -5,7 +5,6 @@ import {
   readDraftBundle,
   type ReviewedRevisions,
   savePublishReceipt,
-  type PublishReceipt,
 } from "./drafts";
 import { parseFullCommitSha } from './identity';
 import {
@@ -107,7 +106,9 @@ async function finishCommitted(intent: PublicationIntent, input: PublishCanonica
   const commitUrl = client.getCommitUrl(commitSha);
   try {
     const committed = updatePublicationIntent(intent, {phase: 'committed'}, input.dataDir);
-    savePublishReceipt({schemaVersion: 1, kind: 'published', recordedAt: recordedAt(input), baseVersion: intent.baseSha, commitSha, commitUrl}, input.dataDir);
+    const previousReceipt=readDraftBundle(input.dataDir).receipt;
+    const newerReceipt=previousReceipt?.kind==='published' && previousReceipt.commitSha!==commitSha && await client.isAncestor(commitSha,previousReceipt.commitSha);
+    if(!newerReceipt)savePublishReceipt({schemaVersion: 1, kind: 'published', recordedAt: recordedAt(input), baseVersion: intent.baseSha, commitSha, commitUrl}, input.dataDir,previousReceipt);
     clearDrafts(input.dataDir, intent.reviewedRevisions);
     updatePublicationIntent(committed, {phase: 'complete'}, input.dataDir);
     return {kind: 'published', commitSha, commitUrl};
@@ -121,7 +122,10 @@ async function reconcileIntent(intent: PublicationIntent, input: PublishCanonica
     const identity = await client.getCommitIdentity(intent.commitSha);
     if (identity.treeSha !== intent.treeSha || identity.parentSha !== intent.baseSha) return {kind: 'conflict', message: 'The saved publication identity could not be verified.'};
     const head = await client.getHead();
-    if (head.commitSha === intent.commitSha || await client.isAncestor(intent.commitSha, head.commitSha)) return finishCommitted(intent, input, client);
+    if (head.commitSha === intent.commitSha || await client.isAncestor(intent.commitSha, head.commitSha)) {
+      if(intent.phase==='complete')return {kind:'published',commitSha:intent.commitSha,commitUrl:client.getCommitUrl(intent.commitSha)};
+      return finishCommitted(intent, input, client);
+    }
     if (head.commitSha !== intent.baseSha) return {kind: 'conflict', message: CONFLICT_MESSAGE};
     // Retry the SAME durable commit; never create a second content commit.
     await client.updateHead(intent.commitSha);
@@ -136,7 +140,10 @@ export async function publishCanonicalContent(input: PublishCanonicalContentInpu
   const bundle = readDraftBundle(input.dataDir);
   const reviewed = input.reviewedRevisions ?? {personal: bundle.personal?.revision ?? null, projects: bundle.projects?.revision ?? null};
   const prior = findPublicationIntent(reviewed, input.dataDir);
-  if (prior && prior.phase !== 'failed') return reconcileIntent(prior, input, client);
+  if (prior && prior.phase !== 'failed') {
+    if(prior.phase==='prepared' && Date.parse(prior.createdAt)<Date.now()-5*60*1000)updatePublicationIntent(prior,{phase:'failed'},input.dataDir);
+    else return reconcileIntent(prior, input, client);
+  }
   if (reviewed.personal !== (bundle.personal?.revision ?? null) || reviewed.projects !== (bundle.projects?.revision ?? null)) return {kind: 'conflict', message: 'The draft changed. Refresh and review before publishing.'};
   let intent: PublicationIntent | undefined;
   let attemptedRef = false;

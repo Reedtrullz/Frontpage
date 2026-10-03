@@ -66,6 +66,10 @@ jobs:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
+      - name: Install runtime browser
+        run: npx playwright install --with-deps chromium
+      - name: Exercise built Worker and Durable Object runtime
+        run: npm run test:cloudflare
       - name: Validate Cloudflare upload bundle
         run: npx wrangler deploy --config wrangler.jsonc --dry-run
 

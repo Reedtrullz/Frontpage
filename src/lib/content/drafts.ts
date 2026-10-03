@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { z } from "zod";
-import { productionVersionMatches } from './identity';
+import { parseFullCommitSha, productionVersionMatches } from './identity';
 import {
   parsePersonal,
   parseProjects,
@@ -33,10 +33,10 @@ function draftEnvelopeSchema<T extends z.ZodType>(content: T) {
     .strict();
 }
 
-const personalDraftSchema = draftEnvelopeSchema(personalSchema);
-const projectsDraftSchema = draftEnvelopeSchema(projectsSchema);
-const legacyPersonalDraftSchema = personalDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
-const legacyProjectsDraftSchema = projectsDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
+export const personalDraftSchema = draftEnvelopeSchema(personalSchema);
+export const projectsDraftSchema = draftEnvelopeSchema(projectsSchema);
+export const legacyPersonalDraftSchema = personalDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
+export const legacyProjectsDraftSchema = projectsDraftSchema.omit({revision: true, schemaVersion: true}).extend({schemaVersion: z.literal(1)}).strict();
 export class DraftConflictError extends Error {
   readonly code = 'DRAFT_REVISION_CONFLICT';
   constructor(readonly latestRevision: string | null = null) { super('The draft changed. Refresh and review before trying again.'); }
@@ -103,7 +103,7 @@ const failedReceiptSchema = z
   })
   .strict();
 
-const publishReceiptSchema = z.discriminatedUnion("kind", [
+export const publishReceiptSchema = z.discriminatedUnion("kind", [
   publishedReceiptSchema,
   conflictReceiptSchema,
   failedReceiptSchema,
@@ -188,6 +188,23 @@ function atomicWriteJson(filePath: string, value: unknown, dataDir?: string): vo
   }
 }
 
+function writeDraftIfRevision(filePath:string,envelope:unknown,expectedRevision:string|null,dataDir?:string):void {
+  const sql=cloudflareSql(dataDir);
+  if(!sql){atomicWriteJson(filePath,envelope,dataDir);return;}
+  const key=path.relative(getRuntimeDataDir(),filePath),value=JSON.stringify(envelope);
+  const rows=expectedRevision===null
+    ? sql.exec('INSERT INTO owner_state(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING RETURNING key',key,value).toArray()
+    : sql.exec("UPDATE owner_state SET value=? WHERE key=? AND json_extract(value,'$.revision')=? RETURNING key",value,key,expectedRevision).toArray();
+  if(rows.length!==1)throw new DraftConflictError();
+}
+function deleteDraftIfRevision(filePath:string,revision:string|null,dataDir?:string):void {
+  const sql=cloudflareSql(dataDir);
+  if(!sql){removeJson(filePath,dataDir);return;}
+  if(revision===null)return;
+  const rows=sql.exec("DELETE FROM owner_state WHERE key=? AND json_extract(value,'$.revision')=? RETURNING key",path.relative(getRuntimeDataDir(),filePath),revision).toArray();
+  if(rows.length!==1)throw new DraftConflictError();
+}
+
 function readJson<T>(
   filePath: string,
   schema: z.ZodType<T>,
@@ -244,7 +261,7 @@ export function savePersonalDraft(input: unknown, options: DraftWriteOptions): D
   return withStateLock(options.dataDir, () => {
     const previous = readPersonal(options.dataDir);
     if ((previous?.revision ?? null) !== (options.expectedRevision ?? null)) throw new DraftConflictError(previous?.revision ?? null);
-    atomicWriteJson(path.join(resolveDataDir(options.dataDir), 'drafts/personal.json'), envelope, options.dataDir);
+    writeDraftIfRevision(path.join(resolveDataDir(options.dataDir), 'drafts/personal.json'), envelope, options.expectedRevision ?? null, options.dataDir);
     return envelope;
   });
 }
@@ -253,7 +270,7 @@ export function saveProjectsDraft(input: unknown, options: DraftWriteOptions): D
   return withStateLock(options.dataDir, () => {
     const previous = readProjects(options.dataDir);
     if ((previous?.revision ?? null) !== (options.expectedRevision ?? null)) throw new DraftConflictError(previous?.revision ?? null);
-    atomicWriteJson(path.join(resolveDataDir(options.dataDir), 'drafts/projects.json'), envelope, options.dataDir);
+    writeDraftIfRevision(path.join(resolveDataDir(options.dataDir), 'drafts/projects.json'), envelope, options.expectedRevision ?? null, options.dataDir);
     return envelope;
   });
 }
@@ -267,13 +284,15 @@ export function readDraftBundle(dataDir?: string): DraftBundle {
 export function savePublishReceipt(
   receipt: PublishReceipt,
   dataDir?: string,
+  expectedReceipt?: PublishReceipt | null,
 ): PublishReceipt {
   const parsed = publishReceiptSchema.parse(receipt);
-  atomicWriteJson(
-    path.join(resolveDataDir(dataDir), "receipts", "publication.json"),
-    parsed,
-    dataDir,
-  );
+  if(parsed.kind==='published' && !parseFullCommitSha(parsed.commitSha))throw new Error('A full commit identity is required.');
+  withStateLock(dataDir,()=>{
+    const file=path.join(resolveDataDir(dataDir),'receipts/publication.json');
+    if(expectedReceipt!==undefined && JSON.stringify(readJson(file,publishReceiptSchema,dataDir))!==JSON.stringify(expectedReceipt))throw new DraftConflictError();
+    atomicWriteJson(file,parsed,dataDir);
+  });
   return parsed;
 }
 
@@ -281,7 +300,7 @@ export function clearDrafts(dataDir: string | undefined, expected: ReviewedRevis
   withStateLock(dataDir, () => {
     for (const kind of ['personal', 'projects'] as const) {
       const current = kind === 'personal' ? readPersonal(dataDir) : readProjects(dataDir);
-      if (expected[kind] !== null && current?.revision === expected[kind]) removeJson(path.join(resolveDataDir(dataDir), 'drafts', kind + '.json'), dataDir);
+      if (expected[kind] !== null && current?.revision === expected[kind]) deleteDraftIfRevision(path.join(resolveDataDir(dataDir), 'drafts', kind + '.json'), expected[kind], dataDir);
     }
   });
 }
@@ -289,14 +308,14 @@ export function discardPersonalDraft(dataDir?: string, expectedRevision?: string
   withStateLock(dataDir, () => {
     const current = readPersonal(dataDir);
     if (expectedRevision === undefined || (current?.revision ?? null) !== expectedRevision) throw new DraftConflictError(current?.revision ?? null);
-    removeJson(path.join(resolveDataDir(dataDir), 'drafts/personal.json'), dataDir);
+    deleteDraftIfRevision(path.join(resolveDataDir(dataDir), 'drafts/personal.json'), expectedRevision, dataDir);
   });
 }
 export function discardProjectsDraft(dataDir?: string, expectedRevision?: string | null): void {
   withStateLock(dataDir, () => {
     const current = readProjects(dataDir);
     if (expectedRevision === undefined || (current?.revision ?? null) !== expectedRevision) throw new DraftConflictError(current?.revision ?? null);
-    removeJson(path.join(resolveDataDir(dataDir), 'drafts/projects.json'), dataDir);
+    deleteDraftIfRevision(path.join(resolveDataDir(dataDir), 'drafts/projects.json'), expectedRevision, dataDir);
   });
 }
 
@@ -369,3 +388,6 @@ export function mutateOwnerRecord<T>(schema: z.ZodType<T>, update: (value: T | n
     return next;
   });
 }
+
+/** Operator-only persistence lock; this does not grant access through a public route. */
+export function withOwnerStateLock<T>(dataDir:string, action:()=>T):T { return withStateLock(dataDir, action); }
