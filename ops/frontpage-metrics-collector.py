@@ -18,7 +18,7 @@ for candidate in (Path(__file__).resolve().parent.parent, Path("/usr/local/lib/f
 
 from ops.frontpage_metrics_v2 import config as collector_config
 from ops.frontpage_metrics_v2.sources import services as service_source
-from ops.frontpage_metrics_v2.daemon import run_aligned
+from ops.frontpage_metrics_v2.daemon import run_aligned, run_pipeline
 
 SCHEMA_VERSION = 1
 MAX_HISTORY = 1440
@@ -304,9 +304,8 @@ def run_daemon(config, metrics_dir, stop_event, wall_clock_ms=lambda: int(time.t
     previous = (wall_clock_ms(), Path("/proc/sys/kernel/random/boot_id").read_text(), read_cpu_times())
     samples = []
 
-    def collect():
-        nonlocal previous, samples
-        now_ms = wall_clock_ms()
+    def acquire(now_ms):
+        nonlocal previous
         boot = Path("/proc/sys/kernel/random/boot_id").read_text()
         idle, total = read_cpu_times()
         elapsed = now_ms - previous[0]
@@ -316,21 +315,34 @@ def run_daemon(config, metrics_dir, stop_event, wall_clock_ms=lambda: int(time.t
             cpu = round((1 - idle_delta / total_delta) * 100, 4)
         previous = (now_ms, boot, (idle, total))
         timestamp = datetime.fromtimestamp(now_ms / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        if samples and samples[-1]["collected_at"][:16] != timestamp[:16]:
-            publish_minute(metrics_dir, samples)
-            samples = []
         host = collect_host_metrics(cpu)
         # A late wakeup is unavailable evidence, not a relabelled on-time sample.
         if now_ms % 15_000 >= 1000:
             host["cpu_percent"] = None
-        sample_config = config if now_ms % 60_000 >= 45_000 else {**config, "services": [], "containers": []}
-        samples.append(collect_snapshot(sample_config, host, timestamp))
-        if now_ms % 60_000 >= 45_000:
+        return {
+            "schema_version": SCHEMA_VERSION, "collected_at": timestamp, "host": host,
+            "services": [], "containers": [],
+        }
+
+    def consume(snapshot):
+        nonlocal samples
+        timestamp = snapshot["collected_at"]
+        if samples and samples[-1]["collected_at"][:16] != timestamp[:16]:
+            publish_minute(metrics_dir, samples)
+            samples = []
+        minute_end = int(datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()) % 60 >= 45
+        if minute_end:
+            # Actual checks still run only once per minute; completion timestamps
+            # remain their actual timestamps, never the queued host timestamp.
+            snapshot["services"] = [service_result(service) for service in config["services"]]
+            snapshot["containers"] = [container_result(container) for container in config["containers"]]
+        samples.append(snapshot)
+        if minute_end:
             publish_minute(metrics_dir, samples)
             samples = []
         return False
 
-    run_aligned(collect, stop_event, wall_clock_ms=wall_clock_ms)
+    run_pipeline(acquire, consume, stop_event, wall_clock_ms=wall_clock_ms, aligned=run_aligned)
 
 
 def main():

@@ -3,6 +3,9 @@ import json
 import shutil
 import tempfile
 import threading
+import io
+import urllib.error
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -227,6 +230,54 @@ class RuntimeMapTests(unittest.TestCase):
 
 
 class ServiceSourceTests(unittest.TestCase):
+    def test_pending_service_batch_never_blocks_next_host_slot_or_reuses_success(self):
+        from ops.frontpage_metrics_v2.sources import services as module
+        entered, release = threading.Event(), threading.Event()
+        service = {"id": "test-public", "visibility": "public", "url": "https://example.com/"}
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+        def opener(*_args, **_kwargs):
+            entered.set()
+            if not release.wait(2): raise RuntimeError("test probe stuck")
+            return Response()
+        self.assertTrue(hasattr(module, "ServiceBatches"), "HTTP checks still block host acquisition")
+        batches = module.ServiceBatches((service,), opener=opener)
+        try:
+            first = batches.start(15000)
+            self.assertTrue(entered.wait(2))
+            with mock.patch("sys.stderr", io.StringIO()):
+                second = batches.start(30000)
+            self.assertTrue(second.done())
+            self.assertEqual(second.result().value[0].status, "unknown")
+            self.assertEqual(second.result().value[0].checked_at_ms, 30000)
+            release.set()
+            self.assertEqual(first.result(timeout=2).value[0].status, "up")
+            self.assertEqual(first.result().value[0].checked_at_ms, 15000)
+        finally:
+            release.set()
+            batches.close()
+
+    def test_unknown_receipt_has_error_type_and_uncapped_duration_without_message(self):
+        service = {"id": "test-public", "visibility": "public", "url": "https://example.com/"}
+        output = io.StringIO()
+        with mock.patch("sys.stderr", output), mock.patch(
+            "ops.frontpage_metrics_v2.sources.services.time.monotonic", side_effect=[0, 12.5]
+        ):
+            row = service_result(service, 15000, opener=lambda *_a, **_k: (_ for _ in ()).throw(
+                urllib.error.URLError(TimeoutError("private URL and token"))))
+        self.assertEqual(row.status, "unknown")
+        self.assertIsNone(row.latency_ms)
+        self.assertTrue(output.getvalue(), "Service exception lost its diagnostic evidence")
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["error_type"], "URLError")
+        self.assertEqual(receipt["reason_type"], "TimeoutError")
+        self.assertEqual(receipt["phase"], "open")
+        self.assertEqual(receipt["duration_seconds"], 12.5)
+        self.assertNotIn("private", output.getvalue())
+        self.assertNotIn("example.com", output.getvalue())
+
     def test_service_checks_overlap_with_bounded_concurrency_and_keep_order(self):
         services = tuple({"id": str(i), "visibility": "public", "url": f"https://example.com/{i}"} for i in range(9))
         barrier = threading.Barrier(8, timeout=1)

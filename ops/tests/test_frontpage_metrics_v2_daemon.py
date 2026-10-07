@@ -2,6 +2,7 @@ import threading
 import json
 import io
 import tempfile
+import shutil
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -89,6 +90,60 @@ class FakeStopEvent:
 
 
 class CollectorDaemonTests(unittest.TestCase):
+    def test_sampled_daemon_keeps_complete_host_minute_during_slow_http(self):
+        from ops.frontpage_metrics_v2.sources.services import ServiceBatches
+        base = 1_791_360_000_000 // 60000 * 60000
+        repo = Path(__file__).parents[2]
+        fixtures = repo / "ops/tests/fixtures/observability-v2"
+        entered, release = threading.Event(), threading.Event()
+        stop = threading.Event()
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+        def opener(*_a, **_k):
+            entered.set()
+            if not release.wait(2): raise RuntimeError("test probe stuck")
+            return Response()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(fixtures / "proc", root / "proc")
+            config = replace(load_config(repo / "ops/frontpage-metrics-v2.config.json"),
+                             database_path=root / "private/metrics.sqlite3",
+                             runtime_map_path=root / "missing.json", workloads=(),
+                             services=({"id": "test-public", "label": "Test", "visibility": "public",
+                                        "url": "https://example.com/"},))
+            store = MetricsStore.open(config.database_path)
+            batches = ServiceBatches(config.services, opener=opener)
+            try:
+                collector = LinuxCycleCollector(config, proc_root=root / "proc", cgroup_root=fixtures / "cgroup")
+                publisher = ProjectionPublisher(root / "public", root / "owner")
+                daemon = CollectorDaemon(collector, store, IncidentEngine(config.thresholds), publisher,
+                                         wall_clock_ms=lambda: base - 15000,
+                                         projection_builder=build_projection_files)
+                def aligned(callback, *_a, **_k):
+                    try:
+                        for index, offset in enumerate((0, 15000, 30000, 45000)):
+                            (root / "proc/stat").write_text(f"cpu  {200+index*50} 0 50 {900+index*50} 0 0 0 0 0 0\n")
+                            callback(base + offset)
+                            if index == 0: self.assertTrue(entered.wait(2))
+                    finally:
+                        release.set()
+                with mock.patch("ops.frontpage_metrics_v2.daemon.run_aligned", aligned), \
+                     mock.patch("sys.stderr", io.StringIO()):
+                    daemon.run_sampled(stop, batches)
+                rows = store.read_projection_snapshot()
+                raw = [row for row in rows["host"] if row["tier"] == "15s"]
+                self.assertEqual([row["ts_ms"] for row in raw], [base+i for i in (0,15000,30000,45000)])
+                self.assertTrue(all(row["payload"]["cpu_percent"] is not None for row in raw))
+                minute = next(row for row in rows["host"] if row["tier"] == "1m")
+                self.assertTrue(minute["payload"]["comparison_complete"])
+                self.assertEqual(json.loads((root / "public/latest.v2.json").read_text())["services"][0]["status"], "unknown")
+            finally:
+                release.set()
+                batches.close()
+                store.close()
+
     def test_full_cycle_overrun_logs_phase_times_without_hiding_gap_or_relaxing_database_guard(self):
         clock = iter((0.0, 9.0, 15.0, 16.0, 17.0))
         daemon = CollectorDaemon(FakeCollector(), FakeStore([CycleWriteStatus(0.1, False)]),

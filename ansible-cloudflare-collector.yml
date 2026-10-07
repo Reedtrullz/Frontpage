@@ -74,6 +74,9 @@
         owner: root
         group: root
         mode: '0755'
+      # Upload transport has its own guarded rollout. Maintenance must not
+      # replace a working v1 uploader with the atomic-generation uploader.
+      when: not maintain_collectors
 
     - name: Install collector upload secret
       ansible.builtin.copy:

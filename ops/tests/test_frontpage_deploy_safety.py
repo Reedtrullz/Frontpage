@@ -158,6 +158,25 @@ def run_ansible(playbook: Path, variables: dict[str, object], environment: dict[
 
 
 class FrontpageDeploySafetyTests(unittest.TestCase):
+    def test_shadow_maintenance_preserves_installed_upload_transport(self):
+        source = (ROOT / "ansible-cloudflare-collector.yml").read_text()
+        start = source.index("    - name: Install uploader")
+        end = source.index("    - name: Install collector upload secret", start)
+        for maintenance in (True, False):
+            with self.subTest(maintenance=maintenance), tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                destination = temp / "installed-upload"
+                destination.write_text("compatible legacy transport")
+                fragment = temp / "install.yml"
+                task = textwrap.dedent(source[start:end])
+                task = task.replace("src: ops/frontpage-metrics-upload.py", "content: reviewed transport")
+                task = task.replace("dest: /usr/local/bin/frontpage-metrics-upload", f"dest: {destination}")
+                task = task.replace("owner: root", f"owner: {TEST_USER}").replace("group: root", f"group: {TEST_GROUP}")
+                fragment.write_text(task)
+                result = run_ansible(fragment, {"maintain_collectors": maintenance}, {}, temp)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(destination.read_text(), "compatible legacy transport" if maintenance else "reviewed transport")
+
     def test_actual_shadow_maintenance_guard_and_missing_epoch_recovery(self):
         source = (ROOT / "ansible-cloudflare-collector.yml").read_text()
         names = (

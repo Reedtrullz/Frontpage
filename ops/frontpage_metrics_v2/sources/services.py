@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import time
+import sys
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Callable, Mapping
 
@@ -27,7 +28,7 @@ def open_status_request(request, timeout):
     return STATUS_OPENER.open(request, timeout=timeout)
 
 
-def response_matches_check(response, check: object) -> bool:
+def response_matches_check(response, check: object, on_error=None) -> bool:
     if not check or check["type"] == "http-status":
         return True
     try:
@@ -37,7 +38,9 @@ def response_matches_check(response, check: object) -> bool:
                 return False
             value = value.get(field)
         return value == check["expected"]
-    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
+        if on_error is not None:
+            on_error(error)
         return False
 
 
@@ -50,6 +53,14 @@ def service_result(
     timeout_seconds = max(1000, min(int(service.get("timeout_ms", 5000)), 10000)) / 1000
     status = "unknown"
     latency_ms = None
+    phase = "open"
+    http_status = None
+    failure = None
+
+    def body_failed(error):
+        nonlocal failure
+        failure = error
+
     try:
         request = urllib.request.Request(
             str(service["url"]),
@@ -57,33 +68,52 @@ def service_result(
             method="GET",
         )
         with opener(request, timeout=timeout_seconds) as response:
+            http_status = response.status
+            phase = "body_check" if response.status == int(service.get("expected_status", 200)) else "http_status"
             latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
             status = (
                 "up"
                 if response.status == int(service.get("expected_status", 200))
-                and response_matches_check(response, service.get("check"))
+                and response_matches_check(response, service.get("check"), body_failed)
                 else "down"
             )
     except urllib.error.HTTPError as error:
+        http_status = error.code
+        failure = error
+        phase = "http_status"
         try:
             latency_ms = min(10000, int(round((time.monotonic() - started) * 1000)))
             status = (
                 "up"
                 if error.code == int(service.get("expected_status", 200))
-                and response_matches_check(error, service.get("check"))
+                and response_matches_check(error, service.get("check"), body_failed)
                 else "down"
             )
         finally:
             error.close()
     except Exception as error:
+        failure = error
         if getattr(error, "code", None) is not None:
             status = "down"
+            http_status = error.code
             close = getattr(error, "close", None)
             if callable(close):
                 close()
         else:
             status = "unknown"
             latency_ms = None
+    if status != "up":
+        reason = getattr(failure, "reason", failure)
+        # Deliberately omit exception text, URLs, response body and headers.
+        print(json.dumps({
+            "event": "frontpage_service_check_failed", "service_id": str(service["id"]),
+            "ts_ms": now_ms, "status": status, "phase": phase,
+            "error_type": type(failure).__name__ if failure is not None else None,
+            "reason_type": type(reason).__name__ if reason is not None else None,
+            "errno": getattr(reason, "errno", None) if isinstance(getattr(reason, "errno", None), int) else None,
+            "http_status": http_status if isinstance(http_status, int) else None,
+            "duration_seconds": time.monotonic() - started,
+        }), file=sys.stderr, flush=True)
     return ServiceSample(
         id=str(service["id"]),
         visibility=service["visibility"],
@@ -102,6 +132,32 @@ def collect_services(
         rows = tuple(checks.map(lambda service: service_result(service, now_ms, opener), config))
     available = any(row.status != "unknown" for row in rows)
     return SourceResult(rows, available, {"service_checks": "available" if available else "unavailable"}, ())
+
+
+class ServiceBatches:
+    """One in-flight batch; a hung check never creates an unbounded backlog."""
+    def __init__(self, config, *, opener=open_status_request):
+        self.config = config
+        self.opener = opener
+        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="frontpage-service-batch")
+        self.pending = None
+
+    def start(self, now_ms):
+        if self.pending is not None and not self.pending.done():
+            print(json.dumps({"event": "frontpage_service_batch_unavailable", "ts_ms": now_ms,
+                              "reason": "previous_batch_pending"}), file=sys.stderr, flush=True)
+            result = Future()
+            result.set_result(SourceResult(
+                tuple(ServiceSample(str(service["id"]), service["visibility"], "unknown", now_ms, None)
+                      for service in self.config),
+                False, {"service_checks": "unavailable"}, ("Service checks unavailable: previous batch pending.",),
+            ))
+            return result
+        self.pending = self.executor.submit(collect_services, self.config, now_ms, self.opener)
+        return self.pending
+
+    def close(self):
+        self.executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _utc_now() -> str:

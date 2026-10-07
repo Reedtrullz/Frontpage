@@ -1,0 +1,13 @@
+# Metrics acquisition and bounded repair verification
+
+Both daemon entry points acquire real UTC host observations on a dedicated sampler thread. A four-slot queue feeds one persistence/publication consumer. V2 SQLite and incident state stay on the main thread; projection reads still use a consistent read-only snapshot. A slow projection or HTTP check does not move host acquisition into its completion time. Queue overflow and database writes over five seconds produce explicitly logged acquisition gaps; subsequent CPU intervals remain unavailable when they span a missed slot.
+
+V2 runs one service batch at a time with the existing maximum of eight concurrent checks. If that batch is still pending at a later slot, that later slot records unknown services and an unavailable capability. Results remain attached to the original cycle; a previous up result is never reused. V1 keeps one service/container probe per minute, with actual completion timestamps. HTTP status/body rules, socket timeouts, redirects, no retries, retention, immutable closed chunks and the strict acceptance comparator are unchanged.
+
+Service failures now log fixed, redacted journal fields: service id, cycle timestamp, phase (open, HTTP status or body check), exception/reason class, numeric errno/status and uncapped duration. Exception messages, URLs, headers and bodies are omitted. This provides evidence for future unknowns; it does not retroactively identify the network cause of retained failures. Slow-cycle receipts distinguish acquisition, queue wait and service wait from database and projection work.
+
+Collector maintenance preserves the installed uploader. Atomic v1 transport and v2 uploader activation have separate guarded rollout paths.
+
+Before deploying a scheduling repair, require independent review and exact-head CI, preserve a consistent SQLite backup plus histories/source/units/gate/original epoch, and use the exact clean reviewed checkout. A legitimate repair starts a new measurement boundary after warmup while retaining the original epoch and rejected evidence. Never reset an epoch merely to obtain acceptance.
+
+Verify the actual fix with the focused pipeline/source/daemon regressions, the ops suite, Ansible dry run, installed hashes/isolation and a bounded live sample window. Stop the testing follow-up once concrete issues are resolved; do not maintain an hourly heartbeat solely to age historical failures out. If a service failure recurs, diagnose its new journal receipt before changing request behavior. Guarded v2 activation remains outstanding until the unchanged fresh 48-hour gate passes and authenticated production readback succeeds; see [the activation runbook](cloudflare-v2-activation.md).
