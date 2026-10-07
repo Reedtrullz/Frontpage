@@ -167,6 +167,7 @@ class CollectorDaemon:
         if stop_event.is_set():
             return
         self.collector.collect_observations(self.wall_clock_ms())
+        stopping = InterruptedError("Collector stopping")
 
         def acquire(now_ms):
             started = self.monotonic()
@@ -181,7 +182,7 @@ class CollectorDaemon:
                 if stop_event.is_set():
                     print(json.dumps({"event": "frontpage_metrics_acquisition_abandoned",
                                       "ts_ms": cycle["ts_ms"], "reason": "shutdown"}), file=sys.stderr, flush=True)
-                    raise InterruptedError("Collector stopping")
+                    raise stopping
                 try:
                     service_rows = services.result(timeout=0.1)
                     break
@@ -197,8 +198,8 @@ class CollectorDaemon:
         try:
             run_pipeline(acquire, consume, stop_event, interval_seconds=self.interval_seconds,
                          wall_clock_ms=self.wall_clock_ms)
-        except InterruptedError:
-            if not stop_event.is_set():
+        except InterruptedError as error:
+            if error is not stopping:
                 raise
 
     def run_forever(self, stop_event) -> None:

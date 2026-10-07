@@ -91,6 +91,12 @@ class FakeStopEvent:
 
 class CollectorDaemonTests(unittest.TestCase):
     def test_acquisition_error_during_service_wait_is_not_normal_shutdown(self):
+        self._assert_pending_service_host_error_propagates(ValueError)
+
+    def test_interrupted_host_read_is_not_normal_shutdown(self):
+        self._assert_pending_service_host_error_propagates(InterruptedError)
+
+    def _assert_pending_service_host_error_propagates(self, error_type):
         from concurrent.futures import Future
         stop, waiting = threading.Event(), threading.Event()
         class Pending(Future):
@@ -101,7 +107,7 @@ class CollectorDaemonTests(unittest.TestCase):
         class Collector:
             def collect_observations(self, ts_ms):
                 if ts_ms == 30000:
-                    raise ValueError("host read failed")
+                    raise error_type("host read failed")
                 return {"ts_ms": ts_ms}
             def complete_cycle(self, *_args):
                 raise AssertionError("Unfinished cycle completed")
@@ -114,7 +120,7 @@ class CollectorDaemonTests(unittest.TestCase):
             self.assertTrue(waiting.wait(2))
             callback(30000)
         with mock.patch("ops.frontpage_metrics_v2.daemon.run_aligned", aligned), mock.patch("sys.stderr", io.StringIO()):
-            with self.assertRaisesRegex(ValueError, "host read failed"):
+            with self.assertRaisesRegex(error_type, "host read failed"):
                 daemon.run_sampled(stop, Batches())
         self.assertEqual(store.orders, [])
 
