@@ -79,6 +79,10 @@ def run_pipeline(acquire, consume, stop_event, *, interval_seconds=15,
     finally:
         stop_event.set()
         producer.join()
+        # A producer fault can wake a consumer waiting for HTTP through the
+        # stop event. Preserve that fault instead of treating it as SIGTERM.
+        if errors:
+            raise errors[0]
 
 
 @dataclass(frozen=True)
