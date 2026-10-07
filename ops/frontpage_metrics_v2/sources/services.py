@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import time
 import sys
+import queue
+import threading
 import urllib.error
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -135,17 +137,23 @@ def collect_services(
 
 
 class ServiceBatches:
-    """One in-flight batch; a hung check never creates an unbounded backlog."""
-    def __init__(self, config, *, opener=open_status_request):
+    """One bounded batch of daemon checks, with no executor exit-time join."""
+    def __init__(self, config, *, opener=open_status_request,
+                 wall_clock_ms=lambda: int(time.time() * 1000)):
         self.config = config
         self.opener = opener
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="frontpage-service-batch")
+        self.wall_clock_ms = wall_clock_ms
         self.pending = None
+        self.closed = threading.Event()
+        self.lock = threading.Lock()
 
     def start(self, now_ms):
+        if self.closed.is_set():
+            raise RuntimeError("Service batches are closed")
         if self.pending is not None and not self.pending.done():
             print(json.dumps({"event": "frontpage_service_batch_unavailable", "ts_ms": now_ms,
-                              "reason": "previous_batch_pending"}), file=sys.stderr, flush=True)
+                              "reason": "previous_batch_pending", "check_attempted": False}),
+                  file=sys.stderr, flush=True)
             result = Future()
             result.set_result(SourceResult(
                 tuple(ServiceSample(str(service["id"]), service["visibility"], "unknown", now_ms, None)
@@ -153,11 +161,57 @@ class ServiceBatches:
                 False, {"service_checks": "unavailable"}, ("Service checks unavailable: previous batch pending.",),
             ))
             return result
-        self.pending = self.executor.submit(collect_services, self.config, now_ms, self.opener)
-        return self.pending
+        future = self.pending = Future()
+        jobs = queue.Queue()
+        for index, service in enumerate(self.config):
+            jobs.put((index, service))
+        rows = [None] * len(self.config)
+        remaining = len(rows)
+        errors = []
+        if not remaining:
+            future.set_result(SourceResult((), False, {"service_checks": "unavailable"}, ()))
+            return future
+
+        def check():
+            nonlocal remaining
+            while not self.closed.is_set():
+                try:
+                    index, service = jobs.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    observed_ms = self.wall_clock_ms()
+                    if observed_ms // 15000 != now_ms // 15000:
+                        print(json.dumps({"event": "frontpage_service_batch_unavailable", "ts_ms": now_ms,
+                                          "observed_at_ms": observed_ms, "reason": "late_check_start",
+                                          "service_id": str(service["id"]), "check_attempted": False}),
+                              file=sys.stderr, flush=True)
+                        rows[index] = ServiceSample(str(service["id"]), service["visibility"], "unknown", observed_ms, None)
+                    else:
+                        rows[index] = service_result(service, observed_ms, self.opener)
+                except BaseException as error:
+                    with self.lock:
+                        errors.append(error)
+                finally:
+                    with self.lock:
+                        remaining -= 1
+                        if remaining == 0 and not future.done():
+                            if errors:
+                                future.set_exception(errors[0])
+                            else:
+                                available = any(row.status != "unknown" for row in rows)
+                                future.set_result(SourceResult(tuple(rows), available,
+                                    {"service_checks": "available" if available else "unavailable"}, ()))
+
+        for _ in range(min(8, len(rows))):
+            threading.Thread(target=check, name="frontpage-service-check", daemon=True).start()
+        return future
 
     def close(self):
-        self.executor.shutdown(wait=True, cancel_futures=True)
+        self.closed.set()
+        with self.lock:
+            if self.pending is not None:
+                self.pending.cancel()
 
 
 def _utc_now() -> str:

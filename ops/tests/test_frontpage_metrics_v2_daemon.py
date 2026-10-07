@@ -90,6 +90,24 @@ class FakeStopEvent:
 
 
 class CollectorDaemonTests(unittest.TestCase):
+    def test_shutdown_interrupts_wait_without_committing_unfinished_service_cycle(self):
+        from concurrent.futures import Future
+        stop = threading.Event()
+        pending = Future()
+        class Collector:
+            def collect_observations(self, ts_ms): return {"ts_ms": ts_ms}
+            def complete_cycle(self, *_args): raise AssertionError("Unfinished cycle completed")
+        class Batches:
+            def start(self, *_args): return pending
+        store = FakeStore()
+        daemon = CollectorDaemon(Collector(), store, FakeEngine(), FakePublisher(), wall_clock_ms=lambda: 15000)
+        def aligned(callback, *_args):
+            callback(15000)
+            stop.set()
+        with mock.patch("ops.frontpage_metrics_v2.daemon.run_aligned", aligned), mock.patch("sys.stderr", io.StringIO()):
+            daemon.run_sampled(stop, Batches())
+        self.assertEqual(store.orders, [])
+
     def test_sampled_daemon_keeps_complete_host_minute_during_slow_http(self):
         from ops.frontpage_metrics_v2.sources.services import ServiceBatches
         base = 1_791_360_000_000 // 60000 * 60000
@@ -114,7 +132,7 @@ class CollectorDaemonTests(unittest.TestCase):
                              services=({"id": "test-public", "label": "Test", "visibility": "public",
                                         "url": "https://example.com/"},))
             store = MetricsStore.open(config.database_path)
-            batches = ServiceBatches(config.services, opener=opener)
+            batches = ServiceBatches(config.services, opener=opener, wall_clock_ms=lambda: base)
             try:
                 collector = LinuxCycleCollector(config, proc_root=root / "proc", cgroup_root=fixtures / "cgroup")
                 publisher = ProjectionPublisher(root / "public", root / "owner")

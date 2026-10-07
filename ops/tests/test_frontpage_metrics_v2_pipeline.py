@@ -8,6 +8,11 @@ from ops.frontpage_metrics_v2 import daemon
 
 
 class PipelineTests(unittest.TestCase):
+    def test_nonpositive_queue_capacity_is_rejected(self):
+        for capacity in (0, -1):
+            with self.subTest(capacity=capacity), self.assertRaises(ValueError):
+                daemon.run_pipeline(lambda tick: tick, lambda row: False, threading.Event(), capacity=capacity)
+
     def test_real_acquisition_continues_while_publication_is_blocked(self):
         acquired = []
         consumed = []

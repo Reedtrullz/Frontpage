@@ -5,6 +5,7 @@ import sys
 import time
 import queue
 import threading
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Callable
 
@@ -28,6 +29,8 @@ def run_pipeline(acquire, consume, stop_event, *, interval_seconds=15,
                  wall_clock_ms=lambda: int(time.time() * 1000), capacity=4,
                  aligned=None):
     """Acquire real UTC slots independently; one consumer owns persistence."""
+    if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+        raise ValueError("Pipeline capacity must be a positive integer")
     pending = queue.Queue(maxsize=capacity)
     backpressure = threading.Event()
     finished = threading.Event()
@@ -170,15 +173,29 @@ class CollectorDaemon:
         def consume(pending):
             cycle, services, started, acquired = pending
             dequeued = self.monotonic()
-            self.collector.complete_cycle(cycle, services.result())
+            while True:
+                if stop_event.is_set():
+                    print(json.dumps({"event": "frontpage_metrics_acquisition_abandoned",
+                                      "ts_ms": cycle["ts_ms"], "reason": "shutdown"}), file=sys.stderr, flush=True)
+                    raise InterruptedError("Collector stopping")
+                try:
+                    service_rows = services.result(timeout=0.1)
+                    break
+                except FutureTimeout:
+                    continue
+            self.collector.complete_cycle(cycle, service_rows)
             collected = self.monotonic()
             return self.persist_cycle(cycle, started=started, collected=collected, pipeline_timings={
                 "acquisition_seconds": acquired - started, "queue_wait_seconds": dequeued - acquired,
                 "service_wait_seconds": collected - dequeued, "collection_includes_queue": True,
             }).skip_next_cycle
 
-        run_pipeline(acquire, consume, stop_event, interval_seconds=self.interval_seconds,
-                     wall_clock_ms=self.wall_clock_ms)
+        try:
+            run_pipeline(acquire, consume, stop_event, interval_seconds=self.interval_seconds,
+                         wall_clock_ms=self.wall_clock_ms)
+        except InterruptedError:
+            if not stop_event.is_set():
+                raise
 
     def run_forever(self, stop_event) -> None:
         if stop_event.is_set():
