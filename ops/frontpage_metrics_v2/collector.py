@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from .model import CollectorConfig, HostSample, WorkloadConfig, WorkloadSample
+from .model import CollectorConfig, HostSample, SourceResult, WorkloadConfig, WorkloadSample
 from .sources.cgroup import collect_workloads
 from .sources.processes import collect_processes, snapshot_process_counters
 from .sources.procfs import HostPaths, collect_host
@@ -58,7 +58,10 @@ class LinuxCycleCollector:
             for key, state in sorted(states.items())
         ]
 
-    def collect_cycle(self, now_ms: int) -> dict[str, object]:
+    def collect_observations(self, now_ms: int) -> dict[str, object]:
+        return self.collect_cycle(now_ms, services_result=SourceResult((), False, {}, ()))
+
+    def collect_cycle(self, now_ms: int, *, services_result=None) -> dict[str, object]:
         host_result = collect_host(
             self.previous_host,
             HostPaths(
@@ -101,7 +104,8 @@ class LinuxCycleCollector:
                 else 1
             ),
         )
-        services_result = collect_services(self.config.services, now_ms)
+        if services_result is None:
+            services_result = collect_services(self.config.services, now_ms)
 
         previous_workloads = {
             workload.workload_id: workload for workload in self.previous_workloads or ()
@@ -129,21 +133,7 @@ class LinuxCycleCollector:
             )
             workloads.append(payload)
 
-        services = []
-        service_config = {str(service["id"]): service for service in self.config.services}
-        for sample in services_result.value or ():
-            configured = service_config[sample.id]
-            services.append(
-                {
-                    "service_id": sample.id,
-                    "label": configured["label"],
-                    "project_slug": configured.get("project_slug"),
-                    "visibility": sample.visibility,
-                    "status": sample.status,
-                    "latency_ms": sample.latency_ms,
-                    "checked_at_ms": sample.checked_at_ms,
-                }
-            )
+        services = self._service_rows(services_result)
 
         host = asdict(host_result.value) if host_result.value is not None else {}
         if host:
@@ -182,4 +172,32 @@ class LinuxCycleCollector:
             self.proc_root,
             now_ms,
         )
+        return cycle
+
+    def _service_rows(self, services_result):
+        services = []
+        service_config = {str(service["id"]): service for service in self.config.services}
+        for sample in services_result.value or ():
+            configured = service_config[sample.id]
+            services.append(
+                {
+                    "service_id": sample.id,
+                    "label": configured["label"],
+                    "project_slug": configured.get("project_slug"),
+                    "visibility": sample.visibility,
+                    "status": sample.status,
+                    "latency_ms": sample.latency_ms,
+                    "checked_at_ms": sample.checked_at_ms,
+                }
+            )
+
+        return services
+
+    def complete_cycle(self, cycle, services_result):
+        cycle["services"] = self._service_rows(services_result)
+        cycle["capabilities"] = sorted(
+            [*cycle["capabilities"], *self._capabilities(services_result)], key=lambda row: row["key"],
+        )[:32]
+        cycle["source_errors"] = [*cycle["source_errors"], *services_result.errors][:32]
+        cycle["host"]["source_errors"] = cycle["source_errors"]
         return cycle

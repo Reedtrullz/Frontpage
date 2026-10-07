@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 import sys
 import time
+import queue
+import threading
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Callable
 
@@ -20,6 +23,66 @@ def run_aligned(collect, stop_event, interval_seconds=15, wall_clock_ms=lambda: 
         skip = collect()
         if skip:
             stop_event.wait(max(0, (deadline + interval_ms - wall_clock_ms()) / 1000))
+
+
+def run_pipeline(acquire, consume, stop_event, *, interval_seconds=15,
+                 wall_clock_ms=lambda: int(time.time() * 1000), capacity=4,
+                 aligned=None):
+    """Acquire real UTC slots independently; one consumer owns persistence."""
+    if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+        raise ValueError("Pipeline capacity must be a positive integer")
+    pending = queue.Queue(maxsize=capacity)
+    backpressure = threading.Event()
+    finished = threading.Event()
+    errors = []
+
+    def sample(now_ms=None):
+        now_ms = wall_clock_ms() if now_ms is None else now_ms
+        if backpressure.is_set():
+            backpressure.clear()
+            print(json.dumps({"event": "frontpage_metrics_acquisition_skipped",
+                              "ts_ms": now_ms, "reason": "database_backpressure"}),
+                  file=sys.stderr, flush=True)
+            return False
+        if pending.full():
+            print(json.dumps({"event": "frontpage_metrics_acquisition_skipped",
+                              "ts_ms": now_ms, "reason": "queue_full"}),
+                  file=sys.stderr, flush=True)
+            return False
+        row = acquire(now_ms)
+        pending.put_nowait(row)
+        return False
+
+    def produce():
+        try:
+            (aligned or run_aligned)(sample, stop_event, interval_seconds, wall_clock_ms)
+        except BaseException as error:
+            errors.append(error)
+            stop_event.set()
+        finally:
+            finished.set()
+
+    producer = threading.Thread(target=produce, name="frontpage-host-sampler", daemon=True)
+    producer.start()
+    try:
+        while not finished.is_set() or not pending.empty():
+            if errors:
+                raise errors[0]
+            try:
+                row = pending.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if consume(row):
+                backpressure.set()
+        if errors:
+            raise errors[0]
+    finally:
+        stop_event.set()
+        producer.join()
+        # A producer fault can wake a consumer waiting for HTTP through the
+        # stop event. Preserve that fault instead of treating it as SIGTERM.
+        if errors:
+            raise errors[0]
 
 
 @dataclass(frozen=True)
@@ -67,6 +130,11 @@ class CollectorDaemon:
         started = self.monotonic()
         cycle = self.collector.collect_cycle(self.wall_clock_ms())
         collected = self.monotonic()
+        return self.persist_cycle(cycle, started=started, collected=collected)
+
+    def persist_cycle(self, cycle, *, started=None, collected=None, pipeline_timings=None) -> DaemonCycleResult:
+        started = self.monotonic() if started is None else started
+        collected = started if collected is None else collected
         checkpoint = self.incident_engine.checkpoint()
         try:
             status, transitions, snapshot = self.store.commit_cycle(
@@ -91,8 +159,48 @@ class CollectorDaemon:
                 "projection_read_seconds": max(0, read - collected - status.duration_seconds),
                 "build_seconds": built - read, "publish_seconds": published - built,
                 "total_seconds": published - started, "database_backpressure": status.skip_next_cycle,
+                **(pipeline_timings or {}),
             }), file=sys.stderr, flush=True)
         return DaemonCycleResult(status.duration_seconds, status.skip_next_cycle)
+
+    def run_sampled(self, stop_event, service_batches) -> None:
+        if stop_event.is_set():
+            return
+        self.collector.collect_observations(self.wall_clock_ms())
+        stopping = InterruptedError("Collector stopping")
+
+        def acquire(now_ms):
+            started = self.monotonic()
+            services = service_batches.start(now_ms)
+            cycle = self.collector.collect_observations(now_ms)
+            return cycle, services, started, self.monotonic()
+
+        def consume(pending):
+            cycle, services, started, acquired = pending
+            dequeued = self.monotonic()
+            while True:
+                if stop_event.is_set():
+                    print(json.dumps({"event": "frontpage_metrics_acquisition_abandoned",
+                                      "ts_ms": cycle["ts_ms"], "reason": "shutdown"}), file=sys.stderr, flush=True)
+                    raise stopping
+                try:
+                    service_rows = services.result(timeout=0.1)
+                    break
+                except FutureTimeout:
+                    continue
+            self.collector.complete_cycle(cycle, service_rows)
+            collected = self.monotonic()
+            return self.persist_cycle(cycle, started=started, collected=collected, pipeline_timings={
+                "acquisition_seconds": acquired - started, "queue_wait_seconds": dequeued - acquired,
+                "service_wait_seconds": collected - dequeued, "collection_includes_queue": True,
+            }).skip_next_cycle
+
+        try:
+            run_pipeline(acquire, consume, stop_event, interval_seconds=self.interval_seconds,
+                         wall_clock_ms=self.wall_clock_ms)
+        except InterruptedError as error:
+            if error is not stopping:
+                raise
 
     def run_forever(self, stop_event) -> None:
         if stop_event.is_set():

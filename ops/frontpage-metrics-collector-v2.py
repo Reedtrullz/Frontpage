@@ -18,6 +18,7 @@ from ops.frontpage_metrics_v2.incidents import IncidentEngine
 from ops.frontpage_metrics_v2.projections import build_projection_files
 from ops.frontpage_metrics_v2.publisher import ProjectionPublisher
 from ops.frontpage_metrics_v2.store import MetricsStore
+from ops.frontpage_metrics_v2.sources.services import ServiceBatches
 
 
 def parse_args():
@@ -61,7 +62,11 @@ def main() -> int:
         if args.once:
             daemon.run_once()
         else:
-            daemon.run_forever(stop_event)
+            batches = ServiceBatches(config.services)
+            try:
+                daemon.run_sampled(stop_event, batches)
+            finally:
+                batches.close()
     finally:
         store.close()
     return 0

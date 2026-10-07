@@ -3,6 +3,11 @@ import json
 import shutil
 import tempfile
 import threading
+import io
+import urllib.error
+import subprocess
+import sys
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -227,6 +232,103 @@ class RuntimeMapTests(unittest.TestCase):
 
 
 class ServiceSourceTests(unittest.TestCase):
+    def test_stuck_daemon_check_cannot_hold_process_exit(self):
+        script = """
+import threading, time
+from ops.frontpage_metrics_v2.sources.services import ServiceBatches
+entered = threading.Event()
+def opener(*a, **k):
+    entered.set()
+    threading.Event().wait()
+batches = ServiceBatches(({"id": "test", "visibility": "public", "url": "https://example.com/"},), opener=opener)
+batches.start(int(time.time()*1000))
+assert entered.wait(1)
+batches.close()
+"""
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, timeout=2,
+                                cwd=Path(__file__).parents[2])
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+    def test_late_worker_start_is_unknown_and_never_runs_probe(self):
+        from ops.frontpage_metrics_v2.sources.services import ServiceBatches
+        def forbidden(*_a, **_k): raise AssertionError("Late probe ran")
+        batches = ServiceBatches(({"id": "test", "visibility": "public", "url": "https://example.com/"},),
+                                 opener=forbidden, wall_clock_ms=lambda: 30001)
+        output = io.StringIO()
+        try:
+            with mock.patch("sys.stderr", output):
+                row = batches.start(15000).result(timeout=1).value[0]
+            self.assertEqual((row.status, row.checked_at_ms), ("unknown", 30001))
+            self.assertFalse(json.loads(output.getvalue())["check_attempted"])
+        finally:
+            batches.close()
+
+    def test_service_batch_shutdown_does_not_wait_for_stuck_check(self):
+        from ops.frontpage_metrics_v2.sources.services import ServiceBatches
+        entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+        def opener(*_a, **_k):
+            entered.set()
+            release.wait(2)
+            raise TimeoutError("private detail")
+        batches = ServiceBatches(({"id": "test", "visibility": "public", "url": "https://example.com/"},), opener=opener, wall_clock_ms=lambda: 15000)
+        try:
+            batches.start(15000)
+            self.assertTrue(entered.wait(2))
+            closer = threading.Thread(target=lambda: (batches.close(), closed.set()), daemon=True)
+            closer.start()
+            self.assertTrue(closed.wait(0.5), "Shutdown blocked on network check")
+        finally:
+            release.set()
+            batches.close()
+
+    def test_pending_service_batch_never_blocks_next_host_slot_or_reuses_success(self):
+        from ops.frontpage_metrics_v2.sources import services as module
+        entered, release = threading.Event(), threading.Event()
+        service = {"id": "test-public", "visibility": "public", "url": "https://example.com/"}
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+        def opener(*_args, **_kwargs):
+            entered.set()
+            if not release.wait(2): raise RuntimeError("test probe stuck")
+            return Response()
+        self.assertTrue(hasattr(module, "ServiceBatches"), "HTTP checks still block host acquisition")
+        batches = module.ServiceBatches((service,), opener=opener, wall_clock_ms=lambda: 15000)
+        try:
+            first = batches.start(15000)
+            self.assertTrue(entered.wait(2))
+            with mock.patch("sys.stderr", io.StringIO()):
+                second = batches.start(30000)
+            self.assertTrue(second.done())
+            self.assertEqual(second.result().value[0].status, "unknown")
+            self.assertEqual(second.result().value[0].checked_at_ms, 30000)
+            release.set()
+            self.assertEqual(first.result(timeout=2).value[0].status, "up")
+            self.assertEqual(first.result().value[0].checked_at_ms, 15000)
+        finally:
+            release.set()
+            batches.close()
+
+    def test_unknown_receipt_has_error_type_and_uncapped_duration_without_message(self):
+        service = {"id": "test-public", "visibility": "public", "url": "https://example.com/"}
+        output = io.StringIO()
+        with mock.patch("sys.stderr", output), mock.patch(
+            "ops.frontpage_metrics_v2.sources.services.time.monotonic", side_effect=[0, 12.5]
+        ):
+            row = service_result(service, 15000, opener=lambda *_a, **_k: (_ for _ in ()).throw(
+                urllib.error.URLError(TimeoutError("private URL and token"))))
+        self.assertEqual(row.status, "unknown")
+        self.assertIsNone(row.latency_ms)
+        self.assertTrue(output.getvalue(), "Service exception lost its diagnostic evidence")
+        receipt = json.loads(output.getvalue())
+        self.assertEqual(receipt["error_type"], "URLError")
+        self.assertEqual(receipt["reason_type"], "TimeoutError")
+        self.assertEqual(receipt["phase"], "open")
+        self.assertEqual(receipt["duration_seconds"], 12.5)
+        self.assertNotIn("private", output.getvalue())
+        self.assertNotIn("example.com", output.getvalue())
+
     def test_service_checks_overlap_with_bounded_concurrency_and_keep_order(self):
         services = tuple({"id": str(i), "visibility": "public", "url": f"https://example.com/{i}"} for i in range(9))
         barrier = threading.Barrier(8, timeout=1)
@@ -259,6 +361,16 @@ class ServiceSourceTests(unittest.TestCase):
         self.assertEqual(peak, 8)
         self.assertEqual([row.id for row in result.value], [str(i) for i in range(9)])
         self.assertTrue(all(row.status == "up" and row.checked_at_ms == 1000 for row in result.value))
+        from ops.frontpage_metrics_v2.sources.services import ServiceBatches
+        batches = ServiceBatches(services, opener=opener, wall_clock_ms=lambda: 1000)
+        try:
+            asynchronous = batches.start(1000).result(timeout=2)
+            self.assertEqual(peak, 8)
+            self.assertEqual([row.id for row in asynchronous.value], [str(i) for i in range(9)])
+            self.assertTrue(all(row.status == "up" for row in asynchronous.value))
+        finally:
+            batches.close()
+
 
     def test_service_errors_are_redacted_and_partial_failure_survives(self):
         services = (
