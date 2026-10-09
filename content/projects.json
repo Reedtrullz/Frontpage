@@ -25,6 +25,15 @@
     ],
     "featuredRank": 1,
     "liveUrl": "https://nytt.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/nytt/cover.webp",
+        "alt": "Nytt Trondheim news overview showing current headlines, active alerts, situation map, and source trust indicators",
+        "width": 1440,
+        "height": 900,
+        "caption": "Siste nytt overview with active alerts and situation map, captured October 2026."
+      }
+    },
     "healthServiceIds": [
       "nytt-public"
     ],
@@ -779,6 +788,15 @@
     "featuredRank": 5,
     "repoUrl": "https://github.com/Reedtrullz/Keyspilli",
     "liveUrl": "https://keys.reidar.tech",
+    "media": {
+      "cover": {
+        "src": "/projects/keyspilli/cover.webp",
+        "alt": "Keyspilli piano-roll practice view for Your Song showing hand-separated note blocks, section timeline, and on-screen keyboard",
+        "width": 1440,
+        "height": 900,
+        "caption": "Piano-roll practice view with estimated sections, captured October 2026."
+      }
+    },
     "evidence": {
       "reviewedAt": "2026-09-15T07:06:38Z",
       "level": "source-reviewed",
