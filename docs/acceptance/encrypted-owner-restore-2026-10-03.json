@@ -1,0 +1,27 @@
+{
+  "checkedAt": "2026-10-03T20:16:40.612Z",
+  "scope": "synthetic isolated file and real Node SQLite; no Cloudflare Access or production-state export",
+  "sourceSha": "57bc20e69c93d4f53c523982e0024918669f15af",
+  "rollbackReaderSha": "c45bc2a5517eb2435bea89fd4194b638fd48a96c",
+  "records": 4,
+  "encryption": "AES-256-GCM",
+  "encryptedBackups": 2,
+  "protectedKeyAndCiphertext": true,
+  "keyOrRecordValuesPrinted": false,
+  "wrongKeyRejected": true,
+  "tamperedCiphertextRejected": true,
+  "modernCliReadbackExact": true,
+  "revisionsPreserved": true,
+  "existingDestinationRejected": true,
+  "corruptManifestRejectedBeforeDestination": true,
+  "sqlRoundtripExact": true,
+  "sqlInvalidRestorePreservedRecords": true,
+  "preMigrationRollbackSnapshotExact": true,
+  "legacyReaderAcceptedRestoredSchema1": true,
+  "liveAccessRestore": false,
+  "productionDataTouched": false,
+  "ciphertextSha256": [
+    "5b79c5de5b289aa6466257b185b6c36ab5c94609e083b26343b6677d17dd0749",
+    "8e603cd16cc877bd6e718ceaf68d167e1c6042b92bbea29cf466abe18734da61"
+  ]
+}
