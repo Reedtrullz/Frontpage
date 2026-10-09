@@ -279,8 +279,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Verify Worker commit
         run: |
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error https://frontpage.reidjoss.workers.dev/api/health \
+          for attempt in {1..90}; do
+            if curl --fail --silent --show-error --max-time 5 https://frontpage.reidjoss.workers.dev/api/health \
               | jq -e --arg commit "$GITHUB_SHA" '.status == "healthy" and .version == $commit'; then
               exit 0
             fi
