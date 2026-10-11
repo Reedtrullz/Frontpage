@@ -61,7 +61,7 @@ jobs:
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
       - name: Install runtime browser
-        run: npx playwright install --with-deps chromium
+        run: node scripts/install-browser.mjs
       - name: Exercise built Worker and Durable Object runtime
         run: npm run test:cloudflare
       - name: Validate Cloudflare upload bundle
@@ -78,7 +78,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci --include=optional
-      - run: npx playwright install --with-deps chromium
+      - run: node scripts/install-browser.mjs
       - run: npm run build
         env:
           CI: true
