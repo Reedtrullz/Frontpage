@@ -278,14 +278,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       - name: Verify Worker commit
-        run: |
-          for attempt in {1..90}; do
-            if curl --fail --silent --show-error --max-time 5 https://frontpage.reidjoss.workers.dev/api/health \
-              | jq -e --arg commit "$GITHUB_SHA" '.status == "healthy" and .version == $commit'; then
-              exit 0
-            fi
-            sleep 2
-          done
-          exit 1
+        run: node scripts/verify-worker-commit.mjs --expected-sha "$GITHUB_SHA"
       - name: Verify intended domain release
         run: node scripts/verify-release.mjs --base-url https://reidar.tech --expected-sha "$GITHUB_SHA"
