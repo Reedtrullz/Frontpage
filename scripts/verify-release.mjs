@@ -52,7 +52,7 @@ function validateOptions({ baseUrl, expectedSha, retries, timeoutMs }) {
   return parsed.origin;
 }
 
-async function readBoundedBody(response) {
+export async function readBoundedBody(response) {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
     throw new ReleaseVerificationError("Response exceeded the bounded release-smoke response size.");
