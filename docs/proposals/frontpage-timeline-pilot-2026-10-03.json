@@ -9,7 +9,7 @@
       "summary": "Merged bounded transport and a separate acceptance-controlled read pointer. This milestone records source changes; the real shadow gate still governs activation.",
       "scope": "source-reviewed",
       "evidenceUrl": "https://github.com/Reedtrullz/Frontpage/pull/59",
-      "reviewedAt": "2026-10-03T14:37:35Z",
+      "reviewedAt": "2026-10-03T20:19:18Z",
       "commitSha": "d8896f25db61fc70b43b3efaff379102a12cd7a1"
     },
     {
@@ -19,8 +19,18 @@
       "summary": "The exact main commit passed repository CI after adding bounded v2 service checks and cycle-overrun reporting. CI does not establish the 48-hour shadow acceptance.",
       "scope": "ci-verified",
       "evidenceUrl": "https://github.com/Reedtrullz/Frontpage/actions/runs/37037653299",
-      "reviewedAt": "2026-10-03T14:37:35Z",
+      "reviewedAt": "2026-10-03T20:19:18Z",
       "commitSha": "c45bc2a5517eb2435bea89fd4194b638fd48a96c"
+    },
+    {
+      "id": "cloudflare-release-verified",
+      "occurredAt": "2026-10-03",
+      "title": "Frontpage Cloudflare release verified",
+      "summary": "Release CI passed, and both production origins returned healthy status with the exact release commit. This records deployment identity; v2 shadow acceptance and owner-state recovery remain separate.",
+      "scope": "live-verified",
+      "evidenceUrl": "https://github.com/Reedtrullz/Frontpage/actions/runs/37148140163",
+      "reviewedAt": "2026-10-03T20:19:18Z",
+      "commitSha": "57bc20e69c93d4f53c523982e0024918669f15af"
     }
   ]
 }
