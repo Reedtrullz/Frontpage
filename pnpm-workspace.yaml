@@ -3,6 +3,8 @@
 # Carried over from package.json "overrides" (npm).
 overrides:
   postcss: 8.5.26
+  # @node-minify/core 9.0.2 (via @opennextjs/aws) pins glob 10.3.3 (GHSA-5j98-mcp5-4vw2).
+  '@node-minify/core>glob': 10.5.0
 
 # pnpm 10 runs no dependency install scripts unless they are listed here.
 allowBuilds:

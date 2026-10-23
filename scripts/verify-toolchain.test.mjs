@@ -12,14 +12,14 @@ test("pnpm lock pins the exact optional native packages for both Linux architect
     "lightningcss-linux-arm64-gnu": "1.32.0",
     "@tailwindcss/oxide-linux-x64-gnu": "4.3.2",
     "@tailwindcss/oxide-linux-arm64-gnu": "4.3.2",
-    "@rolldown/binding-linux-x64-gnu": "1.1.5",
-    "@rolldown/binding-linux-arm64-gnu": "1.1.5",
+    "@rolldown/binding-linux-x64-gnu": "1.2.15",
+    "@rolldown/binding-linux-arm64-gnu": "1.2.15",
     "@unrs/resolver-binding-linux-x64-gnu": "1.11.1",
     "@unrs/resolver-binding-linux-arm64-gnu": "1.11.1",
-    "@img/sharp-linux-x64": "0.35.4",
-    "@img/sharp-linux-arm64": "0.35.4",
-    "@img/sharp-libvips-linux-x64": "1.3.3",
-    "@img/sharp-libvips-linux-arm64": "1.3.3",
+    "@img/sharp-linux-x64": "0.35.5",
+    "@img/sharp-linux-arm64": "0.35.5",
+    "@img/sharp-libvips-linux-x64": "1.3.4",
+    "@img/sharp-libvips-linux-arm64": "1.3.4",
   };
   for (const [name, version] of Object.entries(expected)) {
     const key = `${name}@${version}`;
