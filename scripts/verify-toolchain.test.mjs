@@ -11,14 +11,14 @@ test("npm ci selects the exact optional native packages for both Linux architect
     "node_modules/lightningcss-linux-arm64-gnu": "1.32.0",
     "node_modules/@tailwindcss/oxide-linux-x64-gnu": "4.3.2",
     "node_modules/@tailwindcss/oxide-linux-arm64-gnu": "4.3.2",
-    "node_modules/@rolldown/binding-linux-x64-gnu": "1.1.5",
-    "node_modules/@rolldown/binding-linux-arm64-gnu": "1.1.5",
+    "node_modules/@rolldown/binding-linux-x64-gnu": "1.2.15",
+    "node_modules/@rolldown/binding-linux-arm64-gnu": "1.2.15",
     "node_modules/@unrs/resolver-binding-linux-x64-gnu": "1.11.1",
     "node_modules/@unrs/resolver-binding-linux-arm64-gnu": "1.11.1",
-    "node_modules/@img/sharp-linux-x64": "0.35.4",
-    "node_modules/@img/sharp-linux-arm64": "0.35.4",
-    "node_modules/@img/sharp-libvips-linux-x64": "1.3.3",
-    "node_modules/@img/sharp-libvips-linux-arm64": "1.3.3",
+    "node_modules/@img/sharp-linux-x64": "0.35.5",
+    "node_modules/@img/sharp-linux-arm64": "0.35.5",
+    "node_modules/@img/sharp-libvips-linux-x64": "1.3.4",
+    "node_modules/@img/sharp-libvips-linux-arm64": "1.3.4",
   };
   for (const [name, version] of Object.entries(expected)) {
     assert.equal(lock.packages[name]?.version, version, `${name} lock resolution`);
