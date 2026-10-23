@@ -6,6 +6,23 @@ import { CloudflareMetricsTooLargeError, readCloudflareMetric, type SqlStore, re
 
 const context = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
 vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => context }));
+// Emulates workerd: ERR_BUFFER_TOO_LARGE is only exposed on the info:true path; the rest is real zlib.
+vi.mock("node:zlib", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:zlib")>();
+  return {
+    ...actual,
+    gunzipSync: ((data: Parameters<typeof actual.gunzipSync>[0], options?: { info?: boolean }) => {
+      try {
+        return actual.gunzipSync(data, options as never);
+      } catch (error) {
+        if (!options?.info && (error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+          throw new RangeError("Memory limit would be exceeded");
+        }
+        throw error;
+      }
+    }) as typeof actual.gunzipSync,
+  };
+});
 
 function configureStore(payload: unknown) {
   const data = gzipSync(Buffer.from(JSON.stringify(payload)));
@@ -27,6 +44,42 @@ afterEach(() => {
 });
 
 describe("Cloudflare projection decoded byte budget", () => {
+  const root = "/cloudflare/metrics-v2/owner";
+  const read = (cap: number, budget?: { remainingBytes: number }) => readCloudflareProjectionV2(root, "host/1h.v2.json", cap, budget);
+  const text = (bytes: number) => "x".repeat(bytes - 2); // the JSON string adds two quotes
+
+  it("classifies one byte over the member and manifest caps as too large", () => {
+    configureStore(text(4 * 1024 * 1024 + 1));
+    expect(() => read(4 * 1024 * 1024)).toThrow(CloudflareMetricsTooLargeError);
+    configureStore(text(512 * 1024 + 1));
+    expect(() => read(512 * 1024)).toThrow(CloudflareMetricsTooLargeError);
+  });
+
+  it("accepts output exactly at the cap", () => {
+    configureStore(text(512 * 1024));
+    expect(read(512 * 1024)).toHaveLength(512 * 1024 - 2);
+  });
+
+  it("rejects ten 3.5 MB members once the shared 32 MiB budget is exhausted", () => {
+    configureStore(text(3_500_000));
+    const budget = { remainingBytes: 32 * 1024 * 1024 };
+    for (let index = 0; index < 9; index += 1) read(4 * 1024 * 1024, budget);
+    expect(() => read(4 * 1024 * 1024, budget)).toThrow(CloudflareMetricsTooLargeError);
+  });
+
+  it("does not classify corrupt or truncated gzip as too large", () => {
+    const good = gzipSync(JSON.stringify("ok"));
+    for (const data of [Buffer.from("not gzip"), good.subarray(0, good.length - 6)]) {
+      context.env = { FRONTPAGE_SQL: { exec: (query: string) => ({ toArray: () => (query.includes("SELECT enabled") ? [{ enabled: 1 }] : [{ data }]) }) } };
+      process.env.FRONTPAGE_CLOUDFLARE = "1";
+      let thrown: unknown;
+      try { read(1024); } catch (error) { thrown = error; }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).not.toBeInstanceOf(CloudflareMetricsTooLargeError);
+      expect((thrown as NodeJS.ErrnoException).code).toMatch(/^Z_/);
+    }
+  });
+
   it("charges decoded bytes against the shared query budget", () => {
     const payload = { value: "bounded decoded data" };
     const decodedLength = Buffer.byteLength(JSON.stringify(payload));
