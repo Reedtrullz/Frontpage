@@ -12,8 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-RUN npm ci --include=optional
+# pnpm comes from Corepack at the exact version pinned by package.json "packageManager".
+# pnpm installs optional platform packages by default (npm needed --include=optional).
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # ---------- 2. Build ----------
 FROM ${NODE_IMAGE} AS builder
@@ -26,7 +29,7 @@ ENV VERSION=${VERSION} \
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN npm run build
+RUN corepack enable && pnpm run build
 
 # ---------- 3. Runtime ----------
 FROM ${NODE_IMAGE} AS runner

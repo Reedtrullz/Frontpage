@@ -70,11 +70,11 @@ Trust-first Project OS for reidar.tech. Next.js 16 App Router + React 19 + TypeS
 ## COMMANDS
 ```bash
 source ~/.nvm/nvm.sh && nvm use 22
-npm test
-npm run lint
-npx tsc --noEmit
-AUTH_SECRET=dev-secret npm run build
-npm run test:e2e
+pnpm test
+pnpm run lint
+pnpm exec tsc --noEmit
+AUTH_SECRET=dev-secret pnpm run build
+pnpm run test:e2e
 python3 -m unittest ops.tests.test_frontpage_metrics_collector
 ansible-playbook --syntax-check -i inventory/hosts.yml ansible-playbook.yml --vault-password-file .vault_pass
 ```

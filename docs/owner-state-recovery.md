@@ -2,7 +2,7 @@
 
 Owner drafts, their opaque revisions and bases, publication receipts, and the bounded publication journal form one versioned private backup. Canonical public JSON, environment values, credentials, and metrics are excluded. The manifest carries an ID and a SHA-256 integrity digest. This detects accidental corruption; it is not encryption or an authenticity signature. Store backups only in an encrypted, access-controlled operator destination and verify the independent backup system before relying on it. Retention is an operator policy; retain a verified pre-migration copy through the migration and rollback window.
 
-Build the outside-app operator tool with `npm run build:owner-tool`. Commands below run `node .owner-tool/frontpage-owner-state.mjs`. Export and verification never print record values. Local exports create a new mode-0600 file; they do not overwrite an existing backup. Filesystem restoration requires an entirely new destination and stages complete validated files before rename. The source and destination are never the active application directory during rehearsal.
+Build the outside-app operator tool with `pnpm run build:owner-tool`. Commands below run `node .owner-tool/frontpage-owner-state.mjs`. Export and verification never print record values. Local exports create a new mode-0600 file; they do not overwrite an existing backup. Filesystem restoration requires an entirely new destination and stages complete validated files before rename. The source and destination are never the active application directory during rehearsal.
 
 ```sh
 node .owner-tool/frontpage-owner-state.mjs --mode file --action export --data-dir /private/operator/source-data --backup /private/operator/owner-backup.json

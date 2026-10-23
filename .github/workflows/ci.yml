@@ -26,15 +26,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - run: npm ci --include=optional
-      - run: npm audit --include=dev --audit-level=critical
-      - run: npm test
+      - name: Enable pnpm via Corepack (version pinned by packageManager)
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level critical
+      - run: pnpm test
       - run: node --test --test-concurrency=1 scripts/*.test.mjs
       - name: Operator restore transport regressions
         run: node --test ops/owner-state-transport.test.mjs
-      - run: npm run lint
-      - run: npx tsc --noEmit
+      - run: pnpm run lint
+      - run: pnpm exec tsc --noEmit
       - name: Install Ansible validation dependencies
         run: |
           python3 -m pip install -r ops/requirements-ansible.txt
@@ -49,13 +50,13 @@ jobs:
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-collector.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-proposals-origin.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-v2-upload.yml --vault-password-file .vault_pass
-      - run: npm run build
+      - run: pnpm run build
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
       - name: Build Cloudflare Durable Object candidate
-        run: npm run build:cloudflare
+        run: pnpm run build:cloudflare
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
@@ -63,9 +64,9 @@ jobs:
       - name: Install runtime browser
         run: node scripts/install-browser.mjs
       - name: Exercise built Worker and Durable Object runtime
-        run: npm run test:cloudflare
+        run: pnpm run test:cloudflare
       - name: Validate Cloudflare upload bundle
-        run: npx wrangler deploy --config wrangler.jsonc --dry-run
+        run: pnpm exec wrangler deploy --config wrangler.jsonc --dry-run
 
   browser:
     name: Public browser & accessibility
@@ -76,10 +77,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - run: npm ci --include=optional
+      - name: Enable pnpm via Corepack (version pinned by packageManager)
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
       - run: node scripts/install-browser.mjs
-      - run: npm run build
+      - run: pnpm run build
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-browser-secret
@@ -87,7 +89,7 @@ jobs:
           FRONTPAGE_E2E_OWNER: '1'
           FRONTPAGE_E2E_OWNER_TOKEN: frontpage-e2e-owner-token
           OWNER_GITHUB_ID: e2e-owner
-      - run: npm run test:e2e
+      - run: pnpm run test:e2e
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -264,16 +266,17 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-      - run: npm ci --include=optional
+      - name: Enable pnpm via Corepack (version pinned by packageManager)
+        run: corepack enable
+      - run: pnpm install --frozen-lockfile
       - name: Build exact commit for Cloudflare
-        run: npm run build:cloudflare
+        run: pnpm run build:cloudflare
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ${{ github.sha }}
       - name: Deploy production Worker
-        run: npx wrangler deploy --config wrangler.jsonc --name frontpage --var VERSION:${{ github.sha }} --var PROPOSALS_ORIGIN:https://proposals-origin.reidar.tech
+        run: pnpm exec wrangler deploy --config wrangler.jsonc --name frontpage --var VERSION:${{ github.sha }} --var PROPOSALS_ORIGIN:https://proposals-origin.reidar.tech
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}

@@ -55,9 +55,10 @@ export function runInstaller({
   if (process.platform === "win32" || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300_000
       || !Number.isInteger(graceMs) || graceMs < 1 || graceMs > 15_000) throw new Error("Invalid installer platform or deadline");
   const started = performance.now();
-  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  // playwright pins its exact playwright-core version; pnpm keeps playwright-core out of the root node_modules.
+  const playwrightCore = JSON.parse(readFileSync(new URL("../node_modules/playwright/package.json", import.meta.url), "utf8")).dependencies["playwright-core"];
   const record = fields => output.write(`${JSON.stringify({ event: "browser-install", elapsed_ms: Math.round(performance.now() - started), ...fields })}\n`);
-  record({ phase: "installer-start", node: process.version, playwright: lock.packages["node_modules/playwright-core"].version, image_os: safeLabel(env.ImageOS), image_version: safeLabel(env.ImageVersion), timeout_ms: timeoutMs, grace_ms: graceMs });
+  record({ phase: "installer-start", node: process.version, playwright: playwrightCore, image_os: safeLabel(env.ImageOS), image_version: safeLabel(env.ImageVersion), timeout_ms: timeoutMs, grace_ms: graceMs });
   return new Promise(resolve => {
     const child = spawn(command, args, { detached: true, stdio: ["ignore", "pipe", "pipe"], env });
     let phase = "installer-start", reason, code, escalation, finished = false;
