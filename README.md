@@ -88,8 +88,9 @@ Node.js 22 is required.
 ```bash
 source ~/.nvm/nvm.sh
 nvm use 22
-npm install
-npm run dev
+corepack enable  # pnpm version is pinned by package.json "packageManager"
+pnpm install
+pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -117,11 +118,11 @@ Never commit or print OAuth secrets, publication tokens, vault passwords, enviro
 ```bash
 source ~/.nvm/nvm.sh
 nvm use 22
-npm test
-npm run lint
-npx tsc --noEmit
-AUTH_SECRET=dev-secret npm run build
-npm run test:e2e
+pnpm test
+pnpm run lint
+pnpm exec tsc --noEmit
+AUTH_SECRET=dev-secret pnpm run build
+pnpm run test:e2e
 python3 -m unittest ops.tests.test_frontpage_metrics_collector
 python3 -m py_compile ops/frontpage-metrics-collector.py
 git diff --check

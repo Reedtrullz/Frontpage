@@ -2,6 +2,7 @@
   "name": "frontpage",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -42,12 +43,8 @@
     "typescript": "^5",
     "vitest": "^4.1.10",
     "wrangler": "^4.142.0",
-    "esbuild": "0.28.2"
-  },
-  "overrides": {
-    "postcss": "8.5.26",
-    "@node-minify/core": {
-      "glob": "10.5.0"
-    }
+    "esbuild": "0.28.2",
+    "playwright": "^1.61.1",
+    "yaml": "^2.9.1"
   }
 }

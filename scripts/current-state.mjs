@@ -24,7 +24,7 @@ export function generateCurrentState({ cwd = process.cwd(), now = new Date() } =
   const dirtyEntries = git(cwd, ["status", "--porcelain=v1"]).split("\n").filter(Boolean).length;
   const worktrees = parseWorktrees(git(cwd, ["worktree", "list", "--porcelain"]));
   const sourceCandidates = [
-    "AGENTS.md", "README.md", "DEPLOYMENT.md", "Dockerfile", "package.json", "package-lock.json",
+    "AGENTS.md", "README.md", "DEPLOYMENT.md", "Dockerfile", "package.json", "pnpm-lock.yaml",
     ".github/workflows/ci.yml", "ansible-playbook.yml", "ops/ansible/container-preflight.yml",
     "ops/ansible/container-swap.yml", "wrangler.jsonc", "src/app/api/health/route.ts",
   ];
