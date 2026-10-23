@@ -5,10 +5,13 @@ import { readBoundedBody, ReleaseVerificationError } from "./verify-release.mjs"
 
 const FULL_SHA = /^[a-f0-9]{40}$/;
 const observed = (value, valid) => value === undefined ? "missing" : valid(value) ? value : "invalid";
+// Cloudflare can take ~5 minutes to serve a new Worker version: poll every 2 s for the
+// first minute, then back off to 10 s, for a bounded 10-minute wait (84 attempts).
+const FAST_ATTEMPTS = 30, FAST_DELAY_MS = 2000, SLOW_DELAY_MS = 10000, MAX_ATTEMPTS = 84;
 
 export async function verifyWorkerCommit({ expectedSha, fetchImpl = fetch, sleep = delay, log = record => console.log(JSON.stringify(record)) }) {
   if (typeof expectedSha !== "string" || !FULL_SHA.test(expectedSha)) throw new Error("Expected identity must be a full commit SHA");
-  for (let attempt = 1; attempt <= 90; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const started = performance.now(), controller = new AbortController();
     let phase = "transport", httpStatus = null, status = "missing", sha = "missing", timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 5000);
@@ -35,9 +38,9 @@ export async function verifyWorkerCommit({ expectedSha, fetchImpl = fetch, sleep
     }
     log({ attempt, elapsed_ms: Math.round(performance.now() - started), http_status: httpStatus, observed_status: status, observed_sha: sha, phase });
     if (phase === "accepted") return { expectedSha, attempts: attempt };
-    await sleep(2000);
+    await sleep(attempt <= FAST_ATTEMPTS ? FAST_DELAY_MS : SLOW_DELAY_MS);
   }
-  throw new Error("Worker did not report healthy exact identity after 90 bounded attempts");
+  throw new Error(`Worker did not report healthy exact identity after ${MAX_ATTEMPTS} bounded attempts`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

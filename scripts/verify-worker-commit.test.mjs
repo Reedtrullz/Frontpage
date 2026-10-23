@@ -63,11 +63,12 @@ test("stale, unhealthy, invalid, oversized, redirected and unavailable responses
     ["unavailable", async () => { throw new Error("private credential or transport details"); }, "transport"],
   ]) await t.test(name, async () => {
     const f = fixture(fetchImpl);
-    await assert.rejects(verify(f.options), /90 bounded attempts/);
-    assert.equal(f.records.length, 90);
-    assert.equal(f.records.at(-1).attempt, 90);
+    await assert.rejects(verify(f.options), /84 bounded attempts/);
+    assert.equal(f.records.length, 84);
+    assert.equal(f.records.at(-1).attempt, 84);
     assert.ok(f.records.every(r => r.phase === phase));
-    assert.deepEqual(f.delays, Array(90).fill(2000));
+    assert.deepEqual(f.delays, [...Array(30).fill(2000), ...Array(54).fill(10000)]);
+    assert.equal(f.delays.reduce((a, b) => a + b, 0), 600_000);
     assert.doesNotMatch(JSON.stringify(f.records), /private\.example|credential|transport details|not JSON/);
   });
 });
@@ -75,7 +76,7 @@ test("stale, unhealthy, invalid, oversized, redirected and unavailable responses
 test("arbitrary status, identity, private fields and headers are redacted from bounded records", async () => {
   const verify = await verifier();
   const f = fixture(async () => new Response(JSON.stringify({ status: "private-status", version: "private-token".repeat(1000), cpu_percent: 75, secret: "private-body" }), { headers: { "set-cookie": "private-cookie" } }));
-  await assert.rejects(verify(f.options), /90 bounded attempts/);
+  await assert.rejects(verify(f.options), /84 bounded attempts/);
   assert.equal(f.records[0].observed_status, "invalid");
   assert.equal(f.records[0].observed_sha, "invalid");
   assert.ok(f.records.every(r => JSON.stringify(r).length < 400));
@@ -89,15 +90,15 @@ test("undeclared streamed overflow cancels the body and cannot pass identity", a
     start(controller) { controller.enqueue(new Uint8Array(512 * 1024 + 1)); },
     cancel() { cancelled++; },
   })));
-  await assert.rejects(verify(f.options), /90 bounded attempts/);
-  assert.equal(cancelled, 90);
+  await assert.rejects(verify(f.options), /84 bounded attempts/);
+  assert.equal(cancelled, 84);
   assert.ok(f.records.every(r => r.phase === "response-too-large"));
 });
 
 test("body stream failures retain their phase without exposing the underlying error", async () => {
   const verify = await verifier();
   const f = fixture(async () => new Response(new ReadableStream({ start(controller) { controller.error(new Error("private-body-error")); } })));
-  await assert.rejects(verify(f.options), /90 bounded attempts/);
+  await assert.rejects(verify(f.options), /84 bounded attempts/);
   assert.ok(f.records.every(r => r.phase === "body-read-failed"));
   assert.doesNotMatch(JSON.stringify(f.records), /private-body-error/);
 });
@@ -116,7 +117,7 @@ for (const phase of ["headers", "body"]) test(`five-second whole-request cancell
     return fetch(`http://127.0.0.1:${server.address().port}/api/health`, options);
   });
   const started = performance.now();
-  await assert.rejects(verify(f.options), /90 bounded attempts/);
+  await assert.rejects(verify(f.options), /84 bounded attempts/);
   assert.equal(ownedSignal.aborted, true);
   assert.equal(f.records[0].phase, "request-timeout");
   assert.ok(performance.now() - started >= 4500);
