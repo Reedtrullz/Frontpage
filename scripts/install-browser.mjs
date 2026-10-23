@@ -44,15 +44,19 @@ function signalOwned(pid, retained, signal) {
   }
 }
 
+// The hosted runner's Ubuntu mirror can take well over 5 minutes for the ~26 MB of
+// Playwright system packages (Oct 23, 2026), so the hard ceiling is 15 minutes.
+export const MAX_INSTALL_MS = 900_000;
+
 export function runInstaller({
   command = process.execPath,
   args = ["node_modules/playwright/cli.js", "install", "--with-deps", "chromium"],
-  timeoutMs = 300_000,
+  timeoutMs = MAX_INSTALL_MS,
   graceMs = 15_000,
   output = process.stdout,
   env = process.env,
 } = {}) {
-  if (process.platform === "win32" || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300_000
+  if (process.platform === "win32" || !Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_INSTALL_MS
       || !Number.isInteger(graceMs) || graceMs < 1 || graceMs > 15_000) throw new Error("Invalid installer platform or deadline");
   const started = performance.now();
   const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));

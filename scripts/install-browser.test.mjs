@@ -36,6 +36,13 @@ test("both browser lanes invoke the bounded installer before their runtime gates
   }
 });
 
+test("the installer deadline defaults to and is capped at a bounded 15 minutes", async () => {
+  const run = await installer(), { MAX_INSTALL_MS } = await import(moduleUrl);
+  assert.equal(MAX_INSTALL_MS, 900_000);
+  assert.throws(() => run({ timeoutMs: MAX_INSTALL_MS + 1 }), /Invalid installer platform or deadline/);
+  assert.throws(() => run({ timeoutMs: 0 }), /Invalid installer platform or deadline/);
+});
+
 test("successful installation preserves output and records browser phase and safe runner metadata", async () => {
   const run = await installer(), logs = capture();
   const result = await run({ command: process.execPath, args: ["-e", "console.log('Installing dependencies...');console.log('Downloading Chromium 1...')"], timeoutMs: 1000, graceMs: 100, output: logs.output, env: { ...process.env, ImageOS: "ubuntu24", ImageVersion: "20261004.327.1", PRIVATE_TOKEN: "never-log-this" } });
