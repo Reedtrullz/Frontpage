@@ -358,6 +358,164 @@ function dailyChunk(date, index, generatedAt) {
   };
 }
 
+function ownerQuery(headers, range, view, resource) {
+  const query = 'range=' + range + '&view=' + view + (resource ? '&resource=' + resource : '');
+  return fetch(base + '/api/owner/metrics?' + query, { headers, signal: AbortSignal.timeout(30000) });
+}
+
+function seriesChunk({ view, resource, range, resolution, timestamps, series, generatedAt }) {
+  return {
+    schema_version: 2, generated_at: generatedAt, range, resolution_seconds: resolution, view,
+    resource: view === 'workloads' ? resource : null, timestamps, series, coverage_percent: 100, truncated: false,
+  };
+}
+
+function gzRow(caseName, name, payload) {
+  const decoded = Buffer.from(JSON.stringify(payload));
+  const compressed = gzipSync(decoded);
+  fixtureIds.push(fixtureRecord(caseName, name, decoded, compressed));
+  return { name, data: compressed.toString('base64') };
+}
+
+function manifestRow(caseName, files) {
+  return gzRow(caseName, 'owner/manifest.v2.json', { schema_version: 2, files });
+}
+
+function mappedFixture(chunks, winners) {
+  const byTimestamp = new Map();
+  for (const chunk of chunks) {
+    chunk.timestamps.forEach((timestamp, index) => {
+      if (Object.hasOwn(winners, timestamp)) return;
+      byTimestamp.set(timestamp, chunk.series.map(series => series.values[index] ?? null));
+    });
+  }
+  for (const [timestamp, row] of Object.entries(winners)) byTimestamp.set(timestamp, row);
+  const timestamps = [...byTimestamp.keys()].sort((left, right) => Date.parse(left) - Date.parse(right));
+  return {
+    timestamps,
+    series: chunks[0].series.map((series, seriesIndex) => ({
+      id: series.id, label: series.label, unit: series.unit,
+      values: timestamps.map(timestamp => byTimestamp.get(timestamp)?.[seriesIndex] ?? null),
+    })),
+  };
+}
+
+function assertQuerySemantics(history, spec, fixtureHistory, bounds) {
+  assertHistoryMatchesFixture(history, fixtureHistory, bounds);
+  assert.equal(history.range, spec.range);
+  assert.equal(history.view, spec.view);
+  assert.equal(history.resource, spec.resource);
+  assert.equal(history.resolution_seconds, spec.resolution);
+  assert.equal(history.timestamps.length, spec.cap);
+  const values = history.series.flatMap(series => series.values);
+  assert.equal(values.includes(987.5), false);
+  assert.equal(values.includes(111.1), false);
+}
+
+function seriesIdentity(view) {
+  return view === 'workloads'
+    ? [{ id: 'workload-a', label: 'Workload A', unit: 'bytes' }, { id: 'workload-b', label: 'Workload B', unit: 'bytes' }]
+    : [{ id: 'host-total', label: 'CPU total', unit: 'percent' }, { id: 'host-load', label: 'Load', unit: 'percent' }];
+}
+
+function quarterMarks(date, seedNow) {
+  const start = Date.parse(date + 'T00:00:00.000Z');
+  const end = Math.min(start + 86_400_000 - 900_000, Math.floor(seedNow / 900_000) * 900_000);
+  const timestamps = [];
+  for (let at = start; at <= end; at += 900_000) timestamps.push(new Date(at).toISOString());
+  return timestamps;
+}
+
+function datedQuery(caseName, range, view, resource) {
+  const seedNow = Date.now();
+  const generatedAt = new Date(seedNow - 60_000).toISOString();
+  const day = 86_400_000;
+  const today = Math.floor(seedNow / day) * day;
+  const span = range === '24h' ? 1 : range === '7d' ? 7 : 30;
+  const sentinelDays = range === '24h' ? 4 : range === '7d' ? 10 : 33;
+  const dates = Array.from({ length: span + 1 }, (_, index) => new Date(today - (span - index) * day).toISOString().slice(0, 10));
+  const sentinel = new Date(today - sentinelDays * day).toISOString().slice(0, 10);
+  const resolution = range === '30d' ? 900 : 60;
+  const cap = range === '24h' ? 1440 : range === '7d' ? 10080 : 2880;
+  const baseName = view === 'workloads' ? 'workloads/' + resource : 'host';
+  const tier = range === '30d' ? 'quarter-hour' : 'minute';
+  const identity = seriesIdentity(view);
+  const chunks = [];
+  const rows = [];
+  const winners = {};
+  for (const [index, date] of dates.entries()) {
+    const next = dates[index + 1];
+    const timestamps = quarterMarks(date, seedNow);
+    const boundary = next ? next + 'T00:00:00.000Z' : undefined;
+    if (boundary && Date.parse(boundary) <= seedNow) {
+      winners[boundary] = [222.2, 222.2];
+      if (!timestamps.includes(boundary)) timestamps.push(boundary);
+      timestamps.sort((left, right) => Date.parse(left) - Date.parse(right));
+    }
+    const series = identity.map((item, seriesIndex) => ({
+      ...item,
+      values: timestamps.map((timestamp, slot) => {
+        if (boundary && timestamp === boundary) return 111.1;
+        if (winners[timestamp]) return 222.2;
+        if ((slot + 1) % 11 === 0) return null;
+        return seriesIndex === 0 ? slot + 1 : (slot + 1) / 2;
+      }),
+    }));
+    const payload = seriesChunk({ view, resource, range, resolution, timestamps, series, generatedAt });
+    chunks.push(payload);
+    rows.push(gzRow(caseName, 'owner/' + baseName + '/' + tier + '/' + date + '.v2.json', payload));
+  }
+  const sentinelPayload = seriesChunk({
+    view, resource, range, resolution, timestamps: [sentinel + 'T00:00:00.000Z'], generatedAt,
+    series: identity.map(item => ({ ...item, values: [987.5] })),
+  });
+  rows.push(gzRow(caseName, 'owner/' + baseName + '/' + tier + '/' + sentinel + '.v2.json', sentinelPayload));
+  rows.unshift(manifestRow(caseName, [
+    ...dates.map(date => baseName + '/' + tier + '/' + date + '.v2.json'),
+    baseName + '/' + tier + '/' + sentinel + '.v2.json',
+  ]));
+  return {
+    rows, fixture: mappedFixture(chunks, winners),
+    spec: { range, view, resource: view === 'workloads' ? resource : null, resolution, cap },
+  };
+}
+
+function hourWorkloads(caseName) {
+  const seedNow = Date.now();
+  const last = Math.floor(seedNow / 15_000) * 15_000 - 60_000;
+  const timestamps = Array.from({ length: 240 }, (_, index) => new Date(last - (239 - index) * 15_000).toISOString());
+  const identity = seriesIdentity('workloads');
+  const payload = seriesChunk({
+    view: 'workloads', resource: 'ram', range: '1h', resolution: 15, timestamps,
+    generatedAt: new Date(seedNow - 60_000).toISOString(),
+    series: identity.map((item, seriesIndex) => ({
+      ...item,
+      values: timestamps.map((_, slot) => ((slot + 1) % 11 === 0 ? null : seriesIndex === 0 ? slot + 1 : (slot + 1) / 2)),
+    })),
+  });
+  return {
+    rows: [manifestRow(caseName, ['workloads/ram/1h.v2.json']), gzRow(caseName, 'owner/workloads/ram/1h.v2.json', payload)],
+    fixture: mappedFixture([payload], {}),
+    spec: { range: '1h', view: 'workloads', resource: 'ram', resolution: 15, cap: 240 },
+  };
+}
+
+async function stageV2Rows(caseName, payloads) {
+  const files = {};
+  for (const [name, payload] of Object.entries(payloads)) {
+    const decoded = Buffer.from(JSON.stringify(payload));
+    const hash = createHash('sha256').update(decoded).digest('hex');
+    const compressed = gzipSync(decoded);
+    fixtureIds.push(fixtureRecord(caseName, name, decoded, compressed));
+    files[name] = hash;
+    const response = await fetch(base + '/__collector/v2/' + hash, {
+      method: 'PUT', headers: { authorization: 'Bearer local-collector-token' }, body: compressed, signal: AbortSignal.timeout(30000),
+    });
+    assert.equal(response.status, 204, 'upload ' + name);
+  }
+  return { schema_version: 2, files };
+}
+
 test('native decoded-size boundaries through the real Worker, Durable Object and owner metrics route', {timeout:150000}, async t => {
   fixtureIds.length = 0;
   fixtureCase = 'native-setup';
@@ -488,6 +646,120 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
         });
       }
     });
+
+    const rejectAltered = (history, built, bounds) => {
+      const changed = structuredClone(history);
+      changed.series[0].values[0] = typeof changed.series[0].values[0] === 'number' ? changed.series[0].values[0] + 1 : 1;
+      const shifted = structuredClone(history);
+      shifted.timestamps[0] = new Date(Date.parse(shifted.timestamps[0]) + built.spec.resolution * 1000).toISOString();
+      const injected = structuredClone(history);
+      injected.series[0].values[0] = 987.5;
+      assert.throws(() => assertQuerySemantics(changed, built.spec, built.fixture, bounds));
+      assert.throws(() => assertQuerySemantics(shifted, built.spec, built.fixture, bounds));
+      assert.throws(() => assertQuerySemantics(injected, built.spec, built.fixture, bounds));
+    };
+    const queryCase = async (name, build) => {
+      await sub(name, async () => {
+        const built = build(name);
+        await seeded(qaKey, built.rows, async () => {
+          const startedAt = Date.now();
+          const response = await ownerQuery(owner, built.spec.range, built.spec.view, built.spec.resource);
+          const finishedAt = Date.now();
+          assert.equal(response.status, 200);
+          privateNoStore(response);
+          const history = await response.json();
+          const bounds = { startedAt, finishedAt };
+          assertQuerySemantics(history, built.spec, built.fixture, bounds);
+          if (name.endsWith('1h workloads ram')) rejectAltered(history, built, bounds);
+          await assertPublicClean();
+        });
+      });
+    };
+    await queryCase('native partial parity query: 1h workloads ram', hourWorkloads);
+    await queryCase('native partial parity query: 24h host', name => datedQuery(name, '24h', 'host', null));
+    await queryCase('native partial parity query: 24h workloads ram', name => datedQuery(name, '24h', 'workloads', 'ram'));
+    await queryCase('native partial parity query: 7d host', name => datedQuery(name, '7d', 'host', null));
+    await queryCase('native partial parity query: 7d workloads ram', name => datedQuery(name, '7d', 'workloads', 'ram'));
+    await queryCase('native partial parity query: 30d workloads ram', name => datedQuery(name, '30d', 'workloads', 'ram'));
+
+    const restoredBaseline = async () => {
+      const startedAt = Date.now();
+      const response = await ownerMetrics(owner, '1h');
+      const finishedAt = Date.now();
+      assert.equal(response.status, 200);
+      const text = await response.text();
+      assert.match(text, new RegExp(NATIVE_SENTINEL));
+      assertHistoryMatchesFixture(JSON.parse(text), series1h, { startedAt, finishedAt });
+    };
+    const faultCase = async (name, entries, run) => {
+      await sub(name, async () => {
+        await seeded(qaKey, entries(name), run);
+      });
+      await restoredBaseline();
+    };
+    const seedDate = new Date().toISOString().slice(0, 10);
+    await faultCase('native partial parity fault: missing', name => [manifestRow(name, ['host/minute/' + seedDate + '.v2.json'])], async () => {
+      await assertUnavailable(await ownerQuery(owner, '24h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: json', name => {
+      const decoded = Buffer.from('{not json');
+      const compressed = gzipSync(decoded);
+      fixtureIds.push(fixtureRecord(name, 'owner/host/1h.v2.json', decoded, compressed));
+      return [{ name: 'owner/host/1h.v2.json', data: compressed.toString('base64') }];
+    }, async () => {
+      await assertUnavailable(await ownerQuery(owner, '1h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: traversal', name => [manifestRow(name, ['../x.v2.json'])], async () => {
+      await assertUnavailable(await ownerQuery(owner, '1h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: duplicate', name => [manifestRow(name, ['host/1h.v2.json', 'host/1h.v2.json'])], async () => {
+      await assertUnavailable(await ownerQuery(owner, '1h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: date', name => [manifestRow(name, ['host/quarter-hour/2026-02-30.v2.json'])], async () => {
+      await assertUnavailable(await ownerQuery(owner, '30d', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: future', name => [gzRow(name, 'owner/host/1h.v2.json', seriesChunk({
+      view: 'host', resource: null, range: '1h', resolution: 15,
+      timestamps: [new Date(Math.floor((Date.now() + 3_600_000) / 15_000) * 15_000).toISOString()],
+      generatedAt: new Date(Date.now() - 60_000).toISOString(),
+      series: [{ id: 'host-total', label: 'CPU total', unit: 'percent', values: [1] }],
+    }))], async () => {
+      await assertUnavailable(await ownerQuery(owner, '1h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: out-of-window manifest', name => [manifestRow(name, ['host/minute/' + new Date(Date.now() - 4 * 86_400_000).toISOString().slice(0, 10) + '.v2.json'])], async () => {
+      await assertUnavailable(await ownerQuery(owner, '24h', 'host', null));
+      await assertPublicClean();
+    });
+    await faultCase('native partial parity fault: deactivate', name => [manifestRow(name, ['host/1h.v2.json'])], async () => {
+      const response = await fetch(base + '/__collector/v2/deactivate', {
+        method: 'PUT', headers: { authorization: 'Bearer local-collector-token' }, signal: AbortSignal.timeout(30000),
+      });
+      assert.equal(response.status, 204);
+      await assertUnavailable(await ownerQuery(owner, '1h', 'host', null));
+    });
+    const staleCommit = 'native partial parity fault: stale-commit';
+    await sub(staleCommit, async () => {
+      const snap = v2FixtureSnapshot();
+      const stale = new Date(Date.now() - 60_000).toISOString();
+      snap.payloads['public/latest.v2.json'].collected_at = stale;
+      snap.payloads['owner/latest.v2.json'].collected_at = stale;
+      const manifest = await stageV2Rows(staleCommit, snap.payloads);
+      const committed = await fetch(base + '/__collector/v2/commit', {
+        method: 'PUT',
+        headers: { authorization: 'Bearer local-collector-token', 'content-type': 'application/json' },
+        body: JSON.stringify(manifest),
+        signal: AbortSignal.timeout(30000),
+      });
+      assert.equal(committed.status, 400);
+      assert.equal(await committed.text(), 'Invalid or incomplete v2 snapshot or acceptance');
+    });
+    await restoredBaseline();
   } finally {
     t.diagnostic(JSON.stringify({ns:'frontpage-native-fixtures/v1', fixtures:fixtureIds}));
     report = await runtime.stop();
