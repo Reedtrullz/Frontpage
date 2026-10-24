@@ -130,15 +130,53 @@ export function buildConfig({ missingBinding = false, entry = 'entry.mjs', vars 
   return { config, upstream };
 }
 
-export async function dirBytes(dir) {
+export async function dirBytes(dir, seen, rel = '') {
   let entries;
   try { entries = await readdir(dir, { withFileTypes: true }); } catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
   let total = 0;
   for (const entry of entries) {
     const target = path.join(dir, entry.name);
-    try { total += entry.isDirectory() ? await dirBytes(target) : (await lstat(target)).size; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const relPath = path.join(rel, entry.name);
+    try {
+      if (entry.isDirectory()) total += await dirBytes(target, seen, relPath);
+      else { const size = (await lstat(target)).size; total += size; seen?.(relPath, size); }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return total;
+}
+
+// Diagnostic only: observes the sizes of the poller's own dirBytes walk (no extra I/O, no file contents) and keeps the
+// largest topN relative paths. Past maxEntries it stops considering files (truncated) while dirBytes keeps summing every byte.
+export function inventoryTracker(maxEntries = 20_000, topN = 20) {
+  const top = [];
+  let filesSeen = 0, truncated = false;
+  const seen = (rel, size) => {
+    if (filesSeen >= maxEntries) { truncated = true; return; }
+    filesSeen++;
+    if (top.length < topN || size > top[top.length - 1].size) {
+      top.push({ rel, size });
+      top.sort((a, b) => b.size - a.size || (a.rel < b.rel ? -1 : 1));
+      if (top.length > topN) top.pop();
+    }
+  };
+  const snapshot = (atMs, walkMs) => {
+    const redact = rel => { const clean = rel.replace(/[0-9a-f]{64,}/gi, '<hex64>'); return clean.length > 200 ? '...' + clean.slice(-197) : clean; };
+    const out = { scope: 'poller dirBytes walk of the measured scratch root; lstat apparent file sizes only, no contents; sampled, not an OS quota; byte sum covers all files past entryCap', atMs, walkMs, filesSeen, entryCap: maxEntries, truncated, top: top.map(({ rel, size }) => ({ path: redact(rel), size })) };
+    while (out.top.length && JSON.stringify(out).length > 7000) out.top.pop();
+    return out;
+  };
+  return { seen, snapshot };
+}
+
+// Bounded (default 8 KiB) JSON of an owned handle's report for appending to an error before scratch is deleted.
+export function ownedReportText(handle, maxBytes = 8192) {
+  const { report } = handle;
+  const last = handle.inventory();
+  const inventory = report.inventory ?? (last ? { ...last, stale: 'no breach recorded; last completed walk, files may have been removed by the exiting child' } : { missing: 'no completed scratch walk' });
+  const view = { identity: report.identity, limits: report.limits, breaches: report.breaches, peak: report.peak, cleanup: report.cleanup, errors: report.errors.slice(0, 5).map(item => String(item).slice(0, 200)), inventory: { ...inventory, top: inventory.top && [...inventory.top] } };
+  let text = JSON.stringify(view);
+  while (Buffer.byteLength(text) > maxBytes && view.inventory.top?.length) { view.inventory.top.pop(); text = JSON.stringify(view); }
+  return Buffer.byteLength(text) > maxBytes ? JSON.stringify({ ...view, inventory: { missing: 'report exceeded ' + maxBytes + ' bytes' } }).slice(0, maxBytes) : text;
 }
 
 export async function processIdentity(pid) {
@@ -186,10 +224,13 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
   const report = { identity, limits, breaches: [], errors, peak: { scratchBytes: 0, stdoutBytes: 0, stderrBytes: 0, elapsedMs: 0, elapsedWallMs: 0 }, cleanup: null };
   let stopPromise;
   let hasExited = false;
+  let lastInventory = null;
   void exited.then(() => { hasExited = true; });
   const breach = (kind, limit, observed) => {
     if (report.breaches.some(item => item.kind === kind)) return;
     report.breaches.push({ kind, limit, observed });
+    // Taken before stop() can SIGTERM the group, because Wrangler removes .wrangler/tmp on that signal.
+    report.inventory ??= lastInventory ? { ...lastInventory, breachAtMs: Math.round(performance.now() - startedAt) } : { missing: 'no completed scratch walk before this breach' };
     stop().catch(error => { report.cleanup = { ...report.cleanup, error: String(error) }; });
   };
   const sinks = ['stdout', 'stderr'].map(name => {
@@ -216,7 +257,10 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
       report.peak.elapsedMs = Math.round(performance.now() - startedAt);
       report.peak.elapsedWallMs = Date.now() - wallStartedAt;
       if (report.peak.elapsedWallMs > limits.wallMs) breach('wall-ms', limits.wallMs, report.peak.elapsedWallMs);
-      const bytes = await dirBytes(watched);
+      const tracker = inventoryTracker();
+      const walkStartedAt = performance.now();
+      const bytes = await dirBytes(watched, tracker.seen);
+      lastInventory = tracker.snapshot(Math.round(performance.now() - startedAt), Math.round(performance.now() - walkStartedAt));
       report.peak.scratchBytes = Math.max(report.peak.scratchBytes, bytes);
       if (bytes > limits.scratchBytes) breach('scratch-bytes', limits.scratchBytes, bytes);
     } catch (error) {
@@ -249,7 +293,7 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
     })();
     return stopPromise;
   }
-  return { pid: child.pid, report, stop, hasExited: () => hasExited };
+  return { pid: child.pid, report, stop, hasExited: () => hasExited, inventory: () => lastInventory };
 }
 
 // Every path Wrangler may write to (log, dev registry, cache, hidden .wrangler/tmp via cwd, XDG and temp dirs, HOME)
@@ -325,6 +369,7 @@ async function startNativeRuntime() {
     throw new Error('Wrangler readiness deadline exceeded');
   } catch (error) {
     try { await stop(); } catch (cleanupError) { error.message += '; cleanup: ' + cleanupError.message; }
+    error.message += '; owned report: ' + ownedReportText(owned);
     throw error;
   }
 }

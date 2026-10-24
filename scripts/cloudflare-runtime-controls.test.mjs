@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { assertIdentityComplete, assertLocalBindings, buildConfig, collectRuntimeIdentity, dirBytes, fixtureRecord, sha256, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
+import { assertIdentityComplete, assertLocalBindings, buildConfig, collectRuntimeIdentity, dirBytes, fixtureRecord, inventoryTracker, ownedReportText, sha256, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function until(check, ms = 5000) {
@@ -86,8 +86,44 @@ test("owned process group: members that ignore SIGTERM are killed and joined", a
 test("limits: a quiet child within every cap records no breach", async () => {
   await owned("console.log('ok');" + idle, { wallMs: 5000 }, async handle => {
     await delay(300);
-    assert.deepEqual((await handle.stop()).breaches, []);
+    const report = await handle.stop();
+    assert.deepEqual(report.breaches, []);
+    assert.equal(report.inventory, undefined);
   });
+});
+
+test("scratch breach records the largest file before SIGTERM removes it, without contents or 64-hex names", async () => {
+  const script = "const fs=require('node:fs');fs.writeFileSync('big.bin',Buffer.alloc(40000));fs.writeFileSync('small.txt','secret-content');fs.writeFileSync('" + "a".repeat(64) + ".map','x');process.on('SIGTERM',()=>{fs.rmSync('big.bin');process.exit(0);});" + idle;
+  await owned(script, { scratchBytes: 10000 }, async (handle, dir) => {
+    await until(() => handle.report.breaches.length);
+    const report = await handle.stop();
+    assert.equal(report.breaches[0].kind, "scratch-bytes");
+    assert.deepEqual(report.inventory.top[0], { path: "big.bin", size: 40000 });
+    assert.ok(report.inventory.top.some(item => item.path === "<hex64>.map"));
+    assert.ok(!/secret-content|a{64}/.test(JSON.stringify(report.inventory)));
+    assert.ok(await dirBytes(dir) < 40000, "the child removed big.bin on SIGTERM");
+  });
+});
+
+test("inventory keeps a bounded descending top 20, flags truncation and leaves byte sums unchanged", async () => {
+  const tracker = inventoryTracker(100);
+  for (let i = 0; i < 150; i++) tracker.seen("d/" + "n".repeat(300) + i, i + 1);
+  const inventory = tracker.snapshot(1, 2);
+  assert.deepEqual([inventory.filesSeen, inventory.truncated, inventory.top.length], [100, true, 20]);
+  assert.deepEqual(inventory.top.map(item => item.size), Array.from({ length: 20 }, (_, i) => 100 - i));
+  assert.ok(inventory.top.every(item => item.path.length <= 200));
+  const text = ownedReportText({ report: { identity: {}, limits: nativeLimits, breaches: [], peak: {}, cleanup: null, errors: [] }, inventory: () => inventory });
+  assert.ok(Buffer.byteLength(text) <= 8192 && JSON.parse(text).inventory.stale);
+  assert.equal(JSON.parse(ownedReportText({ report: { errors: [] }, inventory: () => null })).inventory.missing, "no completed scratch walk");
+  const dir = await mkdtemp(path.join(tmpdir(), "cf-controls-"));
+  try {
+    await mkdir(path.join(dir, "sub"));
+    await writeFile(path.join(dir, "a"), Buffer.alloc(10));
+    await writeFile(path.join(dir, "sub", "b"), Buffer.alloc(5));
+    const walk = inventoryTracker();
+    assert.equal(await dirBytes(dir, walk.seen), await dirBytes(dir));
+    assert.deepEqual(walk.snapshot(0, 0).top, [{ path: "a", size: 10 }, { path: path.join("sub", "b"), size: 5 }]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
 test("limits: wall deadline, per-stream bytes and scratch bytes each stop the group", async () => {
