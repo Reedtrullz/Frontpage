@@ -12,9 +12,11 @@ export const secret = 'frontpage-local-runtime-only-secret';
 const root = process.cwd();
 const scratchParent = path.join(root, '.superpowers/sdd/2026-10-03-all-open-issues');
 const scratch = path.join(scratchParent, 'cloudflare-'+randomUUID());
-// Active limits for the native run. Enforcement is by sampling (scratch) and by byte counting on
+// Active limits for the native correctness run. Enforcement is by sampling (scratch) and by byte counting on
 // the child pipes; it is not an OS quota, so a burst can overshoot a cap by up to one poll interval.
-export const nativeLimits = Object.freeze({ wallMs: 120_000, perStreamBytes: 1024 * 1024, scratchBytes: 16 * 1024 * 1024, pollMs: 250 });
+// scratchBytes is a deliberate 64 MiB whole-owned-root allowance for this correctness run only (the 16 MiB
+// profile failed at 32058248 bytes before any request); it is unqualified for performance measurement.
+export const nativeLimits = Object.freeze({ wallMs: 120_000, perStreamBytes: 1024 * 1024, scratchBytes: 64 * 1024 * 1024, pollMs: 250 });
 
 export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
@@ -162,7 +164,7 @@ export function inventoryTracker(maxEntries = 20_000, topN = 20) {
   const snapshot = (atMs, walkMs) => {
     const redact = rel => { const clean = rel.replace(/[0-9a-f]{64,}/gi, '<hex64>'); return clean.length > 200 ? '...' + clean.slice(-197) : clean; };
     const out = { scope: 'poller dirBytes walk of the measured scratch root; lstat apparent file sizes only, no contents; sampled, not an OS quota; byte sum covers all files past entryCap', atMs, walkMs, filesSeen, entryCap: maxEntries, truncated, top: top.map(({ rel, size }) => ({ path: redact(rel), size })) };
-    while (out.top.length && JSON.stringify(out).length > 7000) out.top.pop();
+    while (out.top.length && Buffer.byteLength(JSON.stringify(out)) > 7000) out.top.pop();
     return out;
   };
   return { seen, snapshot };
@@ -172,11 +174,18 @@ export function inventoryTracker(maxEntries = 20_000, topN = 20) {
 export function ownedReportText(handle, maxBytes = 8192) {
   const { report } = handle;
   const last = handle.inventory();
-  const inventory = report.inventory ?? (last ? { ...last, stale: 'no breach recorded; last completed walk, files may have been removed by the exiting child' } : { missing: 'no completed scratch walk' });
-  const view = { identity: report.identity, limits: report.limits, breaches: report.breaches, peak: report.peak, cleanup: report.cleanup, errors: report.errors.slice(0, 5).map(item => String(item).slice(0, 200)), inventory: { ...inventory, top: inventory.top && [...inventory.top] } };
-  let text = JSON.stringify(view);
-  while (Buffer.byteLength(text) > maxBytes && view.inventory.top?.length) { view.inventory.top.pop(); text = JSON.stringify(view); }
-  return Buffer.byteLength(text) > maxBytes ? JSON.stringify({ ...view, inventory: { missing: 'report exceeded ' + maxBytes + ' bytes' } }).slice(0, maxBytes) : text;
+  const inventory = report.inventory ?? (last ? { ...last, stale: true, staleReason: 'no breach recorded; last completed walk, files may have been removed by the exiting child' } : { missing: 'no completed scratch walk' });
+  // Error-like strings are clipped by code point so the JSON stays well formed and bounded.
+  const clip = value => typeof value === 'string' && [...value].length > 120 ? [...value].slice(0, 120).join('') + '...[clipped]' : value;
+  const breaches = report.breaches?.map(item => ({ ...item, observed: clip(item.observed) }));
+  const cleanup = report.cleanup && { ...report.cleanup, error: clip(report.cleanup.error) };
+  const critical = { identity: report.identity, limits: report.limits, breaches, peak: report.peak, cleanup };
+  const view = { ...critical, errors: report.errors.slice(0, 5).map(item => clip(String(item))), inventory: { ...inventory, top: inventory.top && [...inventory.top] } };
+  const fits = value => Buffer.byteLength(JSON.stringify(value)) <= maxBytes;
+  while (!fits(view) && view.inventory.top?.length) { view.inventory.top.pop(); view.inventory.topTrimmed = true; }
+  if (fits(view)) return JSON.stringify(view);
+  const core = { ...critical, omitted: 'errors and inventory omitted: report exceeded ' + maxBytes + ' bytes' };
+  return JSON.stringify(fits(core) ? core : { omitted: 'report exceeded ' + maxBytes + ' bytes; critical fields omitted' });
 }
 
 export async function processIdentity(pid) {
@@ -230,7 +239,8 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
     if (report.breaches.some(item => item.kind === kind)) return;
     report.breaches.push({ kind, limit, observed });
     // Taken before stop() can SIGTERM the group, because Wrangler removes .wrangler/tmp on that signal.
-    report.inventory ??= lastInventory ? { ...lastInventory, breachAtMs: Math.round(performance.now() - startedAt) } : { missing: 'no completed scratch walk before this breach' };
+    // Only a scratch breach follows a walk completed in this same poll; every other kind sees the previous poll's walk.
+    report.inventory ??= lastInventory ? { ...lastInventory, stale: kind !== 'scratch-bytes', breachAtMs: Math.round(performance.now() - startedAt) } : { missing: 'no completed scratch walk before this breach' };
     stop().catch(error => { report.cleanup = { ...report.cleanup, error: String(error) }; });
   };
   const sinks = ['stdout', 'stderr'].map(name => {

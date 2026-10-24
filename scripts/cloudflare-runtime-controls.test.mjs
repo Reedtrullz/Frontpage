@@ -93,11 +93,13 @@ test("limits: a quiet child within every cap records no breach", async () => {
 });
 
 test("scratch breach records the largest file before SIGTERM removes it, without contents or 64-hex names", async () => {
-  const script = "const fs=require('node:fs');fs.writeFileSync('big.bin',Buffer.alloc(40000));fs.writeFileSync('small.txt','secret-content');fs.writeFileSync('" + "a".repeat(64) + ".map','x');process.on('SIGTERM',()=>{fs.rmSync('big.bin');process.exit(0);});" + idle;
+  // Handler and small files first, big.bin last: whichever poll first breaches on big.bin already sees every file.
+  const script = "const fs=require('node:fs');process.on('SIGTERM',()=>{fs.rmSync('big.bin');process.exit(0);});fs.writeFileSync('small.txt','secret-content');fs.writeFileSync('" + "a".repeat(64) + ".map','x');fs.writeFileSync('big.bin',Buffer.alloc(40000));" + idle;
   await owned(script, { scratchBytes: 10000 }, async (handle, dir) => {
     await until(() => handle.report.breaches.length);
     const report = await handle.stop();
     assert.equal(report.breaches[0].kind, "scratch-bytes");
+    assert.equal(report.inventory.stale, false);
     assert.deepEqual(report.inventory.top[0], { path: "big.bin", size: 40000 });
     assert.ok(report.inventory.top.some(item => item.path === "<hex64>.map"));
     assert.ok(!/secret-content|a{64}/.test(JSON.stringify(report.inventory)));
@@ -131,13 +133,16 @@ test("limits: wall deadline, per-stream bytes and scratch bytes each stop the gr
     await until(() => handle.report.breaches.length);
     assert.equal(handle.report.breaches[0].kind, "wall-ms");
     assert.ok(handle.report.breaches[0].observed >= 200);
-    assert.equal((await handle.stop()).cleanup.groupGone, true);
+    const wall = await handle.stop();
+    assert.ok(wall.inventory.missing || wall.inventory.stale === true);
+    assert.equal(wall.cleanup.groupGone, true);
     assert.equal(groupAlive(handle.pid), false);
   });
   await owned("setInterval(() => process.stdout.write('x'.repeat(512)), 10);", { perStreamBytes: 1024 }, async (handle, dir) => {
     await until(() => handle.report.breaches.length);
     const report = await handle.stop();
     assert.equal(report.breaches[0].kind, "stdout-bytes");
+    assert.ok(report.inventory.missing || report.inventory.stale === true);
     assert.ok(report.peak.stdoutBytes > 1024);
     assert.equal((await readFile(path.join(dir, "runtime.stdout.log"))).length, 1024);
     assert.equal(report.cleanup.groupGone, true);
@@ -146,10 +151,31 @@ test("limits: wall deadline, per-stream bytes and scratch bytes each stop the gr
     await until(() => handle.report.breaches.length);
     const report = await handle.stop();
     assert.equal(report.breaches[0].kind, "scratch-bytes");
+    assert.equal(report.inventory.stale, false);
     assert.ok(report.breaches[0].observed > 10000 && report.peak.scratchBytes > 10000);
     assert.equal(report.cleanup.groupGone, true);
     assert.ok(await dirBytes(dir) >= 40000);
   });
+});
+
+test("owned report stays valid JSON within 8192 UTF-8 bytes for oversized Unicode errors and keeps critical fields", () => {
+  const wide = "\u00e9\u4e2d\ud83c\udfb9\n".repeat(5000);
+  const tracker = inventoryTracker();
+  for (let i = 0; i < 30; i++) tracker.seen("\u4e2d".repeat(300) + i, 1000 - i);
+  const report = {
+    identity: { pid: 7, pgid: 7, start: "s" }, limits: nativeLimits,
+    breaches: [{ kind: "poller-error", limit: 0, observed: wide }],
+    peak: { scratchBytes: 1 }, cleanup: { identityChecked: true, term: true, kill: false, groupGone: true, error: wide }, errors: Array(8).fill(wide),
+  };
+  const text = ownedReportText({ report, inventory: () => tracker.snapshot(1, 2) });
+  assert.ok(Buffer.byteLength(text) <= 8192);
+  const parsed = JSON.parse(text);
+  assert.deepEqual([parsed.identity.pid, parsed.limits.scratchBytes, parsed.breaches[0].kind, parsed.breaches[0].limit], [7, nativeLimits.scratchBytes, "poller-error", 0]);
+  assert.deepEqual([parsed.cleanup.term, parsed.cleanup.kill, parsed.cleanup.groupGone], [true, false, true]);
+  assert.ok(parsed.breaches[0].observed.endsWith("[clipped]"));
+  // Even a tiny budget yields valid JSON with an explicit omission marker.
+  const tiny = ownedReportText({ report, inventory: () => null }, 600);
+  assert.ok(Buffer.byteLength(tiny) <= 600 && JSON.parse(tiny).omitted);
 });
 
 test("dirBytes sums nested files and treats a missing directory as empty", async () => {
