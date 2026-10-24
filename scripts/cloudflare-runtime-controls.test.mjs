@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { assertLocalBindings, buildConfig, dirBytes, groupAlive, nativeLimits, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
+import { assertLocalBindings, buildConfig, dirBytes, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function until(check, ms = 5000) {
@@ -125,4 +125,51 @@ test("dirBytes sums nested files and treats a missing directory as empty", async
     assert.equal(await dirBytes(dir), 15);
     assert.equal(await dirBytes(path.join(dir, "missing")), 0);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("native env confines every Wrangler output path to the scratch root and overrides inherited values", () => {
+  const scratch = path.resolve("/measured/scratch");
+  const inherited = { HOME: "/home/real", TMPDIR: "/tmp/real", XDG_CACHE_HOME: "/x/cache", WRANGLER_LOG_PATH: "/x/log", WRANGLER_CACHE_DIR: "/x/wc", PATH: "/bin" };
+  const { env, dirs } = nativeRuntimeEnv(inherited, scratch);
+  for (const name of ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "WRANGLER_LOG_PATH", "WRANGLER_REGISTRY_PATH", "WRANGLER_CACHE_DIR"]) {
+    assert.ok(path.relative(scratch, env[name]).split(path.sep)[0] !== ".." && !path.isAbsolute(path.relative(scratch, env[name])), name + " escapes scratch: " + env[name]);
+  }
+  assert.equal(env.PATH, "/bin");
+  assert.ok(Object.values(dirs).every(dir => dir.startsWith(scratch + path.sep)));
+  // Negative control: the containment predicate used above rejects a path outside the root.
+  assert.ok(path.relative(scratch, inherited.HOME).startsWith(".."));
+});
+
+test("spawn failure rejects with groupAbsent, leaves no unhandled error and no stray group", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "cf-controls-"));
+  try {
+    await assert.rejects(spawnOwned(path.join(dir, "no-such-binary"), [], { cwd: dir, env: process.env, logDir: dir, scratch: dir, limits: nativeLimits }), error => error.groupAbsent === true && /spawn failed/.test(error.message));
+    await delay(50);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("an unmeasurable scratch tree ends the run as a poller-error breach and joins the group", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "cf-controls-"));
+  try {
+    await writeFile(path.join(dir, "not-a-dir"), "x");
+    const handle = await spawnOwned(process.execPath, ["-e", idle], { cwd: dir, env: process.env, logDir: dir, scratch: path.join(dir, "not-a-dir"), limits: { ...nativeLimits, pollMs: 25 } });
+    await until(() => handle.report.breaches.length);
+    const report = await handle.stop();
+    assert.equal(report.breaches[0].kind, "poller-error");
+    assert.ok(report.errors.some(item => item.startsWith("poller:")));
+    assert.equal(report.cleanup.groupGone, true);
+    assert.equal(groupAlive(handle.pid), false);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("limits: the elapsed wall clock is enforced when the monotonic clock has not advanced", async t => {
+  await owned(idle, { wallMs: 60_000 }, async handle => {
+    const real = Date.now;
+    t.mock.method(Date, "now", () => real() + 120_000);
+    await until(() => handle.report.breaches.length);
+    const report = await handle.stop();
+    assert.equal(report.breaches[0].kind, "wall-ms");
+    assert.ok(report.peak.elapsedMs < 60_000 && report.breaches[0].observed >= 120_000);
+    assert.equal(report.cleanup.groupGone, true);
+  });
 });

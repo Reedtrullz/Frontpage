@@ -95,18 +95,29 @@ async function groupGone(pgid, timeoutMs) {
 
 // Starts file as the leader of its own process group, records the observed pid/pgid/start identity,
 // enforces the limits while it runs, and on stop() terminates and joins the whole group.
+// A spawnOwned rejection carries groupAbsent: true when no member of the group can exist (callers may delete
+// scratch) or false when ownership could not be proven (callers must retain scratch).
 export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watched, limits }) {
   const startedAt = performance.now();
+  const wallStartedAt = Date.now();
   const child = spawn(file, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-  const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
-  if (!child.pid) throw new Error('spawn failed');
+  const errors = [];
+  const exited = new Promise(resolve => {
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+    child.on('error', error => { errors.push(String(error)); if (!child.pid) resolve({ code: null, signal: null }); });
+  });
+  if (!child.pid) {
+    await exited;
+    throw Object.assign(new Error('spawn failed: ' + errors.join('; ')), { groupAbsent: true });
+  }
   const identity = await processIdentity(child.pid);
   if (!identity || identity.pgid !== child.pid) {
     child.kill('SIGKILL');
     await exited;
-    throw new Error('child is not the leader of its own process group: ' + JSON.stringify(identity));
+    // Only the child pid was signalled; absence of its group is claimed only if the group id is observably gone.
+    throw Object.assign(new Error('child is not the leader of its own process group: ' + JSON.stringify(identity)), { groupAbsent: !groupAlive(child.pid) });
   }
-  const report = { identity, limits, breaches: [], peak: { scratchBytes: 0, stdoutBytes: 0, stderrBytes: 0, elapsedMs: 0 }, cleanup: null };
+  const report = { identity, limits, breaches: [], errors, peak: { scratchBytes: 0, stdoutBytes: 0, stderrBytes: 0, elapsedMs: 0, elapsedWallMs: 0 }, cleanup: null };
   let stopPromise;
   let hasExited = false;
   void exited.then(() => { hasExited = true; });
@@ -117,6 +128,8 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
   };
   const sinks = ['stdout', 'stderr'].map(name => {
     const sink = createWriteStream(path.join(logDir, 'runtime.' + name + '.log'), { flags: 'a' });
+    sink.on('error', error => errors.push(name + ' sink: ' + error));
+    child[name].on('error', error => errors.push(name + ' pipe: ' + error));
     let seen = 0;
     child[name].on('data', chunk => {
       const room = Math.max(0, limits.perStreamBytes - seen);
@@ -133,10 +146,17 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
     if (polling) return;
     polling = true;
     try {
+      // The monotonic clock may pause while the machine sleeps, so the elapsed wall clock is checked too.
       report.peak.elapsedMs = Math.round(performance.now() - startedAt);
+      report.peak.elapsedWallMs = Date.now() - wallStartedAt;
+      if (report.peak.elapsedWallMs > limits.wallMs) breach('wall-ms', limits.wallMs, report.peak.elapsedWallMs);
       const bytes = await dirBytes(watched);
       report.peak.scratchBytes = Math.max(report.peak.scratchBytes, bytes);
       if (bytes > limits.scratchBytes) breach('scratch-bytes', limits.scratchBytes, bytes);
+    } catch (error) {
+      // An unmeasurable scratch tree cannot be held to its cap, so it ends the run.
+      errors.push('poller: ' + error);
+      breach('poller-error', 0, String(error));
     } finally { polling = false; }
   }, limits.pollMs);
   const signalGroup = signal => { try { process.kill(-identity.pgid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; } };
@@ -166,6 +186,18 @@ export async function spawnOwned(file, args, { cwd, env, logDir, scratch: watche
   return { pid: child.pid, report, stop, hasExited: () => hasExited };
 }
 
+// Every path Wrangler may write to (log, dev registry, cache, hidden .wrangler/tmp via cwd, XDG and temp dirs, HOME)
+// is placed under the measured scratch root. Variables are the ones present in Wrangler 4.152.0 source:
+// WRANGLER_LOG_PATH, WRANGLER_REGISTRY_PATH, WRANGLER_CACHE_DIR, XDG_CONFIG_HOME, XDG_CACHE_HOME, cwd/config dir.
+export function nativeRuntimeEnv(baseEnv, scratchRoot) {
+  const dirs = Object.fromEntries(['cwd', 'home', 'tmp', 'logs', 'registry', 'cache', 'xdg-config', 'xdg-cache'].map(name => [name, path.join(scratchRoot, 'wrangler-' + name)]));
+  const env = {
+    ...baseEnv, WRANGLER_SEND_METRICS: 'false', HOME: dirs.home, TMPDIR: dirs.tmp, XDG_CONFIG_HOME: dirs['xdg-config'], XDG_CACHE_HOME: dirs['xdg-cache'],
+    WRANGLER_LOG_PATH: dirs.logs, WRANGLER_REGISTRY_PATH: dirs.registry, WRANGLER_CACHE_DIR: dirs.cache,
+  };
+  return { env, dirs };
+}
+
 export async function startRuntime({ missingBinding = false, native = false } = {}) {
   if (native) return startNativeRuntime();
   const { config, upstream } = buildConfig({ missingBinding });
@@ -186,19 +218,36 @@ export async function startRuntime({ missingBinding = false, native = false } = 
 }
 
 // Native run: fresh persistence/session, SUT behind native-entry.mjs, active limits, own process group.
+// Guarantee: everything the Wrangler process writes goes under nativeScratch (see nativeRuntimeEnv) and is sampled
+// every pollMs against the 16 MiB cap; this is sampling, not an OS quota, so a burst can overshoot by one interval.
+// Prebuilt .open-next assets and installed node_modules are read-only inputs and are not measured.
+// Scratch is deleted only after the owned process group is proven gone; otherwise it is retained and the error says so.
 async function startNativeRuntime() {
   const nativeScratch = path.join(scratchParent, 'cloudflare-native-' + randomUUID());
   const qaKey = randomBytes(32).toString('hex');
-  const { config, upstream } = buildConfig({ entry: 'native-entry.mjs', vars: { QA_SEED_KEY: qaKey } });
-  await mkdir(nativeScratch, { recursive: true });
-  await writeFile(path.join(nativeScratch, 'main.json'), JSON.stringify(config));
-  await writeFile(path.join(nativeScratch, 'upstream.json'), JSON.stringify(upstream));
-  const owned = await spawnOwned(process.execPath, ['node_modules/wrangler/bin/wrangler.js', 'dev', '--local', '--config', path.join(nativeScratch,'main.json'), '--config', path.join(nativeScratch,'upstream.json'), '--port', '8788', '--persist-to', path.join(nativeScratch,'state')], { cwd: root, env: {...process.env, WRANGLER_SEND_METRICS: 'false'}, logDir: nativeScratch, scratch: nativeScratch, limits: nativeLimits });
+  const removeScratch = async () => {
+    await rm(nativeScratch, { recursive: true, force: true });
+    await stat(nativeScratch).then(() => { throw new Error('native scratch was not removed'); }, error => { if (error.code !== 'ENOENT') throw error; });
+  };
+  let owned;
+  try {
+    const { config, upstream } = buildConfig({ entry: 'native-entry.mjs', vars: { QA_SEED_KEY: qaKey } });
+    const { env, dirs } = nativeRuntimeEnv(process.env, nativeScratch);
+    for (const dir of Object.values(dirs)) await mkdir(dir, { recursive: true });
+    await writeFile(path.join(nativeScratch, 'main.json'), JSON.stringify(config));
+    await writeFile(path.join(nativeScratch, 'upstream.json'), JSON.stringify(upstream));
+    owned = await spawnOwned(process.execPath, [path.join(root, 'node_modules/wrangler/bin/wrangler.js'), 'dev', '--local', '--config', path.join(nativeScratch,'main.json'), '--config', path.join(nativeScratch,'upstream.json'), '--port', '8788', '--persist-to', path.join(nativeScratch,'state')], { cwd: dirs.cwd, env, logDir: nativeScratch, scratch: nativeScratch, limits: nativeLimits });
+  } catch (error) {
+    if (error.groupAbsent === false) error.message += '; scratch retained at ' + nativeScratch + ' because group absence is unproven';
+    else await removeScratch();
+    throw error;
+  }
   const stop = async () => {
-    try { return await owned.stop(); } finally {
-      await rm(nativeScratch, { recursive: true, force: true });
-      await stat(nativeScratch).then(() => { throw new Error('native scratch was not removed'); }, error => { if (error.code !== 'ENOENT') throw error; });
-    }
+    let report;
+    try { report = await owned.stop(); } catch (error) { throw new Error('scratch retained at ' + nativeScratch + ' because the owned group was not proven gone: ' + error.message, { cause: error }); }
+    if (!report.cleanup.groupGone) throw new Error('scratch retained at ' + nativeScratch + ': group still present after stop');
+    await removeScratch();
+    return report;
   };
   try {
     for (let attempt = 0; attempt < 150; attempt++) {
@@ -208,5 +257,8 @@ async function startNativeRuntime() {
       await delay(200);
     }
     throw new Error('Wrangler readiness deadline exceeded');
-  } catch (error) { await stop(); throw error; }
+  } catch (error) {
+    try { await stop(); } catch (cleanupError) { error.message += '; cleanup: ' + cleanupError.message; }
+    throw error;
+  }
 }

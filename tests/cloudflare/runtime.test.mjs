@@ -338,7 +338,7 @@ const assertUnavailable = response => assertTypedError(response, 503, 'Observabi
 async function assertPublicClean() {
   for (const route of ['/status', '/status/feed.json', '/api/data', '/']) {
     const response = await fetch(base + route, {signal:AbortSignal.timeout(30000)});
-    if (route !== '/') assert.equal(response.status, 200, route);
+    assert.equal(response.status, 200, route);
     assert.doesNotMatch(await response.text(), /OWNER_NATIVE_SIZE_SENTINEL|Memory limit|RangeError/, route);
   }
 }
