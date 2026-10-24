@@ -32,10 +32,12 @@ vi.mock("node:zlib", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:zlib")>();
   const gunzipSync = ((data: Parameters<typeof actual.gunzipSync>[0], options?: Parameters<typeof actual.gunzipSync>[1]) => {
     if (options && typeof options === "object" && "info" in options && options.info === true) {
-      const result = actual.gunzipSync(data, { ...options, info: true });
+      const result: unknown = actual.gunzipSync(data, { ...options, info: true });
       if (state.active) {
-        if (!Buffer.isBuffer(result.buffer)) throw new Error("CF gunzip info result has no Buffer");
-        state.decodedBytes += result.buffer.length;
+        // @types/node types this call as Buffer, whose .buffer is the backing ArrayBuffer. info:true returns { buffer }.
+        const field: unknown = typeof result === "object" && result !== null ? Object.getOwnPropertyDescriptor(result, "buffer")?.value : undefined;
+        if (!Buffer.isBuffer(field)) throw new Error("CF gunzip info result has no Buffer");
+        state.decodedBytes += field.length;
       }
       return result;
     }
