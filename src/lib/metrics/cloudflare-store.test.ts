@@ -48,6 +48,20 @@ describe("Cloudflare projection decoded byte budget", () => {
     ).toThrow(CloudflareMetricsTooLargeError);
     expect(budget.remainingBytes).toBe(128);
   });
+
+  it("serves exactly the cap, rejects one more byte, and keeps corruption distinct", () => {
+    const exact = JSON.stringify({ v: "x".repeat(40) });
+    const cap = Buffer.byteLength(exact);
+    const read = (cap: number, budget?: { remainingBytes: number }) =>
+      readCloudflareProjectionV2("/cloudflare/metrics-v2/owner", "host/1h.v2.json", cap, budget);
+    configureStore(JSON.parse(exact));
+    const budget = { remainingBytes: cap };
+    expect(read(cap, budget)).toEqual(JSON.parse(exact));
+    expect(budget.remainingBytes).toBe(0);
+    expect(() => read(cap - 1)).toThrow(CloudflareMetricsTooLargeError);
+    context.env = { FRONTPAGE_SQL: { exec: (q: string) => q.includes("SELECT enabled") ? { toArray: () => [{ enabled: 1 }] } : { toArray: () => [{ data: new Uint8Array([1, 2, 3]) }] } } };
+    expect(() => read(cap)).toThrow(/incorrect header check/);
+  });
 });
 
 it('reports mismatched legacy pairs unavailable and reads a coherent pair',()=>{
