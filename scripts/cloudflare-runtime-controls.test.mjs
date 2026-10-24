@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { assertLocalBindings, buildConfig, dirBytes, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
+import { assertLocalBindings, buildConfig, collectRuntimeIdentity, dirBytes, fixtureRecord, sha256, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function until(check, ms = 5000) {
@@ -173,3 +173,34 @@ test("limits: the elapsed wall clock is enforced when the monotonic clock has no
     assert.equal(report.cleanup.groupGone, true);
   });
 });
+
+test("runtime identity resolves pnpm-style installs from the wrangler edge, probes the binary and hashes fixtures", async () => {
+  const key = { "linux-x64": "linux-64", "linux-arm64": "linux-arm64", "darwin-x64": "darwin-64", "darwin-arm64": "darwin-arm64" }[process.platform + "-" + process.arch];
+  const dir = await mkdtemp(path.join(tmpdir(), "cf-identity-"));
+  try {
+    const store = path.join(dir, ".pnpm/wrangler@1/node_modules");
+    const pkg = async (base, name, version) => { await mkdir(path.join(base, name), { recursive: true }); await writeFile(path.join(base, name, "package.json"), JSON.stringify({ version })); };
+    await pkg(store, "wrangler", "1.0.0"); await pkg(store, "miniflare", "2.0.0"); await pkg(store, "workerd", "3.0.0"); await pkg(store, "@cloudflare/workerd-" + key, "3.0.1");
+    await mkdir(path.join(dir, "node_modules"));
+    await symlink(path.join(store, "wrangler"), path.join(dir, "node_modules/wrangler"));
+    const bin = path.join(store, "@cloudflare/workerd-" + key, "bin/workerd");
+    await mkdir(path.dirname(bin)); await writeFile(bin, "#!/bin/sh\necho workerd fake-1\n"); await chmod(bin, 0o755);
+    await writeFile(path.join(dir, "a.txt"), "abc");
+    const event = path.join(dir, "event.json");
+    await writeFile(event, JSON.stringify({ pull_request: { head: { sha: "h".repeat(40) }, base: { sha: "b".repeat(40) } } }));
+    const id = await collectRuntimeIdentity(dir, { GITHUB_SHA: "m".repeat(40), GITHUB_EVENT_PATH: event }, ["a.txt", "missing.txt"]);
+    assert.deepEqual(id.blocked, []);
+    assert.deepEqual(Object.values(id.packages).map(item => item.version), ["1.0.0", "2.0.0", "3.0.0", "3.0.1"]);
+    assert.equal(id.workerdVersion.output, "workerd fake-1");
+    assert.deepEqual(id.files, { "a.txt": sha256("abc"), "missing.txt": null });
+    assert.equal(id.source.prHeadSha, "h".repeat(40));
+    assert.equal(id.source.checkoutIsPrHead, false);
+    const blocked = await collectRuntimeIdentity(path.join(dir, "empty"), {}, []);
+    assert.ok(blocked.blocked.length > 0 && blocked.workerdVersion === undefined);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+  const valid = fixtureRecord("c", "n", Buffer.from("abc"), Buffer.from("zz"));
+  assert.deepEqual([valid.decodedBytes, valid.decodedSha256, valid.decodedValid, valid.gzipSha256], [3, sha256("abc"), true, sha256("zz")]);
+  const invalid = fixtureRecord("c", "n", null, Buffer.from("not gzip"));
+  assert.deepEqual([invalid.decodedBytes, invalid.decodedSha256, invalid.decodedValid], [null, null, false]);
+});
+

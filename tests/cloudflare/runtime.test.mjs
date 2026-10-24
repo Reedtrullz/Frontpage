@@ -5,7 +5,10 @@ import { chromium, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
-import { startRuntime, base, version, secret } from './runtime.mjs';
+import { startRuntime, base, version, secret, collectRuntimeIdentity, fixtureRecord } from './runtime.mjs';
+// Authored fixture identities for the native case, emitted as a diagnostic so they survive scratch cleanup.
+const fixtureIds = [];
+let fixtureCase = 'upload';
 const cookie = async sub => `authjs.session-token=${await encode({token:{sub, name:'Fixture user'}, secret, salt:'authjs.session-token'})}`;
 const jsonHeaders = async sub => ({cookie: await cookie(sub), origin:base, 'content-type':'application/json'});
 const fixture = name => JSON.parse(readFileSync(new URL(`../../ops/tests/fixtures/observability-v2/${name}`, import.meta.url), 'utf8'));
@@ -175,11 +178,13 @@ async function uploadV2Snapshot(payloads) {
   for (const [name, payload] of Object.entries(payloads)) {
     const bytes = Buffer.from(JSON.stringify(payload));
     const hash = createHash('sha256').update(bytes).digest('hex');
+    const compressed = gzipSync(bytes);
+    fixtureIds.push(fixtureRecord(fixtureCase, name, bytes, compressed));
     files[name] = hash;
     const response = await fetch(`${base}/__collector/v2/${hash}`, {
       method: 'PUT',
       headers: { authorization: 'Bearer local-collector-token' },
-      body: gzipSync(bytes),
+      body: compressed,
     });
     assert.equal(response.status, 204, `upload ${name}`);
   }
@@ -315,6 +320,7 @@ function paddedRow(name, payload, bytes) {
   assert.equal(decoded.byteLength, bytes);
   const compressed = gzipSync(decoded);
   assert.ok(compressed.length < 64 * 1024, name + ' must stay tiny when compressed');
+  fixtureIds.push(fixtureRecord(fixtureCase, name, decoded, compressed));
   return {name, data:compressed.toString('base64')};
 }
 async function seeded(qaKey, entries, run) {
@@ -353,8 +359,11 @@ function dailyChunk(date, index, generatedAt) {
 }
 
 test('native decoded-size boundaries through the real Worker, Durable Object and owner metrics route', {timeout:150000}, async t => {
+  const identity = await collectRuntimeIdentity();
+  t.diagnostic(JSON.stringify(identity));
   const runtime = await startRuntime({native:true});
   const {qaKey} = runtime;
+  const sub = (name, fn) => t.test(name, async st => { fixtureCase = name; return fn(st); });
   let report;
   try {
     const v2 = v2FixtureSnapshot();
@@ -363,7 +372,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
     await uploadV2Snapshot(v2.payloads);
     const owner = {cookie: await cookie('runtime-owner')};
 
-    await t.test('local upstream binding is reachable and external fetch is denied', async () => {
+    await sub('local upstream binding is reachable and external fetch is denied', async () => {
       const proxy = await fetch(base + '/api/proposals?native-control=1', {method:'POST', body:'native-control', signal:AbortSignal.timeout(30000)});
       assert.equal(proxy.status, 200);
       assert.deepEqual(await proxy.json(), {path:'/api/proposals', query:'?native-control=1', method:'POST', body:'native-control', token:'local-proxy-token'});
@@ -373,7 +382,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       // Scope: the JS fetch guard only; this is no proof of DNS or OS network denial.
     });
 
-    await t.test('QA routes are key-gated before the body is read', async () => {
+    await sub('QA routes are key-gated before the body is read', async () => {
       for (const headers of [{}, {'x-qa-key':'0'.repeat(64)}]) {
         for (const route of ['/__qa/seed', '/__qa/egress']) {
           const response = await fetch(base + route, {method:'POST', headers, body:'{not json', signal:AbortSignal.timeout(30000)});
@@ -383,7 +392,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       assert.equal((await fetch(base + '/__qa/egress', {headers:{'x-qa-key':qaKey}, signal:AbortSignal.timeout(30000)})).status, 404);
     });
 
-    await t.test('baseline snapshot serves the owner history and keeps the sentinel out of public routes', async () => {
+    await sub('baseline snapshot serves the owner history and keeps the sentinel out of public routes', async () => {
       const startedAt = Date.now();
       const response = await ownerMetrics(owner, '1h');
       const finishedAt = Date.now();
@@ -395,7 +404,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       await assertPublicClean();
     });
 
-    await t.test('4 MiB member: exactly 4194304 decoded bytes is served, one more is 413', async () => {
+    await sub('4 MiB member: exactly 4194304 decoded bytes is served, one more is 413', async () => {
       await seeded(qaKey, [paddedRow('owner/host/1h.v2.json', series1h, 4 * MiB)], async () => {
         const startedAt = Date.now();
         const response = await ownerMetrics(owner, '1h');
@@ -417,7 +426,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       });
     });
 
-    await t.test('512 KiB manifest: exactly 524288 decoded bytes is served, one more is 413', async () => {
+    await sub('512 KiB manifest: exactly 524288 decoded bytes is served, one more is 413', async () => {
       const manifest = v2.payloads['owner/manifest.v2.json'];
       await seeded(qaKey, [paddedRow('owner/manifest.v2.json', manifest, 512 * 1024)], async () => {
         const response = await ownerMetrics(owner, '1h');
@@ -431,13 +440,15 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       });
     });
 
-    await t.test('32 MiB aggregate over nine daily 30d chunks: 33554432 is served, 33554433 is 413', async () => {
+    await sub('32 MiB aggregate over nine daily 30d chunks: 33554432 is served, 33554433 is 413', async () => {
       const dayMs = 86_400_000;
       const today = Math.floor(Date.now() / dayMs) * dayMs;
       const dates = Array.from({length:9}, (_, index) => new Date(today - (9 - index) * dayMs).toISOString().slice(0, 10));
       const generatedAt = new Date(Date.now() - 60_000).toISOString();
       const chunks = dates.map((date, index) => dailyChunk(date, index, generatedAt));
-      const manifestRow = {name:'owner/manifest.v2.json', data:gzipSync(JSON.stringify({schema_version:2, files:dates.map(date => 'host/quarter-hour/' + date + '.v2.json')})).toString('base64')};
+      const manifestBytes = Buffer.from(JSON.stringify({schema_version:2, files:dates.map(date => 'host/quarter-hour/' + date + '.v2.json')})), manifestGzip = gzipSync(manifestBytes);
+      fixtureIds.push(fixtureRecord(fixtureCase, 'owner/manifest.v2.json', manifestBytes, manifestGzip));
+      const manifestRow = {name:'owner/manifest.v2.json', data:manifestGzip.toString('base64')};
       const rows = sizes => {
         assert.ok(sizes.every(size => size <= 4 * MiB));
         return [manifestRow, ...dates.map((date, index) => paddedRow('owner/host/quarter-hour/' + date + '.v2.json', chunks[index], sizes[index]))];
@@ -463,9 +474,10 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       });
     });
 
-    await t.test('corrupt and truncated gzip rows are unavailable (503), distinct from 413', async () => {
+    await sub('corrupt and truncated gzip rows are unavailable (503), distinct from 413', async () => {
       const valid = gzipSync(JSON.stringify(series1h));
       for (const data of [Buffer.from('not gzip'), valid.subarray(0, valid.length - 6)]) {
+        fixtureIds.push(fixtureRecord(fixtureCase, 'owner/host/1h.v2.json', null, data));
         await seeded(qaKey, [{name:'owner/host/1h.v2.json', data:data.toString('base64')}], async () => {
           await assertUnavailable(await ownerMetrics(owner, '1h'));
           await assertPublicClean();
@@ -473,6 +485,7 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
       }
     });
   } finally {
+    t.diagnostic(JSON.stringify({ns:'frontpage-native-fixtures/v1', fixtures:fixtureIds}));
     report = await runtime.stop();
     t.diagnostic(JSON.stringify(report));
   }

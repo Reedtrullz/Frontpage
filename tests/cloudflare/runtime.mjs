@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { lstat, mkdir, open, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -15,6 +15,60 @@ const scratch = path.join(scratchParent, 'cloudflare-'+randomUUID());
 // Active limits for the native run. Enforcement is by sampling (scratch) and by byte counting on
 // the child pipes; it is not an OS quota, so a burst can overshoot a cap by up to one poll interval.
 export const nativeLimits = Object.freeze({ wallMs: 120_000, perStreamBytes: 1024 * 1024, scratchBytes: 16 * 1024 * 1024, pollMs: 250 });
+
+export const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
+const sha256File = file => readFile(file).then(sha256, error => { if (error.code === 'ENOENT') return null; throw error; });
+
+// Walks up from fromDir like Node resolution and returns the realpath identity of the first installed package.
+export async function findPackage(fromDir, name) {
+  for (let dir = fromDir; ; dir = path.dirname(dir)) {
+    try {
+      const file = await realpath(path.join(dir, 'node_modules', name, 'package.json'));
+      return { version: (await readJson(file)).version, dir: path.dirname(file) };
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+const workerdPlatforms = { 'linux-x64': 'linux-64', 'linux-arm64': 'linux-arm64', 'darwin-x64': 'darwin-64', 'darwin-arm64': 'darwin-arm64' };
+const identityFiles = ['package.json', 'pnpm-lock.yaml', 'tests/cloudflare/runtime.mjs', 'tests/cloudflare/runtime.test.mjs', 'tests/cloudflare/native-entry.mjs', 'tests/cloudflare/upstream.mjs', 'cloudflare/do-entry.mjs', 'src/lib/metrics/cloudflare-store.ts', 'src/lib/metrics/v2/reader.ts', 'src/app/api/owner/metrics/route.ts'];
+const probe = (file, args, cwd) => promisify(execFile)(file, args, { cwd, timeout: 10_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024, env: { PATH: process.env.PATH ?? '' } }).then(({ stdout }) => stdout.trim().slice(0, 200));
+
+// Identity of what actually ran: installed package versions (resolved from the declared wrangler edge, no app imports),
+// the bounded --version of the actual workerd binary, checkout/PR heads and file hashes. Missing proof is BLOCKED, never inferred.
+export async function collectRuntimeIdentity(rootDir = root, env = process.env, files = identityFiles) {
+  const out = { ns: 'frontpage-native-identity/v1', node: process.version, platform: process.platform, arch: process.arch, blocked: [] };
+  const wrangler = await findPackage(rootDir, 'wrangler');
+  const miniflare = wrangler && await findPackage(wrangler.dir, 'miniflare');
+  const workerd = miniflare && await findPackage(miniflare.dir, 'workerd');
+  const key = workerdPlatforms[process.platform + '-' + process.arch];
+  const binaryPkg = workerd && key && await findPackage(workerd.dir, '@cloudflare/workerd-' + key);
+  const rel = pkg => pkg && { version: pkg.version, path: path.relative(rootDir, pkg.dir) };
+  out.packages = { wrangler: rel(wrangler), miniflare: rel(miniflare), workerd: rel(workerd), workerdBinaryPackage: rel(binaryPkg) };
+  for (const [name, pkg] of Object.entries(out.packages)) if (!pkg) out.blocked.push('package not resolved: ' + name);
+  if (binaryPkg) {
+    const binary = path.join(binaryPkg.dir, 'bin', 'workerd');
+    try { out.workerdVersion = { output: await probe(binary, ['--version'], rootDir), bytes: (await stat(binary)).size }; } catch (error) { out.blocked.push('workerd --version failed: ' + (error.code ?? error.message)); }
+  }
+  out.files = Object.fromEntries(await Promise.all(files.map(async file => [file, await sha256File(path.join(rootDir, file))])));
+  const source = out.source = { githubSha: env.GITHUB_SHA ?? null, ref: env.GITHUB_REF ?? null, event: env.GITHUB_EVENT_NAME ?? null, checkoutHead: await probe('git', ['rev-parse', 'HEAD'], rootDir).catch(() => null), prHeadSha: null, prBaseSha: null };
+  if (env.GITHUB_EVENT_PATH) {
+    try {
+      if ((await stat(env.GITHUB_EVENT_PATH)).size > 10 * 1024 * 1024) throw new Error('event file too large');
+      const pr = (await readJson(env.GITHUB_EVENT_PATH)).pull_request;
+      source.prHeadSha = pr?.head?.sha ?? null; source.prBaseSha = pr?.base?.sha ?? null;
+    } catch (error) { out.blocked.push('event file unreadable: ' + (error.code ?? error.message)); }
+  }
+  // A pull_request run checks out a merge commit, so GITHUB_SHA and HEAD are not the reviewed PR head.
+  source.checkoutIsPrHead = source.prHeadSha ? source.checkoutHead === source.prHeadSha : null;
+  return out;
+}
+
+// One record per authored fixture: exact decoded bytes/hash when the payload is valid, only the compressed identity when it is not.
+export function fixtureRecord(caseName, name, decoded, compressed) {
+  return { case: caseName, name, decodedBytes: decoded?.length ?? null, decodedSha256: decoded ? sha256(decoded) : null, decodedValid: Boolean(decoded), gzipBytes: compressed.length, gzipSha256: sha256(compressed) };
+}
 
 const allowedVars = {
   AUTH_SECRET: value => value === secret,
