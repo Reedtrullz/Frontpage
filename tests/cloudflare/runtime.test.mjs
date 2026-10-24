@@ -5,7 +5,7 @@ import { chromium, expect } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
-import { startRuntime, base, version, secret, collectRuntimeIdentity, fixtureRecord } from './runtime.mjs';
+import { startRuntime, base, version, secret, collectRuntimeIdentity, assertIdentityComplete, fixtureRecord } from './runtime.mjs';
 // Authored fixture identities for the native case, emitted as a diagnostic so they survive scratch cleanup.
 const fixtureIds = [];
 let fixtureCase = 'upload';
@@ -359,13 +359,17 @@ function dailyChunk(date, index, generatedAt) {
 }
 
 test('native decoded-size boundaries through the real Worker, Durable Object and owner metrics route', {timeout:150000}, async t => {
-  const identity = await collectRuntimeIdentity();
-  t.diagnostic(JSON.stringify(identity));
+  fixtureIds.length = 0;
+  fixtureCase = 'native-setup';
   const runtime = await startRuntime({native:true});
   const {qaKey} = runtime;
   const sub = (name, fn) => t.test(name, async st => { fixtureCase = name; return fn(st); });
   let report;
   try {
+    // Bounded metadata probes run while the supervised runtime is up; incomplete identity fails the run after being recorded.
+    const identity = await collectRuntimeIdentity();
+    t.diagnostic(JSON.stringify(identity));
+    assertIdentityComplete(identity);
     const v2 = v2FixtureSnapshot();
     const series1h = v2.payloads['owner/host/1h.v2.json'];
     series1h.series[0].label = 'CPU ' + NATIVE_SENTINEL;

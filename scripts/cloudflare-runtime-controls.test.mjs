@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { assertLocalBindings, buildConfig, collectRuntimeIdentity, dirBytes, fixtureRecord, sha256, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
+import { assertIdentityComplete, assertLocalBindings, buildConfig, collectRuntimeIdentity, dirBytes, fixtureRecord, sha256, groupAlive, nativeLimits, nativeRuntimeEnv, processIdentity, spawnOwned } from "../tests/cloudflare/runtime.mjs";
 
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
 async function until(check, ms = 5000) {
@@ -187,16 +187,23 @@ test("runtime identity resolves pnpm-style installs from the wrangler edge, prob
     await mkdir(path.dirname(bin)); await writeFile(bin, "#!/bin/sh\necho workerd fake-1\n"); await chmod(bin, 0o755);
     await writeFile(path.join(dir, "a.txt"), "abc");
     const event = path.join(dir, "event.json");
-    await writeFile(event, JSON.stringify({ pull_request: { head: { sha: "h".repeat(40) }, base: { sha: "b".repeat(40) } } }));
+    await writeFile(event, JSON.stringify({ pull_request: { head: { sha: "e".repeat(40) }, base: { sha: "b".repeat(40) } } }));
     const id = await collectRuntimeIdentity(dir, { GITHUB_SHA: "m".repeat(40), GITHUB_EVENT_PATH: event }, ["a.txt", "missing.txt"]);
     assert.deepEqual(id.blocked, []);
     assert.deepEqual(Object.values(id.packages).map(item => item.version), ["1.0.0", "2.0.0", "3.0.0", "3.0.1"]);
     assert.equal(id.workerdVersion.output, "workerd fake-1");
     assert.deepEqual(id.files, { "a.txt": sha256("abc"), "missing.txt": null });
-    assert.equal(id.source.prHeadSha, "h".repeat(40));
+    assert.equal(id.source.prHeadSha, "e".repeat(40));
     assert.equal(id.source.checkoutIsPrHead, false);
     const blocked = await collectRuntimeIdentity(path.join(dir, "empty"), {}, []);
     assert.ok(blocked.blocked.length > 0 && blocked.workerdVersion === undefined);
+    assert.throws(() => assertIdentityComplete(id), /BLOCKED/);
+    assert.throws(() => assertIdentityComplete(blocked), /BLOCKED/);
+    const ok = { ...id, files: { "a.txt": id.files["a.txt"] }, source: { ...id.source, checkoutHead: "a".repeat(40), event: "pull_request" } };
+    assertIdentityComplete(ok);
+    assert.throws(() => assertIdentityComplete({ ...ok, source: { ...ok.source, prHeadSha: null } }), /BLOCKED/);
+    assert.throws(() => assertIdentityComplete({ ...ok, workerdVersion: undefined }), /BLOCKED/);
+    assert.throws(() => assertIdentityComplete({ ...ok, node: "" }), /BLOCKED/);
   } finally { await rm(dir, { recursive: true, force: true }); }
   const valid = fixtureRecord("c", "n", Buffer.from("abc"), Buffer.from("zz"));
   assert.deepEqual([valid.decodedBytes, valid.decodedSha256, valid.decodedValid, valid.gzipSha256], [3, sha256("abc"), true, sha256("zz")]);

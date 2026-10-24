@@ -32,7 +32,7 @@ export async function findPackage(fromDir, name) {
 }
 
 const workerdPlatforms = { 'linux-x64': 'linux-64', 'linux-arm64': 'linux-arm64', 'darwin-x64': 'darwin-64', 'darwin-arm64': 'darwin-arm64' };
-const identityFiles = ['package.json', 'pnpm-lock.yaml', 'tests/cloudflare/runtime.mjs', 'tests/cloudflare/runtime.test.mjs', 'tests/cloudflare/native-entry.mjs', 'tests/cloudflare/upstream.mjs', 'cloudflare/do-entry.mjs', 'src/lib/metrics/cloudflare-store.ts', 'src/lib/metrics/v2/reader.ts', 'src/app/api/owner/metrics/route.ts'];
+const identityFiles = ['package.json', 'pnpm-lock.yaml', 'tests/cloudflare/runtime.mjs', 'tests/cloudflare/runtime.test.mjs', 'scripts/cloudflare-runtime-controls.test.mjs', 'tests/cloudflare/native-entry.mjs', 'tests/cloudflare/upstream.mjs', 'cloudflare/do-entry.mjs', 'src/lib/metrics/cloudflare-store.ts', 'src/lib/metrics/v2/reader.ts', 'src/app/api/owner/metrics/route.ts'];
 const probe = (file, args, cwd) => promisify(execFile)(file, args, { cwd, timeout: 10_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024, env: { PATH: process.env.PATH ?? '' } }).then(({ stdout }) => stdout.trim().slice(0, 200));
 
 // Identity of what actually ran: installed package versions (resolved from the declared wrangler edge, no app imports),
@@ -63,6 +63,18 @@ export async function collectRuntimeIdentity(rootDir = root, env = process.env, 
   // A pull_request run checks out a merge commit, so GITHUB_SHA and HEAD are not the reviewed PR head.
   source.checkoutIsPrHead = source.prHeadSha ? source.checkoutHead === source.prHeadSha : null;
   return out;
+}
+
+// Fails (harness BLOCKED) unless the identity is complete; a missing proof is never a qualified native run.
+export function assertIdentityComplete(id) {
+  const problems = [...id.blocked];
+  for (const name of ['node', 'platform', 'arch']) if (!id[name]) problems.push('missing ' + name);
+  for (const [name, pkg] of Object.entries(id.packages ?? {})) if (!pkg?.version) problems.push('missing package ' + name);
+  if (!id.workerdVersion?.output) problems.push('missing workerd version');
+  for (const [file, hash] of Object.entries(id.files ?? {})) if (!/^[0-9a-f]{64}$/.test(hash ?? '')) problems.push('missing sha256 ' + file);
+  if (!/^[0-9a-f]{40}$/.test(id.source?.checkoutHead ?? '')) problems.push('missing checkout head');
+  if (id.source?.event === 'pull_request') for (const key of ['prHeadSha', 'prBaseSha']) if (!/^[0-9a-f]{40}$/.test(id.source[key] ?? '')) problems.push('missing ' + key);
+  assert.deepEqual(problems, [], 'native identity incomplete (BLOCKED)');
 }
 
 // One record per authored fixture: exact decoded bytes/hash when the payload is valid, only the compressed identity when it is not.
