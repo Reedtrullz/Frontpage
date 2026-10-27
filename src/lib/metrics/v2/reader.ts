@@ -426,7 +426,7 @@ function mergeSeries(chunks: SeriesV2[], query: OwnerMetricsQuery, now: Date): S
   );
   const series = [...metadata.values()].map((item) => ({
     ...item,
-    values: timestamps.map((timestamp) => byTimestamp.get(Date.parse(timestamp))?.get(item.id) ?? null),
+    values: timestamps.map((_, index) => byTimestamp.get(firstClosedSlotMs + index * resolutionMs)?.get(item.id) ?? null),
   }));
   const possibleValues = timestamps.length * series.length;
   const availableValues = series.reduce(
