@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { startRuntime, base, version, secret, collectRuntimeIdentity, assertIdentityComplete, fixtureRecord } from './runtime.mjs';
+import { fullWindowFixture } from './full-window-fixtures.mjs';
 // Authored fixture identities for the native case, emitted as a diagnostic so they survive scratch cleanup.
 const fixtureIds = [];
 let fixtureCase = 'upload';
@@ -526,6 +527,8 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
   try {
     // Bounded metadata probes run while the supervised runtime is up; incomplete identity fails the run after being recorded.
     const identity = await collectRuntimeIdentity();
+    identity.files['tests/cloudflare/full-window-fixtures.mjs'] = createHash('sha256').update(readFileSync(new URL('./full-window-fixtures.mjs', import.meta.url))).digest('hex');
+    identity.files['scripts/cloudflare-full-window-fixtures.test.mjs'] = createHash('sha256').update(readFileSync(new URL('../../scripts/cloudflare-full-window-fixtures.test.mjs', import.meta.url))).digest('hex');
     t.diagnostic(JSON.stringify(identity));
     assertIdentityComplete(identity);
     const v2 = v2FixtureSnapshot();
@@ -681,6 +684,48 @@ test('native decoded-size boundaries through the real Worker, Durable Object and
     await queryCase('native partial parity query: 7d host', name => datedQuery(name, '7d', 'host', null));
     await queryCase('native partial parity query: 7d workloads ram', name => datedQuery(name, '7d', 'workloads', 'ram'));
     await queryCase('native partial parity query: 30d workloads ram', name => datedQuery(name, '30d', 'workloads', 'ram'));
+
+    for (const range of ['1h', '24h', '7d', '30d']) {
+      for (const view of ['host', 'workloads']) {
+        await sub(`native full-window query: ${range} ${view}`, async () => {
+          const built = fullWindowFixture(range, view, Date.now());
+          const rows = Object.entries(built.payloads).map(([name, payload]) => gzRow(fixtureCase, name, payload));
+          await seeded(qaKey, rows, async () => {
+            const startedAt = Date.now();
+            const response = await ownerQuery(owner, range, view, built.spec.resource);
+            const finishedAt = Date.now();
+            assert.equal(response.status, 200);
+            privateNoStore(response);
+            const history = await response.json();
+            const bounds = { startedAt, finishedAt };
+            const check = result => {
+              assertQuerySemantics(result, built.spec, built.fixture, bounds);
+              assert.equal(result.truncated, false);
+              const metadata = items => items.map(({ id, label, unit }) => ({ id, label, unit }));
+              assert.deepEqual(metadata(result.series), metadata(built.fixture.series));
+            };
+            check(history);
+            rejectAltered(history, built, bounds);
+            for (const field of ['label', 'unit']) {
+              const changed = structuredClone(history);
+              changed.series[0][field] = 'incorrect fixture metadata';
+              assert.throws(() => check(changed));
+            }
+            const truncated = structuredClone(history);
+            truncated.truncated = true;
+            assert.throws(() => check(truncated));
+            await assertPublicClean();
+            t.diagnostic(JSON.stringify({ ns: 'frontpage-native-full-window/v1', range, view,
+              slots: history.timestamps.length, series: history.series.length,
+              chunks: rows.length - 1, outputBytes: Buffer.byteLength(JSON.stringify(history)),
+              semanticSha256: createHash('sha256').update(JSON.stringify(history)).digest('hex'),
+              seedLastSlot: built.fixture.timestamps.at(-1), requestBounds: bounds,
+              metadata: true, values: true, nulls: true, coverage: true, truncated: false,
+              alteredOutputControls: 6, publicRedaction: true }));
+          });
+        });
+      }
+    }
 
     const restoredBaseline = async () => {
       const startedAt = Date.now();
