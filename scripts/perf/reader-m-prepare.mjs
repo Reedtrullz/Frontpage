@@ -151,6 +151,11 @@ export function runBounded(cmd, args, { deadline, maxBytes = MIB, env } = {}) {
 }
 
 // Exactly one JSON line, within the stream cap.
+// Full child output (already capped at 1MiB combined by runBounded), stored before any assertion so a failed unit stays diagnosable.
+export const cliReceipt = (s) => ({ status: s.status, killed: s.killed, bytes: s.bytes, stdout: s.stdout, stderr: s.stderr });
+// The first concrete unit failure outranks any later aggregate judgement such as the unit count.
+export const firstFailure = (recs) => { const i = recs.findIndex((r) => r.error); return i < 0 ? null : 'unit ' + i + ': ' + recs[i].error + ' | stderr: ' + String(recs[i].cli?.stderr ?? '').slice(-1200); };
+
 export function boundedJson(stdout) {
   assert.ok(stdout.length <= PROTOCOL.limits.streamBytes, 'stream cap');
   const lines = stdout.trimEnd().split('\n');
@@ -444,8 +449,12 @@ async function selfcheckAsync() {
   assert.deepEqual([fine.killed, fine.status, fine.stdout], [null, 0, 'ok\n']);
   const missing = await runBounded('/nonexistent/binary', [], { deadline: Date.now() + 2000 });
   assert.equal(missing.killed, 'error');
+  const failed = await runBounded(process.execPath, ['-e', "process.stderr.write('HEAD-'+'z'.repeat(2000)+'-TAIL');process.exit(1)"], { deadline: Date.now() + 5000 });
+  const cli = cliReceipt(failed);
+  assert.ok(cli.status === 1 && cli.stderr.startsWith('HEAD-') && cli.stderr.endsWith('-TAIL') && cli.stderr.length === 2010 && cli.bytes <= MIB, 'full failed output retained');
+  assert.match(firstFailure([{ error: 'terminal exit 1', cli }, {}, {}]), /^unit 0: terminal exit 1 \| stderr: z+-TAIL$/);
   assert.equal(dirBytes(path.join(os.tmpdir(), 'readerm-absent-' + process.pid)), 0);
-  return ['transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error'];
+  return ['transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error', 'failed-unit-output-receipt'];
 }
 
 const git = (...a) => { const r = spawnSync('git', a, { maxBuffer: 16 * MIB }); assert.equal(r.status, 0, 'git ' + a.join(' ') + ': ' + r.stderr); return r.stdout; };
@@ -536,7 +545,7 @@ async function runUnit(out, freeze, unit, index) {
     checkInspect(before, name, freeze.imageId, unit.target);
     rec.guard = before.HostConfig; rec.guardOk = true;
     const started = await docker(['start', '-a', name], { maxBytes: L.streamBytes }); // combined stdout+stderr <=1MiB, killed on cap or deadline
-    rec.cli = { status: started.status, killed: started.killed, bytes: started.bytes, stderrTail: started.stderr.slice(-300) };
+    rec.cli = cliReceipt(started);
     let state = null;
     try { state = JSON.parse((await docker(['inspect', name])).stdout)[0].State; } catch { /* record stays null */ }
     if (state) rec.terminal = { exit: state.ExitCode, oom: state.OOMKilled, pid: state.Pid, running: state.Running, status: state.Status };
@@ -581,8 +590,9 @@ if (import.meta.url === 'file://' + process.argv[1]) {
         try { await runSelfcheck(); } catch (e) { throw new Error('selfcheck failed before any native work: ' + e.message); }
         freeze = await prepare(out); verifyManifest(out); bound = verifyBinding(out); finishImage(freeze);
         for (const unit of qualificationUnits()) { const rec = await runUnit(out, freeze, unit, recs.length); recs.push(rec); if (rec.error) break; }
+        const bad = firstFailure(recs); if (bad) throw new Error(bad);
         judge(recs);
-      } catch (e) { error = String(e.message).slice(0, 500); }
+      } catch (e) { error = String(e.message).slice(0, 2000); }
       fs.mkdirSync(out, { recursive: true });
       fs.writeFileSync(path.join(out, 'qualification.json'), JSON.stringify({ pass: error === null, error, protocolSha: protocolSha(), manifestSha: freeze?.manifestSha ?? null, imageId: freeze?.imageId ?? null, freezeSha: bound?.freezeSha ?? null, units: recs }));
       console.log(JSON.stringify({ qualified: error === null, units: recs.length, error, probes: recs.map((r) => r.out?.probes ?? null) }));
