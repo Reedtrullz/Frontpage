@@ -65,6 +65,22 @@ jobs:
         run: node scripts/install-browser.mjs
       - name: Exercise built Worker and Durable Object runtime
         run: pnpm run test:cloudflare
+      - name: Qualify native reader M fixture (canaries only, no portfolio samples)
+        timeout-minutes: 10
+        run: node scripts/perf/reader-m-prepare.mjs ci --out .reader-m
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: reader-m-qualification
+          path: |
+            .reader-m/manifest.json
+            .reader-m/freeze.json
+            .reader-m/protocol.json
+            .reader-m/qualification.json
+            .reader-m/units/
+            .reader-m/variants/*/closure.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Validate Cloudflare upload bundle
         run: pnpm exec wrangler deploy --config wrangler.jsonc --dry-run
 
