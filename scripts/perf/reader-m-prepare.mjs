@@ -12,6 +12,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { FAULTS } from './reader-m-fixture.mjs';
+import { findPackage } from '../../tests/cloudflare/runtime.mjs';
 
 const MIB = 1048576;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,15 +55,15 @@ export function hasSymlink(dir) { try { return fs.readdirSync(dir, { recursive: 
 
 // Control subprocesses (docker CLI) get a sanitized env whose HOME/TMP/cache dirs (Node, Bun, SDK, XDG) live inside the run-owned dir under out, so the host guard sees them.
 export function controlEnv(out, runDir, base = process.env) {
-  const sub = Object.fromEntries(['home', 'tmp', 'cache'].map((k) => [k, path.join(runDir, k)]));
+  const sub = Object.fromEntries(['home', 'tmp', 'cache', 'docker'].map((k) => [k, path.join(runDir, k)]));
   for (const d of Object.values(sub)) fs.mkdirSync(d, { recursive: true });
   assert.ok(fs.realpathSync(runDir).startsWith(fs.realpathSync(out) + path.sep) && !hasSymlink(runDir), 'run dir escapes out');
   const env = { PATH: (base.PATH ?? '').split(path.delimiter).filter((p) => path.isAbsolute(p)).join(path.delimiter), HOME: sub.home, TMPDIR: sub.tmp, TMP: sub.tmp, TEMP: sub.tmp, BUN_TMPDIR: sub.tmp,
     XDG_CACHE_HOME: sub.cache, XDG_CONFIG_HOME: sub.cache, XDG_DATA_HOME: sub.cache, XDG_STATE_HOME: sub.cache, npm_config_cache: sub.cache, BUN_INSTALL: sub.cache, BUN_INSTALL_CACHE_DIR: sub.cache, NODE_COMPILE_CACHE: sub.cache };
   assert.ok(env.PATH, 'no absolute PATH');
-  for (const k of ['DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH']) if (base[k]) env[k] = base[k];
-  const cfg = base.DOCKER_CONFIG ?? (base.HOME ? path.join(base.HOME, '.docker') : null);
-  if (cfg && fs.existsSync(cfg)) env.DOCKER_CONFIG = cfg;
+  // Counted, empty docker config (no credentials, contexts or auth copies); only an explicit daemon endpoint is forwarded, else the default local socket.
+  env.DOCKER_CONFIG = sub.docker;
+  if (base.DOCKER_HOST) env.DOCKER_HOST = base.DOCKER_HOST;
   return env;
 }
 
@@ -72,6 +73,15 @@ export const removalVerdict = (rm, ps, name) => ps.status === 0 && ps.killed ===
 
 // Optional native binaries belong to their owning package (strict pnpm graph): resolve from that package manifest, not the repo or miniflare.
 export const owned = (r, pkg, sub) => createRequire(r.resolve(pkg + '/package.json')).resolve(sub);
+
+// Strict pnpm: miniflare is a transitive dependency of wrangler (and workerd of miniflare), so walk the declared edges like the native runtime identity does.
+export async function installedGraph(root) {
+  const wrangler = await findPackage(root, 'wrangler');
+  const miniflare = wrangler && await findPackage(wrangler.dir, 'miniflare');
+  const workerd = miniflare && await findPackage(miniflare.dir, 'workerd');
+  assert.ok(wrangler && miniflare && workerd, 'installed graph incomplete: wrangler -> miniflare -> workerd');
+  return { wrangler, miniflare, workerd };
+}
 
 export const qualificationUnits = () => Object.keys(TARGETS).flatMap((target) => Object.keys(PINS).map((variant) => ({ variant, target, mode: 'probe', fixture: 'one' })));
 
@@ -383,11 +393,14 @@ function selfcheck() {
     } finally { fs.rmSync(d, { recursive: true, force: true }); }
   });
   check('control-env-run-owned-and-budgeted', () => {
-    const d = tmp(), other = tmp();
+    const d = tmp(), other = tmp(), realCfg = tmp();
     try {
       const run = path.join(d, '.run', '0');
-      const env = controlEnv(d, run, { PATH: '/usr/bin:rel/bin:/bin', HOME: '/h', DOCKER_HOST: 'unix:///x', SECRET: 's' });
+      fs.writeFileSync(path.join(realCfg, 'config.json'), '{"auths":{"x":{}}}');
+      const env = controlEnv(d, run, { PATH: '/usr/bin:rel/bin:/bin', HOME: '/h', DOCKER_HOST: 'unix:///x', DOCKER_CONFIG: realCfg, DOCKER_CONTEXT: 'c', DOCKER_CERT_PATH: realCfg, SECRET: 's' });
       assert.equal(env.PATH, '/usr/bin:/bin'); assert.equal(env.DOCKER_HOST, 'unix:///x'); assert.ok(!('SECRET' in env));
+      assert.ok(env.DOCKER_CONFIG.startsWith(run + path.sep) && fs.readdirSync(env.DOCKER_CONFIG).length === 0, 'docker config is run-owned and empty');
+      for (const k of ['DOCKER_CONTEXT', 'DOCKER_CERT_PATH', 'DOCKER_TLS_VERIFY']) assert.ok(!(k in env), k);
       for (const k of ['HOME', 'TMPDIR', 'TMP', 'XDG_CACHE_HOME', 'npm_config_cache', 'BUN_INSTALL_CACHE_DIR', 'BUN_TMPDIR']) assert.ok(env[k].startsWith(run + path.sep), k);
       throwsFor(() => controlEnv(d, run, { PATH: 'rel' }));
       fs.writeFileSync(path.join(run, 'cache', 'big'), Buffer.alloc(PROTOCOL.limits.hostBytes + 1));
@@ -395,7 +408,7 @@ function selfcheck() {
       fs.rmSync(path.join(run, 'cache', 'big')); assert.ok(!hasSymlink(run));
       fs.symlinkSync(other, path.join(run, 'cache', 'esc')); assert.ok(hasSymlink(run)); throwsFor(() => controlEnv(d, run, { PATH: '/bin' }));
       fs.rmSync(path.join(run, 'cache', 'esc')); fs.symlinkSync(other, path.join(d, '.run2')); throwsFor(() => controlEnv(d, path.join(d, '.run2'), { PATH: '/bin' }));
-    } finally { fs.rmSync(d, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true }); }
+    } finally { for (const x of [d, other, realCfg]) fs.rmSync(x, { recursive: true, force: true }); }
   });
   check('removal-verdict', () => {
     const rm = { status: 0, killed: null, stdout: 'n\n', stderr: '' }, none = { status: 0, killed: null, stdout: '', stderr: '' };
@@ -408,6 +421,21 @@ function selfcheck() {
 }
 
 async function selfcheckAsync() {
+  const tree = fs.mkdtempSync(path.join(os.tmpdir(), 'readerm-graph-'));
+  try { // structural regression only (hand-authored strict-pnpm layout, no installed dependencies); the hosted native stage is the real qualification
+    const store = path.join(tree, 'root/node_modules/.pnpm');
+    const pkg = (dir, name, version) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, version })); };
+    pkg(path.join(store, 'w/node_modules/wrangler'), 'wrangler', '4.0.0'); pkg(path.join(store, 'm/node_modules/miniflare'), 'miniflare', '4.1.0'); pkg(path.join(store, 'm/node_modules/workerd'), 'workerd', '1.2.0');
+    fs.writeFileSync(path.join(tree, 'root/package.json'), '{}');
+    fs.symlinkSync('.pnpm/w/node_modules/wrangler', path.join(tree, 'root/node_modules/wrangler'));
+    fs.symlinkSync('../../m/node_modules/miniflare', path.join(store, 'w/node_modules/miniflare'));
+    const root = path.join(tree, 'root');
+    assert.throws(() => createRequire(path.join(root, 'package.json')).resolve('miniflare/package.json')); // the pre-repair repo-anchored lookup
+    const g = await installedGraph(root);
+    assert.deepEqual([g.wrangler.version, g.miniflare.version, g.workerd.version], ['4.0.0', '4.1.0', '1.2.0']);
+    fs.rmSync(path.join(store, 'w/node_modules/miniflare'));
+    await assert.rejects(installedGraph(root), /installed graph incomplete/);
+  } finally { fs.rmSync(tree, { recursive: true, force: true }); }
   const hung = await runBounded(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { deadline: Date.now() + 300 });
   assert.equal(hung.killed, 'deadline');
   const loud = await runBounded(process.execPath, ['-e', "process.stdout.write('x'.repeat(600));process.stderr.write('y'.repeat(600));setInterval(()=>{},1000)"], { deadline: Date.now() + 5000, maxBytes: 1000 });
@@ -417,7 +445,7 @@ async function selfcheckAsync() {
   const missing = await runBounded('/nonexistent/binary', [], { deadline: Date.now() + 2000 });
   assert.equal(missing.killed, 'error');
   assert.equal(dirBytes(path.join(os.tmpdir(), 'readerm-absent-' + process.pid)), 0);
-  return ['bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error'];
+  return ['transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error'];
 }
 
 const git = (...a) => { const r = spawnSync('git', a, { maxBuffer: 16 * MIB }); assert.equal(r.status, 0, 'git ' + a.join(' ') + ': ' + r.stderr); return r.stdout; };
@@ -455,13 +483,14 @@ async function prepare(out) {
   fs.copyFileSync(path.join(here, 'reader-m-fixture.mjs'), path.join(out, 'fixture.mjs'));
   fs.copyFileSync(path.join(here, 'reader-m-unit.mjs'), path.join(out, 'unit.mjs'));
   fs.writeFileSync(path.join(out, 'protocol.json'), JSON.stringify(PROTOCOL));
-  const mfDir = path.dirname(require.resolve('miniflare/package.json'));
-  const req2 = createRequire(path.join(mfDir, 'package.json'));
+  const { miniflare, workerd } = await installedGraph(root);
   const ver = (r, p) => JSON.parse(fs.readFileSync(r.resolve(p + '/package.json'), 'utf8')).version;
   const binary = (r, pkg, sub) => sha(fs.readFileSync(owned(r, pkg, sub)));
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const graph = { node: process.version, links, lock: sha(fs.readFileSync(path.join(root, 'pnpm-lock.yaml'))), esbuild: ver(require, 'esbuild'), miniflare: ver(require, 'miniflare'), workerd: ver(req2, 'workerd'),
-    esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: binary(req2, 'workerd', '@cloudflare/workerd-linux-' + (arch === 'x64' ? '64' : 'arm64') + '/bin/workerd') };
+  const workerdBin = await findPackage(workerd.dir, '@cloudflare/workerd-linux-' + (arch === 'x64' ? '64' : 'arm64'));
+  assert.ok(workerdBin, 'workerd binary package not installed');
+  const graph = { node: process.version, links, lock: sha(fs.readFileSync(path.join(root, 'pnpm-lock.yaml'))), esbuild: ver(require, 'esbuild'), miniflare: miniflare.version, workerd: workerd.version,
+    esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: sha(fs.readFileSync(path.join(workerdBin.dir, 'bin/workerd'))) };
   const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nUSER 1000:1000\nWORKDIR /image\n',
     'Dockerfile.dockerignore': '*\n!node_modules\n!' + outRel + '\n' + outRel + '/Dockerfile*\n' + outRel + '/image.id\n' + outRel + '/freeze.json\n' + outRel + '/qualification.json\n' + outRel + '/units\n' };
   const files = {};
@@ -479,8 +508,8 @@ async function prepare(out) {
   return freeze;
 }
 
-const active = new Set();
-const cleanup = () => { for (const n of active) spawnSync('docker', ['rm', '-f', n], { timeout: 10000 }); };
+const active = new Map(); // container name -> its run-owned control env
+const cleanup = () => { for (const [n, env] of active) spawnSync('docker', ['rm', '-f', n], { timeout: 10000, env }); };
 
 // Returns the unit record (also written to disk) even when the unit failed; rec.error is the negative receipt.
 async function runUnit(out, freeze, unit, index) {
@@ -500,7 +529,7 @@ async function runUnit(out, freeze, unit, index) {
     if ((overBudget(host) || hasSymlink(runDir)) && !rec.scratch.exceeded) { rec.scratch.exceeded = true; spawnSync('docker', ['rm', '-f', name], { timeout: 8000, env }); }
   };
   const watch = setInterval(sample, 250);
-  active.add(name);
+  active.set(name, env);
   try {
     assert.equal((await docker(guardArgs(name, freeze.imageId, unit.target, unit))).status, 0, 'create');
     const before = JSON.parse((await docker(['inspect', name])).stdout)[0];
@@ -544,11 +573,12 @@ if (import.meta.url === 'file://' + process.argv[1]) {
     if (process.argv.includes('--out') && !argOf('--out')) usage();
     if (cmd === 'm' && !/^[0-9a-f]{64}$/.test(argOf('--admitted-protocol-sha') ?? '')) usage();
     const out = path.resolve(argOf('--out') ?? '.reader-m');
-    await runSelfcheck();
+    if (cmd === 'm') await runSelfcheck();
     const finishImage = (freeze) => assert.equal(spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', freeze.imageId], { encoding: 'utf8' }).stdout.trim(), freeze.imageId, 'image drift');
     if (cmd === 'ci') {
       let freeze, bound, error = null; const recs = [];
       try {
+        try { await runSelfcheck(); } catch (e) { throw new Error('selfcheck failed before any native work: ' + e.message); }
         freeze = await prepare(out); verifyManifest(out); bound = verifyBinding(out); finishImage(freeze);
         for (const unit of qualificationUnits()) { const rec = await runUnit(out, freeze, unit, recs.length); recs.push(rec); if (rec.error) break; }
         judge(recs);

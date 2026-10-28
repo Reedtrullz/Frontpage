@@ -44,8 +44,11 @@ async function local() {
   }
 }
 
+// Strict pnpm: miniflare is wrangler's transitive dependency, so resolve from wrangler's realpath, not from the image root.
+const loadMiniflare = (nm = '/image/node_modules') => createRequire(fs.realpathSync(nm + '/wrangler/package.json'))('miniflare');
+
 async function durable() {
-  const { Miniflare, convertV4MiniflareOptions } = createRequire('/image/x.js')('miniflare');
+  const { Miniflare, convertV4MiniflareOptions } = loadMiniflare();
   const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, scriptPath: dir + '/worker.mjs', compatibilityDate: '2026-09-28', compatibilityFlags: ['nodejs_compat'],
     durableObjects: { T15: { className: 'ReaderDO', useSQLite: true } }, durableObjectsPersist: '/tmp/state', cachePersist: false, kvPersist: false, r2Persist: false, d1Persist: false }));
   try {
