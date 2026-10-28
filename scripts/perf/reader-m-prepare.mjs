@@ -4,7 +4,8 @@
 // ci prepares + qualifies guards with identical one-row probe units (both variants, both targets); it collects NO portfolio samples.
 // m refuses unless the admitted protocol hash matches AND a passing, re-judged qualification.json is bound to this image/manifest/protocol.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
+import { rootCertificates } from 'node:tls';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,22 @@ import { FAULTS } from './reader-m-fixture.mjs';
 import { findPackage } from '../../tests/cloudflare/runtime.mjs';
 
 const MIB = 1048576;
+// The Node image ships no CA store, so workerd's outbound TLS setup fails. The hosted runner's public bundle is copied into the image (offline, verification stays on).
+export const CA_SOURCE = '/etc/ssl/certs/ca-certificates.crt';
+export const CA_IMAGE_PATH = '/etc/ssl/certs/ca-certificates.crt';
+const PEM = /-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+?-----END CERTIFICATE-----/g;
+export function readPublicCa(file = CA_SOURCE) {
+  const st = fs.lstatSync(file);
+  assert.ok(st.isFile(), 'CA bundle is not a regular file');
+  assert.ok(st.size > 0 && st.size <= MIB, 'CA bundle size');
+  const bytes = fs.readFileSync(file), body = bytes.toString('latin1');
+  assert.ok(!/PRIVATE KEY/.test(body), 'CA bundle holds key material');
+  const blocks = body.match(PEM) ?? [];
+  assert.ok(blocks.length > 0, 'CA bundle has no certificates');
+  assert.match(body.replace(PEM, '').replace(/^#.*$/gm, ''), /^\s*$/, 'CA bundle has non-certificate content');
+  for (const b of blocks) new X509Certificate(b);
+  return { bytes, source: file, size: bytes.length, sha256: sha(bytes), certificates: blocks.length };
+}
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const NODE_IMAGE = 'node:22.22.3-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752';
 const NODE_VERSION = 'v' + /node:(\d+\.\d+\.\d+)/.exec(NODE_IMAGE)[1];
@@ -99,7 +116,7 @@ export function guardArgs(name, image, target, unit) {
   return ['create', '--pull', 'never', '--name', name, '--label', 'portfolio.guard=' + name, '--user', '1000:1000', '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges', '--network', 'none', '--read-only', '--init', '--pids-limit', String(t.pids), '--cpus', String(t.cpus),
     '--memory', String(t.memory), '--memory-swap', String(t.memory), '--log-driver', 'none', '--shm-size', String(PROTOCOL.limits.shmBytes),
-    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=' + PROTOCOL.limits.tmpfsBytes + ',mode=1777', '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp',
+    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=' + PROTOCOL.limits.tmpfsBytes + ',mode=1777', '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp', '--env', 'SSL_CERT_FILE=' + CA_IMAGE_PATH,
     '--env', 'UNIT=' + JSON.stringify(unit), '--entrypoint', '/usr/bin/timeout', image, '--signal=KILL', String(PROTOCOL.limits.unitSeconds - 12),
     '/usr/local/bin/node', ...t.node, '/image/out/unit.mjs'];
 }
@@ -281,7 +298,7 @@ function selfcheck() {
   const unit = { variant: 'before', target: 'local', mode: 'probe', fixture: 'one' };
   check('guard-args', () => {
     const a = guardArgs('n', 'sha256:i', 'local', unit).join(' ');
-    for (const f of ['--cap-drop ALL', '--network none', '--read-only', 'no-new-privileges', '--user 1000:1000', '--pids-limit 32', '--memory 134217728', 'size=6291456', '--shm-size 1048576', '--permission']) assert.ok(a.includes(f), f);
+    for (const f of ['--cap-drop ALL', '--network none', '--read-only', 'no-new-privileges', '--user 1000:1000', '--pids-limit 32', '--memory 134217728', 'size=6291456', '--shm-size 1048576', '--permission', 'SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt']) assert.ok(a.includes(f), f);
     assert.ok(!guardArgs('n', 'i', 'do', unit).join(' ').includes('--permission'));
     assert.ok(guardArgs('n', 'i', 'do', unit).includes(String(512 * MIB)));
   });
@@ -422,10 +439,29 @@ function selfcheck() {
     for (const [a, b] of [[rm, { ...none, status: 1 }], [rm, { ...none, killed: 'deadline' }], [rm, { ...none, stdout: 'n\n' }], [{ ...rm, killed: 'deadline' }, none],
       [{ status: 1, killed: null, stdout: '', stderr: 'Cannot connect to the Docker daemon' }, none], [{ ...rm, stdout: 'other\n' }, none]]) assert.ok(!removalVerdict(a, b, 'n'));
   });
+  check('public-ca-bundle', () => {
+    const d = tmp(), f = (name, content) => { const p = path.join(d, name); fs.writeFileSync(p, content); return p; };
+    try {
+      const pem = rootCertificates.slice(0, 3).join('\n') + '\n';
+      const ok = readPublicCa(f('ok', '# comment\n' + pem));
+      assert.deepEqual([ok.certificates, ok.size, ok.sha256], [3, ok.bytes.length, sha(ok.bytes)]);
+      for (const [name, content] of [['empty', ''], ['big', pem + ' '.repeat(MIB)], ['key', pem + '-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n'], ['junk', 'not a certificate'], ['trail', pem + 'extra\n'],
+        ['badcert', '-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n']]) throwsFor(() => readPublicCa(f(name, content)));
+      fs.symlinkSync(path.join(d, 'ok'), path.join(d, 'link')); throwsFor(() => readPublicCa(path.join(d, 'link')));
+      throwsFor(() => readPublicCa(d)); throwsFor(() => readPublicCa(path.join(d, 'absent')));
+    } finally { fs.rmSync(d, { recursive: true, force: true }); }
+  });
   return results;
 }
 
 async function selfcheckAsync() {
+  // workerd rejects non-handler exports: the shared fixture (needed by Node unit code) has data exports, the dedicated worker entry must not.
+  const shared = await import('./reader-m-fixture.mjs'), entry = await import('./reader-m-worker.mjs');
+  const bad = (m) => Object.entries(m).filter(([, v]) => !(typeof v === 'function' || (v && typeof v.fetch === 'function'))).map(([k]) => k).sort();
+  assert.deepEqual(bad(shared), ['FAULTS', 'now', 'queries']);
+  assert.deepEqual(Object.keys(entry).sort(), ['ReaderDO', 'default']);
+  assert.ok(entry.ReaderDO === shared.ReaderDO && entry.default === shared.default && bad(entry).length === 0);
+  assert.ok(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').includes("entryPoints: [path.join(here, 'reader-m-worker.mjs')]"), 'worker bundle must use the dedicated entry');
   const tree = fs.mkdtempSync(path.join(os.tmpdir(), 'readerm-graph-'));
   try { // structural regression only (hand-authored strict-pnpm layout, no installed dependencies); the hosted native stage is the real qualification
     const store = path.join(tree, 'root/node_modules/.pnpm');
@@ -454,7 +490,7 @@ async function selfcheckAsync() {
   assert.ok(cli.status === 1 && cli.stderr.startsWith('HEAD-') && cli.stderr.endsWith('-TAIL') && cli.stderr.length === 2010 && cli.bytes <= MIB, 'full failed output retained');
   assert.match(firstFailure([{ error: 'terminal exit 1', cli }, {}, {}]), /^unit 0: terminal exit 1 \| stderr: z+-TAIL$/);
   assert.equal(dirBytes(path.join(os.tmpdir(), 'readerm-absent-' + process.pid)), 0);
-  return ['transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error', 'failed-unit-output-receipt'];
+  return ['worker-entry-boundary', 'transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error', 'failed-unit-output-receipt'];
 }
 
 const git = (...a) => { const r = spawnSync('git', a, { maxBuffer: 16 * MIB }); assert.equal(r.status, 0, 'git ' + a.join(' ') + ': ' + r.stderr); return r.stdout; };
@@ -465,6 +501,7 @@ async function prepare(out) {
   assert.ok(!outRel.startsWith('..') && outRel, 'out must be inside the checkout (docker context)');
   const require = createRequire(path.join(root, 'package.json'));
   const esbuild = require('esbuild');
+  const ca = readPublicCa(); // fail before any native work if the hosted trust bundle is unusable
   fs.rmSync(out, { recursive: true, force: true });
   const links = checkSymlinks(path.join(root, 'node_modules'));
   const blobs = {};
@@ -479,7 +516,7 @@ async function prepare(out) {
   for (const v of Object.keys(PINS)) {
     const dir = path.join(out, 'variants', v); fs.mkdirSync(dir, { recursive: true });
     const reader = await esbuild.build({ ...common, stdin: { contents: blobs[v].toString(), loader: 'ts', resolveDir, sourcefile: root + '/' + READER }, packages: 'external', outfile: path.join(dir, 'reader.mjs') });
-    const worker = await esbuild.build({ ...common, entryPoints: [path.join(here, 'reader-m-fixture.mjs')], outfile: path.join(dir, 'worker.mjs'), nodePaths: [path.join(root, 'node_modules')],
+    const worker = await esbuild.build({ ...common, entryPoints: [path.join(here, 'reader-m-worker.mjs')], outfile: path.join(dir, 'worker.mjs'), nodePaths: [path.join(root, 'node_modules')],
       plugins: [{ name: 'variant', setup(b) {
         b.onResolve({ filter: /^@t15\/reader$/ }, () => ({ path: 'reader', namespace: 'variant' }));
         b.onLoad({ filter: /.*/, namespace: 'variant' }, () => ({ contents: blobs[v].toString(), loader: 'ts', resolveDir }));
@@ -491,6 +528,7 @@ async function prepare(out) {
   }
   fs.copyFileSync(path.join(here, 'reader-m-fixture.mjs'), path.join(out, 'fixture.mjs'));
   fs.copyFileSync(path.join(here, 'reader-m-unit.mjs'), path.join(out, 'unit.mjs'));
+  fs.writeFileSync(path.join(out, 'ca-certificates.crt'), ca.bytes);
   fs.writeFileSync(path.join(out, 'protocol.json'), JSON.stringify(PROTOCOL));
   const { miniflare, workerd } = await installedGraph(root);
   const ver = (r, p) => JSON.parse(fs.readFileSync(r.resolve(p + '/package.json'), 'utf8')).version;
@@ -499,8 +537,9 @@ async function prepare(out) {
   const workerdBin = await findPackage(workerd.dir, '@cloudflare/workerd-linux-' + (arch === 'x64' ? '64' : 'arm64'));
   assert.ok(workerdBin, 'workerd binary package not installed');
   const graph = { node: process.version, links, lock: sha(fs.readFileSync(path.join(root, 'pnpm-lock.yaml'))), esbuild: ver(require, 'esbuild'), miniflare: miniflare.version, workerd: workerd.version,
-    esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: sha(fs.readFileSync(path.join(workerdBin.dir, 'bin/workerd'))) };
-  const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nUSER 1000:1000\nWORKDIR /image\n',
+    esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: sha(fs.readFileSync(path.join(workerdBin.dir, 'bin/workerd'))),
+    ca: { source: ca.source, size: ca.size, sha256: ca.sha256, certificates: ca.certificates, imagePath: CA_IMAGE_PATH } };
+  const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nCOPY --chmod=0444 ' + outRel + '/ca-certificates.crt ' + CA_IMAGE_PATH + '\nUSER 1000:1000\nWORKDIR /image\n',
     'Dockerfile.dockerignore': '*\n!node_modules\n!' + outRel + '\n' + outRel + '/Dockerfile*\n' + outRel + '/image.id\n' + outRel + '/freeze.json\n' + outRel + '/qualification.json\n' + outRel + '/units\n' };
   const files = {};
   for (const f of fs.readdirSync(out, { recursive: true })) if (fs.statSync(path.join(out, f)).isFile()) files[f] = sha(fs.readFileSync(path.join(out, f)));
