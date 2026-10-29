@@ -106,6 +106,21 @@ class ResourceTests(unittest.TestCase):
         self.assertTrue(result['reaped'] and result['scratchCleaned'])
         self.assertFalse(Path(result['scratch']).exists())
 
+    def test_slow_successful_unit_cannot_pass_after_cleanup(self) -> None:
+        case = self.admitted()
+        request = {**slot(self.case, 0), 'scenario': 'happy', 'caseHash': case.sha256,
+                   'revision': self.case['baseline']['revision'], 'fixtureDigest': digest(self.case['fixtures']),
+                   'harnessDigest': digest(self.case['harness']), 'shape': self.case['shape'],
+                   'economicsDigest': self.case['economicsDigest']}
+        self.assertEqual(invoke(case, request)['status'], 'PASS')  # ordinary within-bound unit stays accepted
+        ticks = iter([0, int((case.data['timeout'] + 1) * 1e9)])
+        with patch('native.time.monotonic_ns', side_effect=lambda: next(ticks)):
+            result = invoke(case, request)
+        self.assertEqual(result['status'], 'ERROR')
+        self.assertIn('elapsed', result['error'])
+        self.assertNotIn('metrics', result)
+        self.assertTrue(result['scratchCleaned'] and result['reaped'])
+
     def test_native_writer_when_approved_envelope_exceeds_default(self) -> None:
         # Given the approved resource profile, when a real subprocess writes20MiB, account it.
         self.browser()

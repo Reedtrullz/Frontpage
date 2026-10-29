@@ -158,6 +158,10 @@ def invoke(case: Case, request: Record) -> Record:
                 budget.clear_parent_caches()
             receipt['parentScratchCleaned'] = receipt['scratchCleaned']
             receipt['endedNs'] = time.monotonic_ns()
+            # The cleanup floor must not let a unit that overran the original deadline pass.
+            if receipt['status'] == 'PASS' and (receipt['endedNs'] - receipt['startedNs']) / 1e9 > data['timeout']:
+                receipt.update(status='ERROR', error='elapsed exceeded timeout including cleanup')
+                receipt.pop('metrics', None)
     return receipt
 
 
