@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -218,6 +221,129 @@ class OriginalM(unittest.TestCase):
             result = na.run_m(self.plan(), {}, passing(calls), budget, 7 << 20, rows, clock=lambda: next(ticks))
             self.assertEqual(result['status'], 'ERROR')
             self.assertLess(len(calls), 5)
+
+
+class CleanRoot(unittest.TestCase):
+    def test_collect_m_root_is_under_approved_prefix_default_is_not(self) -> None:
+        for flags, parent in (([], None), (['--collect-m'], na.M_PARENT)):
+            with tempfile.TemporaryDirectory() as tmp, patch.object(na, 'RUN_TMP', Path(tmp)), patch.object(na.os, 'execve') as execve:
+                na.clean_exec(['--control', 'c', '--out', 'o', *flags])
+                env = execve.call_args.args[2]
+                invocation = Path(env['TMPDIR']).parent
+                self.assertEqual(invocation.parent, Path(tmp) / parent if parent else Path(tmp))
+                self.assertTrue(all(Path(env[k]).parent == invocation and Path(env[k]).is_dir() for k in ('HOME', 'TMPDIR', 'NODE_COMPILE_CACHE', 'BUN_RUNTIME_TRANSPILER_CACHE_PATH')))
+
+
+class CollectM(unittest.TestCase):
+    """Real collect_m with synthetic injected case/budget readers and a fake measure/compare runner; production Case.read stays the default."""
+
+    def setUp(self) -> None:
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.tmp = Path(holder.name).resolve()
+        self.out, self.u04, self.root = self.tmp / 'out', self.tmp / 'u04', self.tmp / 'root'
+        (self.out / 'inputs').mkdir(parents=True)
+        (self.root / 'native').mkdir(parents=True)
+        (self.out / 'inputs' / 'frozen').write_bytes(b'x' * (20 << 20))  # immutable input bytes alone are excluded
+        self.index = {'artifactRoot': str(self.u04), 'cases': [{'path': f'/cases/c{i:02d}.json'} for i in range(16)]}
+
+    def collect(self, runner, **kwargs) -> dict:
+        from types import SimpleNamespace
+        from resource_limits import ResourceBudget
+        def read_case(path):
+            n = int(path.stem[1:])
+            return SimpleNamespace(data={**case_data(n), 'artifactRoot': str(self.u04)}, sha256=f'h{n}')
+        budget = ResourceBudget(16 << 20, self.root, self.root / 'native', self.u04, ())
+        return na.collect_m(self.out, self.index, '/py', runner, read_case=read_case, read_budget=lambda data: budget, **kwargs)
+
+    def runner(self, fail_call=None, compare_status='PASS', size=6000):
+        calls = []
+        def run(argv, env, timeout):
+            calls.append(argv)
+            if argv[1].endswith('compare.py'):
+                return 0, json.dumps({'status': compare_status, 'cases': list(range(32))}), ''
+            args = dict(zip(argv[2::2], argv[3::2]))
+            target = Path(args['--output']) / Path(args['--case']).stem / args['--scenario'] / (args['--sample'] + '.json')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(bytes([len(calls) % 251]) * size)
+            ok = len(calls) != fail_call
+            return (0 if ok else 2), json.dumps({'status': 'PASS' if ok else 'REJECTED', 'error': None if ok else 'unit failed'}), ''
+        run.calls = calls
+        return run
+
+    def assert_archived(self, result: dict, files: int) -> list:
+        mdir = self.out / 'm'
+        mapping = json.loads((mdir / 'artifact-map.json').read_text())
+        self.assertEqual((len(mapping), result['archive']['files'], self.u04.joinpath('t15').exists()), (files, files, False))
+        for entry in mapping:
+            self.assertEqual(hashlib.sha256(Path(entry['archivedPath']).read_bytes()).hexdigest(), entry['sha256'])
+            self.assertTrue(Path(entry['archivedPath']).is_relative_to(mdir / 'artifacts'))
+        self.assertEqual(json.loads((mdir / 'result.json').read_text())['status'], result['status'])
+        return mapping
+
+    def test_production_case_read_is_the_default(self) -> None:
+        self.assertEqual(inspect.signature(na.collect_m).parameters['read_case'].default, na.Case.read)
+
+    def test_success_counts_one_tree_and_moves_raw_units_once(self) -> None:
+        run = self.runner()
+        result = self.collect(run)
+        self.assertEqual((result['status'], result['comparisons'], len(run.calls)), ('PASS', 32, 961))
+        self.assert_archived(result, 960)
+        self.assertEqual(len(json.loads((self.out / 'm' / 'units.json').read_text())), 960)
+        self.assertTrue((self.out / 'm' / 'compare.json').is_file())
+        self.assertLessEqual(result['finalOccupancyBytes'], 16 << 20)
+        self.assertGreater(result['finalOccupancyBytes'], 960 * 6000)
+
+    def test_failures_preserve_raw_receipts_on_every_exit(self) -> None:
+        for name, kwargs, files, rows in (('first unit', {'fail_call': 1}, 1, 1), ('late unit', {'fail_call': 500}, 500, 500), ('compare', {'compare_status': 'REJECTED'}, 960, 960)):
+            with self.subTest(name):
+                self.tearDown_dirs()
+                result = self.collect(self.runner(**kwargs))
+                self.assertEqual(result['status'], 'ERROR')
+                self.assert_archived(result, files)
+                self.assertEqual(len(json.loads((self.out / 'm' / 'units.json').read_text())), rows)
+                self.assertIn('error' if name == 'compare' else 'error', result)
+
+    def tearDown_dirs(self) -> None:
+        shutil.rmtree(self.out / 'm', ignore_errors=True)
+        shutil.rmtree(self.u04, ignore_errors=True)
+
+    def test_mutable_out_bytes_count_but_inputs_do_not(self) -> None:
+        (self.out / 'records').mkdir()
+        (self.out / 'records' / 'q').write_bytes(b'q' * (10 << 20))  # 10MiB + 7MiB reservation > 16MiB
+        run = self.runner()
+        result = self.collect(run)
+        self.assertEqual((result['status'], len(run.calls)), ('ERROR', 0))
+        self.assertIn('bound exceeded', result['error'])
+        (self.out / 'records' / 'q').write_bytes(b'q' * (2 << 20))
+        self.tearDown_dirs()
+        self.assertEqual(self.collect(self.runner())['status'], 'PASS')
+
+    def test_deadline_includes_comparison(self) -> None:
+        ticks = iter([*[0] * 961, *[na.M_RUN_SECONDS + 1] * 10])
+        result = self.collect(self.runner(), clock=lambda: next(ticks))
+        self.assertEqual(result['status'], 'ERROR')
+        self.assert_archived(result, result['archive']['files'])
+
+
+class RunProcess(unittest.TestCase):
+    def test_normal_and_oversized_streams(self) -> None:
+        self.assertEqual(na.run_process([sys.executable, '-c', 'print("ok")'], {}, 10), (0, 'ok\n', ''))
+        for stream in ('stdout', 'stderr'):
+            with self.assertRaisesRegex(Rejected, 'combined 1MiB bound'):
+                na.run_process([sys.executable, '-c', f'import sys; sys.{stream}.write("x" * 3_000_000)'], {}, 20)
+
+    def test_deadline_kills_descendants(self) -> None:
+        import subprocess, time
+        marker = f'ponytail-sleep-{os.getpid()}'
+        code = f'import subprocess,time; subprocess.Popen(["sleep","30",{marker!r}]); time.sleep(30)'
+        start = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            na.run_process([sys.executable, '-c', code], {}, 1)
+        self.assertLess(time.monotonic() - start, 10)
+        time.sleep(0.2)
+        self.assertNotEqual(subprocess.run(['pgrep', '-f', marker], capture_output=True).returncode, 0)
+
 
 
 if __name__ == '__main__':
