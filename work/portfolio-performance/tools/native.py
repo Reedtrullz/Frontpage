@@ -57,8 +57,8 @@ def invoke(case: Case, request: Record) -> Record:
     output = [bytearray(), bytearray()]
     process = None
     job = None
-    reservation = 0
-    accounting = 'combinedScratchPeakBytes'
+    reservation = budget.namespace_reservation(data)
+    accounting = 'combinedScratchUpperBoundBytes' if reservation else 'combinedScratchPeakBytes'
     try:
         deadline = time.monotonic() + data['timeout']
         if 'container' in data:

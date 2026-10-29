@@ -393,6 +393,7 @@ marker, out = sys.argv[2], Path(sys.argv[3])
 tmp = Path(tempfile.mkdtemp(dir=out))
 class Budget:
     native_root = tmp / 'native'
+    def namespace_reservation(self, data): return 0
     def enforce(self, reserved=0): return 0
     def clear_parent_caches(self): pass
 native.ResourceBudget = types.SimpleNamespace(read=lambda data: Budget())

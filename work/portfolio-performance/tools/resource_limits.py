@@ -13,6 +13,8 @@ from protocol import EVIDENCE, ROOT, RUN_TMP, Record, Rejected, file_hash, owned
 
 APPROVAL: Final = ROOT / '.omo/operations/portfolio-unblocking-execute-20261028/metis-closure-plan.md'
 APPROVAL_SHA: Final = '781cd061013ec6227385fb3b8b6a29766df50747a867e537c41ab6f9480472c3'
+FRONTPAGE_APPROVAL: Final = Path(__file__).resolve().parent / 'fixtures/frontpage-browser-envelope.json'
+FRONTPAGE_APPROVAL_SHA: Final = 'fa2a687131d68c6fedde2a6ef20c03afb290cb635d41dbf7f2893d2d3b43385c'
 CACHE_KEYS: Final = ('HOME', 'TMPDIR', 'NODE_COMPILE_CACHE', 'BUN_RUNTIME_TRANSPILER_CACHE_PATH')
 ENV_KEYS: Final = (*CACHE_KEYS, 'PATH', 'LANG', 'PYTHONDONTWRITEBYTECODE')
 
@@ -81,8 +83,12 @@ class ResourceBudget:
             case Profile.BROWSER:
                 approval = record(data['browserProfileApproval'])
                 require(data.get('modality') == 'browser', 'browser profile requires browser modality')
-                require(approval == {'path': str(APPROVAL), 'sha256': APPROVAL_SHA}, 'unapproved browser envelope')
-                require(file_hash(APPROVAL) == APPROVAL_SHA, 'stale browser approval')
+                if approval == {'path': str(FRONTPAGE_APPROVAL), 'sha256': FRONTPAGE_APPROVAL_SHA}:
+                    require(data.get('identities') == ['Reedtrullz/Frontpage'], 'scoped browser approval identity')
+                    require(file_hash(FRONTPAGE_APPROVAL) == FRONTPAGE_APPROVAL_SHA, 'stale scoped browser approval')
+                else:
+                    require(approval == {'path': str(APPROVAL), 'sha256': APPROVAL_SHA}, 'unapproved browser envelope')
+                    require(file_hash(APPROVAL) == APPROVAL_SHA, 'stale browser approval')
                 ceiling = 64 * 1024 * 1024
             case unreachable:
                 assert_never(unreachable)
@@ -127,6 +133,15 @@ class ResourceBudget:
         for path in caches:
             require(not native_root.is_relative_to(path) and not artifacts.is_relative_to(path), 'runtime/artifacts overlap cache cleanup')
         return cls(limit, root, native_root, artifacts, caches)
+
+    def namespace_reservation(self, data: Record) -> int:
+        amount = data.get('namespaceReservationBytes', 0)
+        require(type(amount) is int and amount >= 0, 'invalid namespace reservation')
+        if 'namespaceReservationBytes' in data:
+            require(data.get('resourceProfile') == Profile.BROWSER and data.get('modality') == 'browser'
+                    and 'container' not in data, 'namespace reservation requires isolated browser case')
+            require(0 < amount <= self.limit - 16 * 1024 * 1024, 'namespace reservation leaves insufficient parent headroom')
+        return amount
 
     def usage(self) -> int:
         roots = (self.root,) if self.artifacts.is_relative_to(self.root) else (self.root, self.artifacts)

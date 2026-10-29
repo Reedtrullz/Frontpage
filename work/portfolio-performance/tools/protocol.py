@@ -178,7 +178,7 @@ class Case:
             require(key == 'timeout' or type(data[key]) is int, 'byte bounds must be integers')
         require(data['runtime'] == runtime(), 'runtime/platform mismatch')
         from resource_limits import ResourceBudget
-        ResourceBudget.read(data)
+        ResourceBudget.read(data).namespace_reservation(data)
         require(data.get('samplingUnit') == 'invocation', 'independent unit must be invocation')
         require(data.get('receiptEncoding') in (None, 'gzip-v1'), 'unknown receipt encoding')
         require(bool(data.get('shape')) and bool(data.get('economicsDigest')), 'shape/economics binding')

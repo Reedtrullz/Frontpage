@@ -1,0 +1,10 @@
+{
+  "schema": "approved-browser-envelope/v1",
+  "identity": "Reedtrullz/Frontpage",
+  "resourceProfile": "browser-64m-20261028",
+  "scratchBytes": 67108864,
+  "timeout": 120,
+  "outputBytes": 1048576,
+  "authoritySha256": "781cd061013ec6227385fb3b8b6a29766df50747a867e537c41ab6f9480472c3",
+  "scope": "Existing resource allowance only; actual native isolation and workload admission remain mandatory."
+}
