@@ -310,7 +310,7 @@ class CaseGenerator(unittest.TestCase):
             reader_m_case.build_case(**args, semantic_digest='0' * 64)
         with self.assertRaisesRegex(Rejected, 'target/query index'):
             reader_m_case.build_case(**{**args, 'query_index': 8}, semantic_digest='0' * 64)
-        for override, reason in (({'temperature': 'warm'}, 'cold fresh-container'), ({'window': '24h'}, 'window/view'), ({'case_id': 'other'}, 'case id'),
+        for override, reason in (({'temperature': 'warm'}, 'case id'), ({'window': '24h'}, 'window/view'), ({'case_id': 'other'}, 'case id'),
                                  ({'candidate': self.common()['baseline']}, 'separate owned checkouts'),
                                  ({'baseline': {'cwd': 'relative', 'revision': 'a' * 40, 'tree': 'b' * 40}}, 'source ownership')):
             with self.subTest(override=list(override)), self.assertRaisesRegex(Rejected, reason):

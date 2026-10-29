@@ -6,6 +6,8 @@ the pinned reader commits, generates a minimal Frontpage-only scope/ownership on
 scenario) cell through the real ContainerJob and image-internal bridge, derives semantic digests from that parity, writes the
 sixteen cold cases and strict-loads each with the unmocked Case.read. Future M (960 units) is frozen and estimated; it executes only
 with the explicit --collect-m opt-in (original plan M: measure.py per slot, then one compare.py), never by default.
+--temperature warm selects the separate warm cohort instead: warm qualification requests, the sixteen warm cases and, with --collect-m, ONLY
+those warm cases (34 slots each, 1088 units). The default (cold) path and its 960 units are unchanged and are never run in warm mode.
 """
 from __future__ import annotations
 
@@ -31,6 +33,18 @@ from protocol import ROOT, RUN_TMP, SCOPE, WORK, Case, Record, Rejected, digest,
 from resource_limits import ResourceBudget
 
 LABEL = 'QUALIFICATION_ONLY'
+
+
+def slot_count(case: Record) -> int:
+    # Units per case-scenario: ten pilot, four warmup (warm only) and the locked measured count, exactly as protocol.slot defines them.
+    return 10 + (4 if case['temperature'] == 'warm' else 0) + 2 * case['pairs']
+
+
+def future_m(temperature: str) -> Record:
+    slots = slot_count({'temperature': temperature, 'pairs': reader_m_case.PAIRS})
+    return {'cases': 16, 'scenarios': 2, 'pairs': reader_m_case.PAIRS, 'slots': slots, 'units': 16 * 2 * slots}
+
+
 OWNERSHIP = WORK / 'ownership.json'
 READER_PATH = 'src/lib/metrics/v2/reader.ts'
 TARGETS, PHASES, SCENARIOS = ('local', 'do'), ('baseline', 'candidate'), ('happy', 'failure')
@@ -56,7 +70,7 @@ def m_plan(py: str, cases: list[tuple[str, dict]]) -> list[dict]:
     plan = []
     for path, data in sorted(cases, key=lambda c: c[0]):
         output = m_output(data['artifactRoot'], data['task'])
-        for index in range(10 + (4 if data['temperature'] == 'warm' else 0) + 2 * data['pairs']):
+        for index in range(slot_count(data)):
             phase = slot(data, index)['phase']
             for scenario in SCENARIOS:
                 plan.append({'case': data['id'], 'scenario': scenario, 'sample': index, 'phase': phase,
@@ -162,7 +176,10 @@ def collect_m(out: Path, index: Record, py: str, runner=run_process, read_case=C
     try:
         cases = [(e['path'], read_case(Path(e['path']))) for e in index['cases']]
         plan = m_plan(py, [(path, case.data) for path, case in cases])
-        require(len(plan) == 960 and len({tuple(u['argv']) for u in plan}) == 960, 'M plan must be 960 unique units')
+        temperature = index.get('temperature', 'cold')
+        units = future_m(temperature)['units']  # cold stays 960; warm is its own 1088-unit plan and never includes cold cases
+        require(all(c.data['temperature'] == temperature and (temperature == 'cold' or c.data['id'].endswith('-warm')) for _, c in cases), 'index mixes temperatures')
+        require(len(plan) == units and len({tuple(u['argv']) for u in plan}) == units, f'M plan must be {units} unique {temperature} units')
         data = cases[0][1].data
         root = Path(m_output(index['artifactRoot'], data['task']))
         require(not root.exists(), 'prior M artifacts exist')  # never archive (move) a tree this run did not create
@@ -208,17 +225,20 @@ def collect_m(out: Path, index: Record, py: str, runner=run_process, read_case=C
     return result
 
 
-def frozen_protocol(manifest: dict) -> dict:
+def frozen_protocol(manifest: dict, temperature: str = 'cold') -> dict:
     """Everything below is fixed before any observation; its hash binds every later record."""
-    return {'schema': 'native-admission-protocol/v1', 'label': LABEL, 'queryIndices': list(range(8)), 'targets': list(TARGETS),
+    protocol = {'schema': 'native-admission-protocol/v1', 'label': LABEL, 'queryIndices': list(range(8)), 'targets': list(TARGETS),
             'phases': list(PHASES), 'scenarios': list(SCENARIOS), 'invocations': len(order()), 'order': order(),
             'limits': {'scratchBytes': 16 * MIB, 'timeoutSeconds': 120, 'outputBytes': MIB, 'namespaceBytes': 7 * MIB},
             'profiles': {t: {'name': 'reader-linux-' + t + '-v1', 'pids': READER['reader-linux-' + t + '-v1'].pids,
                              'cpus': READER['reader-linux-' + t + '-v1'].cpus, 'memory': READER['reader-linux-' + t + '-v1'].memory,
                              'node': list(READER['reader-linux-' + t + '-v1'].node)} for t in TARGETS},
             'pins': manifest['pins'], 'readerProtocolSha': manifest['protocolSha'],
-            'futureM': {'executed': False, 'cases': 16, 'scenarios': 2, 'pairs': 10, 'slots': 30, 'units': 960},
+            'futureM': {'executed': False, **future_m(temperature)},
             'noStatistics': 'no gain, no timing comparison, no sample extension; records are never M samples'}
+    if temperature == 'warm':  # cold protocol bytes stay exactly historical; warm requests carry shape.temperature warm
+        protocol['temperature'] = 'warm'
+    return protocol
 
 
 def sha(path: Path) -> str:
@@ -322,7 +342,7 @@ def run_unit(budget: ResourceBudget, data: dict, target: str, query: int, phase:
     scratch = Path(tempfile.mkdtemp(prefix='unit-', dir=budget.native_root))
     for sub in ('docker',):
         (scratch / sub).mkdir()
-    shape = {'target': target, 'queryIndex': query, 'window': reader_m_case.WINDOWS[query // 2], 'view': reader_m_case.VIEWS[query % 2]}
+    shape = reader_m_case.expected_shape(target, query, data['temperature'])
     request = {'phase': phase, 'unit': f'qualification-{index:03d}', 'sample': index, 'scenario': scenario, 'caseHash': protocol_sha, 'revision': data[phase]['revision'],
                'fixtureDigest': digest(data['fixtures']), 'harnessDigest': digest(data['harness']), 'shape': shape, 'economicsDigest': data['economicsDigest']}
     env = {'PATH': data['parentEnvironment']['PATH'], 'LANG': 'C', 'PYTHONDONTWRITEBYTECODE': '1', 'HOME': str(scratch), 'TMPDIR': str(scratch),
@@ -389,9 +409,9 @@ def run_unit(budget: ResourceBudget, data: dict, target: str, query: int, phase:
 
 
 def projection(index: Record, records: list[dict]) -> Record:
-    """Whole-960-unit artifact estimate from real envelope sizes; an estimate, never a benchmark result."""
+    """Whole-plan (960 cold / 1088 warm) artifact estimate from real envelope sizes; an estimate, never a benchmark result."""
     by = {(r['target'], r['query'], r['phase'], r['scenario']): r for r in records}
-    total, per_case = 0, {}
+    total, per_case, units = 0, {}, 0
     for entry in index['cases']:
         case = load(Path(entry['path']))
         for s in SCENARIOS:
@@ -402,13 +422,14 @@ def projection(index: Record, records: list[dict]) -> Record:
                 save(tmp, {**r, 'definition': case, 'state': slot(case, 0)}, gzip=True)
                 sizes[p] = tmp.stat().st_size
                 shutil.rmtree(tmp.parent)
-            slots = [slot(case, i)['phase'] for i in range(30)]
+            slots = [slot(case, i)['phase'] for i in range(slot_count(case))]
             use = sum(sizes[p] for p in slots)
             per_case[entry['id'] + '/' + s] = use
             total += use
-    return {'label': 'ESTIMATE_ONLY', 'units': 960, 'artifactBytes': total, 'perCaseScenarioBytes': per_case,
+            units += len(slots)
+    return {'label': 'ESTIMATE_ONLY', 'units': units, 'artifactBytes': total, 'perCaseScenarioBytes': per_case,
             'reservationPerUnitBytes': 7 * MIB, 'scratchLimitBytes': 16 * MIB, 'maxObservedPeakBytes': max(r['peakBytes'] for r in records),
-            'note': 'size of gzip receipts incl. definition for every one of the 30 slots; excludes host namespace reservation which is not retained'}
+            'note': 'size of gzip receipts incl. definition for every planned slot (30 cold, 34 warm); excludes host namespace reservation which is not retained'}
 
 
 def execute(args: argparse.Namespace) -> int:
@@ -438,7 +459,9 @@ def execute(args: argparse.Namespace) -> int:
             archive_input(out, str(control / name), role, inputs)
         for p, role in ((str(bridge), 'bridge'), (str(fixture), 'fixture'), (docker, 'docker-control-binary'), (py, 'python-interpreter')):
             archive_input(out, p, role, inputs)
-        protocol = frozen_protocol(manifest)
+        temperature = args.temperature
+        result['temperature'] = temperature
+        protocol = frozen_protocol(manifest, temperature)
         save(live / 'protocol.json', protocol)
         protocol_sha = sha(live / 'protocol.json')
         result['protocolSha'] = protocol_sha
@@ -462,8 +485,8 @@ def execute(args: argparse.Namespace) -> int:
         bootstrap_digest = hashlib.sha256((LABEL + ':' + protocol_sha).encode()).hexdigest()
         bootstrap = {}
         for t in TARGETS:
-            bootstrap[t] = reader_m_case.build_case(**common, case_id=reader_m_case.make_case_id(t, '1h', 'host', 'cold'), target=t, query_index=0, window='1h', view='host',
-                                                    semantic_digest=bootstrap_digest, temperature='cold')
+            bootstrap[t] = reader_m_case.build_case(**common, case_id=reader_m_case.make_case_id(t, '1h', 'host', temperature), target=t, query_index=0, window='1h', view='host',
+                                                    semantic_digest=bootstrap_digest, temperature=temperature)
             bootstrap[t]['qualificationOnly'] = True
         save(live / 'qualification-bootstrap-cases.json', bootstrap)
         budget = ResourceBudget.read(bootstrap['local'])
@@ -480,15 +503,20 @@ def execute(args: argparse.Namespace) -> int:
         save(live / 'semantic-parity.json', {'label': LABEL, 'semantic': semantic})
         cases = live / 'cases'
         cases.mkdir()
-        reader_m_case.build_matrix(common=common, semantic=semantic, directory=cases)
-        index = reader_m_case.read_index(cases / 'index.json')  # unmocked Case.read on every case, on this host
+        reader_m_case.build_matrix(common=common, semantic=semantic, directory=cases, temperature=temperature)
+        index = reader_m_case.read_index(cases / 'index.json', temperature)  # unmocked Case.read on every case, on this host
         require(hashed == {k: sha(Path(k)) for k in hashed}, 'literal common bytes changed during admission')
         result['inputSnapshots'] = verify_inputs(out, [load(Path(e['path'])) for e in index['cases']])
         result['caseRead'] = {'cases': len(index['cases']), 'strictLoad': 'PASS', 'caseDigests': {e['id']: Case.read(Path(e['path'])).sha256 for e in index['cases']}}
         save(live / 'estimate.json', projection(index, records))
-        slots = [slot(load(Path(index['cases'][0]['path'])), i) for i in range(30)]
+        first = load(Path(index['cases'][0]['path']))
+        slots = [slot(first, i) for i in range(slot_count(first))]
+        planned = future_m(temperature)
         save(live / 'future-m-protocol.json', {'label': 'FROZEN_NOT_EXECUTED', 'protocolSha': protocol_sha, 'cases': len(index['cases']), 'scenarios': list(SCENARIOS), 'slots': slots,
-                                              'units': 960, 'artifactRoot': index['artifactRoot'],
+                                              'units': planned['units'], 'temperature': temperature, 'artifactRoot': index['artifactRoot'],
+                                              # existing deadlines are never extended; this is the mean per-unit time the whole-run allowance leaves for the plan
+                                              'meanSecondsPerUnitCeiling': (M_RUN_SECONDS - M_COMPARE_SECONDS - 2 * M_TERM_GRACE - QUAL_SECONDS) / planned['units'],
+                                              'caseUnits': len(slots) * len(SCENARIOS), 'caseSeconds': M_CASE_SECONDS,
                                               'argvTemplate': [py, str(WORK / 'tools/measure.py'), '--case', '<case.path>', '--phase', '<slot.phase>', '--scenario', '<scenario>',
                                                                '--sample', '<slot.sample>', '--output', m_output(index['artifactRoot'], reader_m_case.TASK)],
                                               'outstanding': index['outstanding']})
@@ -543,9 +571,12 @@ def main() -> int:
     parser.add_argument('--out', required=True)
     parser.add_argument('--clean', action='store_true')
     parser.add_argument('--collect-m', action='store_true', help='explicit opt-in: execute the original M plan after qualification')
+    parser.add_argument('--temperature', choices=('cold', 'warm'), default='cold',
+                        help='cold (default) is the historical cohort; warm qualifies and, with --collect-m, collects ONLY the sixteen warm cases')
     args = parser.parse_args()
     if not args.clean:
-        clean_exec(['--control', args.control, '--out', args.out, *(['--collect-m'] if args.collect_m else [])])
+        clean_exec(['--control', args.control, '--out', args.out, *(['--collect-m'] if args.collect_m else []),
+                    *(['--temperature', 'warm'] if args.temperature == 'warm' else [])])
     return execute(args)
 
 

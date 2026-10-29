@@ -21,7 +21,7 @@ SCENARIOS = ('happy', 'failure')
 ARTIFACT_ROOT = EVIDENCE / 'unblocking-20261028/u04'
 # Task 15 is exactly Reedtrullz/Frontpage with the frozen ten-pair native protocol.
 TASK, IDENTITIES, PAIRS = 15, ['Reedtrullz/Frontpage'], 10
-# Native cases are cold fresh-container invocations only; these cohorts are separate and not covered by any case here.
+# Cold cases are fresh-container invocations; warm cases are authored here but unobserved. These cohorts stay OUTSTANDING until qualified observations exist.
 OUTSTANDING = ({'cohort': 'public-mobile-desktop', 'status': 'OUTSTANDING'}, {'cohort': 'warm-user-session', 'status': 'OUTSTANDING'})
 
 
@@ -47,7 +47,7 @@ def build_case(*, case_id: str, task: int, identities: list[str], target: str, q
     require(task == TASK and identities == IDENTITIES and pairs == PAIRS, 'reader cases are Task 15, exactly Reedtrullz/Frontpage, ten pairs')
     require(len(semantic_digest) == 64 and semantic_digest.strip('0123456789abcdef') == '', 'semantic digest must come from the untimed parity step')
     require(sys.platform == 'linux', 'reader cases are authored only on the Linux host that will run them')
-    require(temperature == 'cold', 'native reader cases are cold fresh-container invocations; warm cohorts are separate')
+    require(temperature in ('cold', 'warm'), 'temperature must be cold or warm')
     require((window, view) == (WINDOWS[query_index // 2], VIEWS[query_index % 2]), 'window/view do not match the original query index')
     require(case_id == make_case_id(target, window, view, temperature), 'case id does not match target/window/view/temperature')
     for phase_name, source in (('baseline', baseline), ('candidate', candidate)):
@@ -69,7 +69,7 @@ def build_case(*, case_id: str, task: int, identities: list[str], target: str, q
     phase = lambda p: {'cwd': p['cwd'], 'revision': p['revision'], 'tree': p['tree'], 'sources': sources}
     return {'schema': 'measurement-case/v1', 'id': case_id, 'task': task, 'identities': identities, 'mode': 'native', 'offline': True,
             'pairs': pairs, 'temperature': temperature, 'samplingUnit': 'invocation',
-            'shape': {'target': target, 'queryIndex': query_index, 'window': window, 'view': view}, 'economicsDigest': economics_digest,
+            'shape': {'target': target, 'queryIndex': query_index, 'window': window, 'view': view, **({'temperature': 'warm'} if temperature == 'warm' else {})}, 'economicsDigest': economics_digest,
             'timeout': 120, 'outputBytes': 1048576, 'scratchBytes': 16 * MIB, 'parentEnvironment': parent, 'artifactRoot': str(ARTIFACT_ROOT),
             'scratchRoot': str(Path(parent['root']) / 'native'), 'runtime': runtime(), 'harness': harness,
             'fixtures': {fixture: sources[fixture]}, 'baseline': phase(baseline), 'candidate': phase(candidate),
@@ -81,30 +81,37 @@ def build_case(*, case_id: str, task: int, identities: list[str], target: str, q
             'receiptEncoding': 'gzip-v1'}
 
 
-def build_matrix(*, common: Record, semantic: Record, directory: Path) -> Record:
-    """Write the 16 cold native cases (2 targets x 8 original queries) and their index. semantic: {target: [8 digests]}."""
+def build_matrix(*, common: Record, semantic: Record, directory: Path, temperature: str = 'cold') -> Record:
+    """Write the 16 native cases (2 targets x 8 original queries) of one temperature (default: the historical cold matrix) and their index.
+    semantic: {target: [8 digests]}. A warm matrix carries temperature 'warm' in every case and shape; cold bytes are unchanged."""
+    require(temperature in ('cold', 'warm'), 'temperature must be cold or warm')
     entries = []
     for target in ('local', 'do'):
         require(isinstance(semantic.get(target), list) and len(semantic[target]) == 8, 'eight semantic digests per target')
         for index, digest_ in enumerate(semantic[target]):
             window, view = WINDOWS[index // 2], VIEWS[index % 2]
-            identity = make_case_id(target, window, view, 'cold')
+            identity = make_case_id(target, window, view, temperature)
             case = build_case(**common, case_id=identity, target=target, query_index=index, window=window, view=view,
-                              semantic_digest=digest_, temperature='cold')
+                              semantic_digest=digest_, temperature=temperature)
             path = directory / (identity + '.json')
             save(path, case)
             entries.append({'id': identity, 'path': str(path), 'target': target, 'queryIndex': index, 'window': window, 'view': view,
-                            'temperature': 'cold', 'sha256': file_hash(path)})
-    index = {'schema': 'reader-m-case-index/v1', 'temperature': 'cold', 'scenarios': list(SCENARIOS), 'artifactRoot': str(ARTIFACT_ROOT),
+                            'temperature': temperature, 'sha256': file_hash(path)})
+    index = {'schema': 'reader-m-case-index/v1', 'temperature': temperature, 'scenarios': list(SCENARIOS), 'artifactRoot': str(ARTIFACT_ROOT),
              'cases': sorted(entries, key=lambda e: e['id']), 'outstanding': list(OUTSTANDING)}
     save(directory / 'index.json', index)
     return index
 
 
-def read_index(path: Path) -> Record:
-    """Strictly re-read every indexed case; a saved JSON file alone is never a pass."""
+def expected_shape(target: str, query: int, temperature: str) -> Record:
+    shape = {'target': target, 'queryIndex': query, 'window': WINDOWS[query // 2], 'view': VIEWS[query % 2]}
+    return {**shape, 'temperature': 'warm'} if temperature == 'warm' else shape
+
+
+def read_index(path: Path, temperature: str = 'cold') -> Record:
+    """Strictly re-read every indexed case of the requested temperature; a saved JSON file alone is never a pass."""
     index = load(path)
-    require(index.get('schema') == 'reader-m-case-index/v1' and index.get('temperature') == 'cold', 'index schema/temperature')
+    require(index.get('schema') == 'reader-m-case-index/v1' and index.get('temperature') == temperature, 'index schema/temperature')
     require(index.get('scenarios') == list(SCENARIOS) and index.get('artifactRoot') == str(ARTIFACT_ROOT), 'index scenarios/artifact root')
     require(index.get('outstanding') == list(OUTSTANDING), 'index must list the outstanding public/warm cohorts')
     expected = {(t, i) for t in ('local', 'do') for i in range(8)}
@@ -113,13 +120,13 @@ def read_index(path: Path) -> Record:
         target, query = entry['target'], entry['queryIndex']
         require((target, query) in expected and (target, query) not in seen, 'missing/duplicate/unknown native case')
         seen.add((target, query))
-        require(entry['id'] == make_case_id(target, WINDOWS[query // 2], VIEWS[query % 2], 'cold')
+        require(entry['id'] == make_case_id(target, WINDOWS[query // 2], VIEWS[query % 2], temperature)
                 and (entry['window'], entry['view']) == (WINDOWS[query // 2], VIEWS[query % 2]), 'index window/view/index mismatch')
         require(file_hash(Path(entry['path'])) == entry['sha256'], 'stale indexed case')
         case = Case.read(Path(entry['path']))
         data = case.data
-        require(data['id'] == entry['id'] and data['shape'] == {'target': target, 'queryIndex': query, 'window': entry['window'], 'view': entry['view']}
-                and data['temperature'] == 'cold' and sorted(data['commands']) == sorted(SCENARIOS)
+        require(entry.get('temperature') == temperature and data['id'] == entry['id'] and data['shape'] == expected_shape(target, query, temperature)
+                and data['temperature'] == temperature and sorted(data['commands']) == sorted(SCENARIOS)
                 and data['artifactRoot'] == index['artifactRoot'], 'indexed case does not match its entry')
         require((data['task'], data['identities'], data['pairs']) == (TASK, IDENTITIES, PAIRS)
                 and data['container']['profile'] == 'reader-linux-' + target + '-v1', 'indexed case task/identity/pairs/profile attribution')
@@ -133,13 +140,14 @@ def main() -> int:
     parser.add_argument('--spec', required=True)
     parser.add_argument('--output', help='single case file')
     parser.add_argument('--matrix-dir', help='write the sixteen-case matrix and index.json; SPEC is {common, semantic}')
+    parser.add_argument('--temperature', choices=('cold', 'warm'), default='cold', help='matrix temperature; cold (historical) unless warm is selected')
     args = parser.parse_args()
     try:
         spec = json.loads(Path(args.spec).read_text())
         require(isinstance(spec, dict), 'spec must be an object')
         if args.matrix_dir:
-            index = build_matrix(common=spec['common'], semantic=spec['semantic'], directory=Path(args.matrix_dir))
-            read_index(Path(args.matrix_dir) / 'index.json')
+            index = build_matrix(common=spec['common'], semantic=spec['semantic'], directory=Path(args.matrix_dir), temperature=args.temperature)
+            read_index(Path(args.matrix_dir) / 'index.json', args.temperature)
             print(json.dumps({'status': 'PASS', 'index': str(Path(args.matrix_dir) / 'index.json'), 'cases': len(index['cases'])}))
             return 0
         require(bool(args.output), '--output or --matrix-dir required')

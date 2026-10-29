@@ -82,9 +82,9 @@ jobs:
             .reader-m/variants/*/closure.json
           if-no-files-found: ignore
           retention-days: 7
-      - name: Admit native reader M cases on this host, then collect original M (qualification first, strict Case.read before any sample)
+      - name: Admit native reader M cases on this host, then collect the missing warm cohort (qualification first, strict Case.read before any sample)
         timeout-minutes: 60
-        run: python3 work/portfolio-performance/tools/native_admission.py --control .reader-m --out .reader-m-admission --collect-m
+        run: python3 work/portfolio-performance/tools/native_admission.py --control .reader-m --out .reader-m-admission --collect-m --temperature warm
       - uses: actions/upload-artifact@v6
         if: always()
         with:
