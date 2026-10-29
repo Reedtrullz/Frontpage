@@ -156,6 +156,8 @@ def invoke(config, request):
     started = time.monotonic()
     for name, expected in json.loads(Path(config['immutableInputs']).read_bytes()).items():
         assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == expected, 'immutable production input drift'
+    for name, target in json.loads(Path(config['dependencyLinks']).read_bytes()).items():
+        assert Path(name).is_symlink() and os.readlink(name) == target, 'immutable dependency link drift'
     result, output = execute(config, [config['node'], str(HERE / 'public-m-browser.mjs'), config['manifest']], request)
     cache = Path(config['sources'][request['phase']]['cwd']) / '.next/standalone/.next/cache'
     host_cache_unchanged = not any(cache.iterdir())

@@ -15,7 +15,7 @@ TOOLS = ROOT / 'work/portfolio-performance/tools'
 sys.path.insert(0, str(TOOLS))
 from protocol import Case, EVIDENCE, RUN_TMP, digest, file_hash, runtime, save, slot
 from resource_limits import capture_environment, FRONTPAGE_APPROVAL, FRONTPAGE_APPROVAL_SHA, ResourceBudget
-from native_admission import make_checkouts, write_scope_and_ownership, run_process, m_plan
+from native_admission import make_checkouts, write_scope_and_ownership, run_process, m_plan, archive_input, verify_inputs
 
 spec = importlib.util.spec_from_file_location('frontpage_public_linux', ROOT / 'scripts/perf/public-m-linux.py')
 assert spec and spec.loader
@@ -26,7 +26,22 @@ PINS = {'before': {'commit': '683b0af0c5d5aa71933a731f108ff8cc5ba6e11e', 'blob':
 CAPABILITIES = ['public-production-browser-v1', 'signed-out-redaction', 'actual-encoded-http']
 SOURCES = ['scripts/perf/public-m-browser.mjs', 'scripts/perf/public-m-linux.py', 'scripts/perf/public-linux-guard.json',
            'scripts/perf/public-m-prepare.py', 'work/portfolio-performance/tools/native.py',
-           'work/portfolio-performance/tools/protocol.py', 'work/portfolio-performance/tools/resource_limits.py']
+           'work/portfolio-performance/tools/protocol.py', 'work/portfolio-performance/tools/resource_limits.py',
+           'work/portfolio-performance/tools/native_admission.py', 'work/portfolio-performance/tools/measure.py',
+           'work/portfolio-performance/tools/compare.py', 'work/portfolio-performance/tools/decisions.py']
+
+
+def owned_graph(source: Path, target: Path) -> dict[str, str]:
+    shutil.copytree(source, target, symlinks=True, copy_function=os.link)
+    links = {}
+    for path in target.rglob('*'):
+        if path.is_symlink():
+            assert path.exists() and path.resolve().is_relative_to(target.resolve()), 'dependency link escapes owned graph'
+            links[str(path)] = os.readlink(path)
+        elif path.is_file():
+            original = source / path.relative_to(target)
+            assert os.stat(original).st_ino == path.stat().st_ino and os.stat(original).st_dev == path.stat().st_dev
+    return links
 
 
 def request(case, phase, scenario, index=0):
@@ -57,7 +72,7 @@ def case_for(config, viewport, temperature, semantic) -> dict[str, Any]:
             'metrics': {name: {'unit': unit, 'kind': kind, 'direction': 'lower', 'scope': 'nested', 'aggregate': aggregate, 'repetitions': 2}
                         for name, unit, kind, aggregate in [('navigationMs', 'ms', 'timing', 'median'), ('encodedBytes', 'bytes', 'counter', 'sum')]},
             'commands': {s: {p: argv for p in ('baseline', 'candidate')} for s in ('happy', 'failure')},
-            'allowlist': [argv], 'executables': {argv[0]: file_hash(Path(argv[0]))}, 'receiptEncoding': 'gzip-v1'}
+            'allowlist': [argv], 'executables': {p: file_hash(Path(p)) for p in (argv[0], config['node'])}, 'receiptEncoding': 'gzip-v1'}
 
 
 def main(collect):
@@ -65,44 +80,45 @@ def main(collect):
     assert shutil.disk_usage(ROOT).free >= 30 * 1024 ** 3, '30GiB build admission floor'
     setup = ROOT / '.public-m-setup'
     setup.mkdir()
-    node_path, pnpm_path = shutil.which('node'), shutil.which('pnpm')
-    assert node_path and pnpm_path, 'preinstalled Node/pnpm required'
+    node_path = shutil.which('node')
+    assert node_path, 'preinstalled Node required'
     node = str(Path(node_path).resolve())
-    pnpm = str(Path(pnpm_path).resolve())
     host_home = str(Path.home())
     clean = {'PATH': os.environ['PATH'], 'HOME': str(setup / 'build-home'), 'TMPDIR': str(setup / 'build-tmp'),
              'NEXT_TELEMETRY_DISABLED': '1', 'AUTH_SECRET': 'frontpage-public-m-fixture-only', 'LANG': 'C'}
     for key in ('HOME', 'TMPDIR'):
         Path(clean[key]).mkdir()
-    help_result = subprocess.run([node, str(ROOT / 'node_modules/next/dist/bin/next'), 'build', '--help'],
-                                 cwd=ROOT, env=clean, text=True, capture_output=True, check=True, timeout=20)
-    assert '--webpack' in help_result.stdout, 'installed Next does not offer the admitted build compiler'
-    save(setup / 'build-toolchain.json', {'compiler': 'webpack', 'reason': 'Pinned checkout shares installed dependencies outside its Turbopack root',
-                                        'next': json.loads((ROOT / 'node_modules/next/package.json').read_bytes())['version'],
-                                        'help': help_result.stdout, 'helpDigest': digest(help_result.stdout),
-                                        'buildArgvSuffix': ['run', 'build', '--webpack']})
+    save(setup / 'build-toolchain.json', {'compiler': 'default-turbopack', 'dependencyStaging': 'owned graph of existing installed bytes, hardlinked files and contained relative links',
+                                        'next': json.loads((ROOT / 'node_modules/next/package.json').read_bytes())['version'], 'packageManagerInvocations': 0})
     checkouts = make_checkouts(setup, PINS, clean)
     write_scope_and_ownership(checkouts)
     clock = setup / 'clock.cjs'
     clock.write_text('const D=Date;global.Date=class extends D{constructor(...a){super(...(a.length?a:[1793203200000]))}static now(){return 1793203200000}};\n')
-    fixtures = {}
+    fixtures, links = {}, {}
+    installed = {str(p.relative_to(ROOT / 'node_modules')): file_hash(p) for p in (ROOT / 'node_modules').rglob('*') if p.is_file() and not p.is_symlink()}
+    save(setup / 'installed-graph.json', installed)
     for phase, source in checkouts.items():
         cwd = Path(source['cwd'])
         assert (cwd / 'pnpm-lock.yaml').read_bytes() == (ROOT / 'pnpm-lock.yaml').read_bytes(), 'dependency graph changed'
-        (cwd / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
-        subprocess.run([pnpm, 'run', 'build', '--webpack'], cwd=cwd, env=clean, check=True, timeout=600)
+        links.update(owned_graph(ROOT / 'node_modules', cwd / 'node_modules'))
+        subprocess.run([node, str(cwd / 'node_modules/next/dist/bin/next'), 'build'], cwd=cwd, env=clean, check=True, timeout=600)
+        assert all(file_hash(ROOT / 'node_modules' / p) == sha for p, sha in installed.items()), 'build changed installed dependency bytes'
         subprocess.run([node, '--require', str(clock), str(cwd / 'tests/e2e/prepare-runtime.mjs')], cwd=cwd, env=clean, check=True, timeout=60)
         (cwd / '.next/standalone/.next/cache').mkdir(parents=True, exist_ok=True)
         fixtures[phase] = {k: str(cwd / 'tests/e2e' / v) for k, v in [('legacy', '.metrics'), ('public', '.metrics-v2-public'), ('owner', '.metrics-v2-owner')]}
     manifest = setup / 'manifest.json'
+    save(setup / 'dependency-links.json', links)
     artifacts = EVIDENCE / 'unblocking-20261028/u04-public'
     artifacts.mkdir(parents=True)
     config = {'root': str(ROOT), 'hostHome': host_home, 'browsers': os.environ.get('PLAYWRIGHT_BROWSERS_PATH', host_home + '/.cache/ms-playwright'),
               'node': node, 'clock': str(clock), 'sources': checkouts, 'fixtures': fixtures, 'manifest': str(manifest),
-              'immutableInputs': str(setup / 'immutable-inputs.json'), 'controlReceipt': str(artifacts / 'controls.json')}
+              'immutableInputs': str(setup / 'immutable-inputs.json'), 'controlReceipt': str(artifacts / 'controls.json'),
+              'dependencyLinks': str(setup / 'dependency-links.json')}
     save(manifest, config)
     # Freeze every setup file's identity separately from counted writable runtime data.
-    save(setup / 'immutable-inputs.json', {str(p): file_hash(p) for p in sorted(setup.rglob('*')) if p.is_file() and not p.is_symlink()})
+    immutable = {str(p): file_hash(p) for p in sorted(setup.rglob('*')) if p.is_file() and not p.is_symlink()}
+    immutable.update({p: file_hash(Path(p)) for p in (node, str(Path(sys.executable).resolve()))})
+    save(setup / 'immutable-inputs.json', immutable)
     viewports = [{'width': 1440, 'height': 1000}, {'width': 390, 'height': 844}]
     temperatures = ['cold', 'warm']
     protocol = {'pairs': 10, 'scenarios': ['happy', 'failure'], 'viewports': viewports,
@@ -145,6 +161,12 @@ def main(collect):
                 assert time.monotonic() - started < 1200, 'qualification deadline'
         plan = m_plan(str(Path(sys.executable).resolve()), cases)
         assert len(plan) == 256
+        inputs = {}
+        for _, case in cases:
+            for role in ('harness', 'fixtures', 'executables'):
+                for source in case[role]:
+                    archive_input(setup, source, role, inputs)
+        save(artifacts / 'input-snapshot-verification.json', verify_inputs(setup, [case for _, case in cases]))
         save(artifacts / 'm-plan.json', plan)
         if collect:
             case_starts = {}

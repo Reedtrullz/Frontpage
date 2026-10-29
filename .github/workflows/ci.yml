@@ -94,6 +94,10 @@ jobs:
             .public-m-setup/immutable-inputs.json
             .public-m-setup/protocol.json
             .public-m-setup/clock.cjs
+            .public-m-setup/build-toolchain.json
+            .public-m-setup/installed-graph.json
+            .public-m-setup/dependency-links.json
+            .public-m-setup/inputs/
             .public-m-setup/T15-public-*.json
             .omo/evidence/portfolio-performance/unblocking-20261028/u04-public/
             scripts/perf/public-m-*

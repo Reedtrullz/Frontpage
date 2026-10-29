@@ -63,7 +63,7 @@ class PublicEnvelopeTests(ResourceTests):
         manifest, clock, inputs = (self.root / n for n in ('manifest.json', 'clock.cjs', 'inputs.json'))
         for file in (manifest, clock, inputs):
             save(file, {})
-        config = {'manifest': str(manifest), 'clock': str(clock), 'immutableInputs': str(inputs),
+        config = {'manifest': str(manifest), 'clock': str(clock), 'immutableInputs': str(inputs), 'node': sys.executable,
                   'sources': {p: self.case[p] for p in ('baseline', 'candidate')}}
         cases = [(str(self.root / f'{width}-{temperature}.json'), producer.case_for(config, {'width': width, 'height': height}, temperature, '0' * 64))
                  for width, height in ((1440, 1000), (390, 844)) for temperature in ('cold', 'warm')]
@@ -89,7 +89,7 @@ class PublicEnvelopeTests(ResourceTests):
         cache.mkdir(parents=True)
         inputs = self.root / 'inputs.json'
         inputs.write_text('{}')
-        config = {'immutableInputs': str(inputs), 'node': '/node', 'manifest': '/fixture-manifest',
+        config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': '/node', 'manifest': '/fixture-manifest',
                   'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
         result = {'returncode': 0, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
         with patch.object(guard, 'execute', return_value=(result, b'{"status":"complete"}')), patch.object(guard.time, 'monotonic', side_effect=[0, 121]):
@@ -100,6 +100,28 @@ class PublicEnvelopeTests(ResourceTests):
             with self.assertRaisesRegex(AssertionError, 'immutable production input drift'):
                 guard.invoke(config, {'phase': 'baseline'})
             launch.assert_not_called()
+
+    def test_owned_dependency_graph_has_real_hardlinks_and_rejects_escape(self) -> None:
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+        spec = importlib.util.spec_from_file_location('public_owned_graph_test', path)
+        assert spec and spec.loader
+        producer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(producer)
+        source, target = self.root / 'installed', self.root / 'owned'
+        (source / 'pkg').mkdir(parents=True)
+        original = source / 'pkg/index.js'
+        original.write_bytes(b'authored module bytes')
+        (source / 'alias').symlink_to('pkg', target_is_directory=True)
+        links = producer.owned_graph(source, target)
+        self.assertEqual((target / 'alias/index.js').read_bytes(), original.read_bytes())
+        self.assertEqual((target / 'pkg/index.js').stat().st_ino, original.stat().st_ino)
+        self.assertEqual(links[str(target / 'alias')], 'pkg')
+        foreign = self.root / 'foreign'
+        foreign.write_bytes(b'authored foreign canary')
+        (source / 'outside').symlink_to(foreign)
+        with self.assertRaisesRegex(AssertionError, 'escapes owned graph'):
+            producer.owned_graph(source, self.root / 'rejected')
+        self.assertEqual(foreign.read_bytes(), b'authored foreign canary')
 
 
 if __name__ == '__main__':
