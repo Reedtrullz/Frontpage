@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -89,6 +90,41 @@ def write_scope_and_ownership(checkouts: dict, scope_path: Path = SCOPE, ownersh
     claims = [{'taskId': reader_m_case.TASK, 'checkout': c['cwd'], 'created': True} for c in checkouts.values()]
     ownership_path.write_text(json.dumps({'generatedOnHost': True, 'rows': [{'identity': reader_m_case.IDENTITIES[0], 'roots': [{'path': str(ROOT)}],
                                                                               'taskOwnedCheckouts': claims}]}, sort_keys=True))
+
+
+INPUT_CLASS = 'immutable-input'
+
+
+def archive_input(out: Path, path: str, role: str, manifest: dict) -> None:
+    """Byte-copy one immutable referenced input, read-only and content-addressed, before any observation that depends on it.
+    Inputs live beside (never inside) the writable scratch/caches/M outputs; they are frozen provenance, not an allowance."""
+    data = Path(path).read_bytes()
+    digest_ = hashlib.sha256(data).hexdigest()
+    directory = out / 'inputs'
+    directory.mkdir(exist_ok=True)
+    target = directory / digest_
+    if not target.exists():
+        target.write_bytes(data)
+        target.chmod(0o444)
+    manifest[path] = {'sourcePath': path, 'resolvedPath': str(Path(path).resolve()), 'sha256': digest_, 'size': len(data), 'archivedAs': 'inputs/' + digest_,
+                      'classification': INPUT_CLASS, 'role': role}
+    save(directory / 'manifest.json', {'label': LABEL, 'classification': INPUT_CLASS, 'inputs': manifest})
+
+
+def verify_inputs(out: Path, cases: list[dict]) -> dict:
+    """Every direct case binding (harness, fixtures, executables, both phase sources) must have archived bytes that hash to the bound value."""
+    manifest = load(out / 'inputs' / 'manifest.json')['inputs']
+    bindings = 0
+    for data in cases:
+        for group in (data['harness'], data['fixtures'], data['executables'], data['baseline']['sources'], data['candidate']['sources']):
+            for source, expected in group.items():
+                entry = manifest.get(source)
+                require(entry is not None and entry['sha256'] == expected, 'case binding has no archived input snapshot: ' + source)
+                archived = out / entry['archivedAs']
+                require(archived.is_file() and not archived.stat().st_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+                        and hashlib.sha256(archived.read_bytes()).hexdigest() == expected, 'archived input bytes missing, writable or altered: ' + source)
+                bindings += 1
+    return {'cases': len(cases), 'bindingsVerified': bindings, 'distinctInputs': len(manifest), 'missing': [], 'classification': INPUT_CLASS}
 
 
 def parity(records: list[dict]) -> dict:
@@ -220,21 +256,29 @@ def execute(args: argparse.Namespace) -> int:
         require(sys.platform == 'linux', 'admission runs only on the actual Linux host')
         freeze, manifest = load(control / 'freeze.json'), load(control / 'manifest.json')
         require(load(control / 'qualification.json').get('pass') is True and (control / 'image.id').read_text().strip() == freeze['imageId'], 'reader qualification not passed')
+        inputs: dict = {}
+        docker = shutil.which('docker', path=CLEAN_PATH)
+        require(docker is not None, 'docker executable missing')
+        assert docker is not None
+        bridge, fixture = ROOT / 'scripts/perf/reader-m-bridge.mjs', ROOT / 'scripts/perf/reader-m-fixture.mjs'
+        py = str(Path(sys.executable).resolve())
+        for name, role in (('freeze.json', 'control'), ('manifest.json', 'control'), ('image.id', 'control'), ('qualification.json', 'control')):
+            archive_input(out, str(control / name), role, inputs)
+        for p, role in ((str(bridge), 'bridge'), (str(fixture), 'fixture'), (docker, 'docker-control-binary'), (py, 'python-interpreter')):
+            archive_input(out, p, role, inputs)
         protocol = frozen_protocol(manifest)
         save(out / 'protocol.json', protocol)
         protocol_sha = sha(out / 'protocol.json')
         result['protocolSha'] = protocol_sha
         result['protocolFrozenAtNs'] = time.monotonic_ns()
-        docker = shutil.which('docker', path=CLEAN_PATH)
-        require(docker is not None, 'docker executable missing')
-        assert docker is not None
+        archive_input(out, str(out / 'protocol.json'), 'frozen-protocol', inputs)
         graph = record(manifest['graph'])
         require(graph['lock'] == sha(ROOT / 'pnpm-lock.yaml'), 'pnpm lock differs from the attested image graph')
         checkouts = make_checkouts(ROOT / '.omo/native-admission/checkouts', manifest['pins'], git_env)
         write_scope_and_ownership(checkouts)
         generated = True
-        bridge, fixture = ROOT / 'scripts/perf/reader-m-bridge.mjs', ROOT / 'scripts/perf/reader-m-fixture.mjs'
-        py = str(Path(sys.executable).resolve())
+        archive_input(out, str(SCOPE), 'generated-scope', inputs)
+        archive_input(out, str(OWNERSHIP), 'generated-ownership', inputs)
         result['provenance'] = {'checkouts': checkouts, 'graph': graph, 'pins': manifest['pins'], 'imageId': freeze['imageId'], 'python': {'path': py, 'sha256': sha(Path(py)), 'version': sys.version},
                                 'docker': {'path': docker, 'sha256': sha(Path(docker))}, 'git': git('--version', env=git_env), 'runtime': runtime(),
                                 'head': git('rev-parse', 'HEAD', env=git_env), 'tree': git('rev-parse', 'HEAD^{tree}', env=git_env), 'environment': dict(os.environ)}
@@ -266,6 +310,7 @@ def execute(args: argparse.Namespace) -> int:
         reader_m_case.build_matrix(common=common, semantic=semantic, directory=cases)
         index = reader_m_case.read_index(cases / 'index.json')  # unmocked Case.read on every case, on this host
         require(hashed == {k: sha(Path(k)) for k in hashed}, 'literal common bytes changed during admission')
+        result['inputSnapshots'] = verify_inputs(out, [load(Path(e['path'])) for e in index['cases']])
         result['caseRead'] = {'cases': len(index['cases']), 'strictLoad': 'PASS', 'caseDigests': {e['id']: Case.read(Path(e['path'])).sha256 for e in index['cases']}}
         save(out / 'estimate.json', projection(index, records))
         slots = [slot(load(Path(index['cases'][0]['path'])), i) for i in range(30)]

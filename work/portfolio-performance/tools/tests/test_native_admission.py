@@ -100,5 +100,55 @@ class Attribution(unittest.TestCase):
                 reader_m_case.build_case(**self.args(**override))
 
 
+class InputSnapshots(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name) / 'out'
+        self.out.mkdir()
+        self.files = {}
+        for n in ('bridge', 'fixture', 'docker', 'python', 'freeze'):
+            f = Path(self.tmp.name) / n
+            f.write_bytes(n.encode() * 7)
+            self.files[n] = f
+        self.manifest: dict = {}
+        for n, f in self.files.items():
+            na.archive_input(self.out, str(f), n, self.manifest)
+        h = lambda n: hashlib.sha256(n.encode() * 7).hexdigest()
+        src = {str(self.files['bridge']): h('bridge'), str(self.files['fixture']): h('fixture')}
+        self.case = {'harness': {**src, str(self.files['freeze']): h('freeze')}, 'fixtures': {str(self.files['fixture']): h('fixture')},
+                     'executables': {str(self.files['docker']): h('docker'), str(self.files['python']): h('python')},
+                     'baseline': {'sources': src}, 'candidate': {'sources': src}}
+
+    def tearDown(self) -> None:
+        for f in (self.out / 'inputs').iterdir():
+            f.chmod(0o644)
+        self.tmp.cleanup()
+
+    def test_every_binding_has_readonly_bytes(self) -> None:
+        got = na.verify_inputs(self.out, [self.case])
+        self.assertEqual((got['bindingsVerified'], got['missing'], got['classification']), (10, [], 'immutable-input'))
+
+    def test_missing_binding_hash_only_altered_or_writable_snapshots_are_rejected(self) -> None:
+        extra = copy.deepcopy(self.case)
+        extra['executables']['/no/such/docker'] = 'f' * 64
+        with self.assertRaises(Rejected):
+            na.verify_inputs(self.out, [extra])  # expected hash repeated in a document with no archived bytes
+        wrong = copy.deepcopy(self.case)
+        wrong['fixtures'][str(self.files['fixture'])] = 'e' * 64
+        with self.assertRaises(Rejected):
+            na.verify_inputs(self.out, [wrong])
+        archived = self.out / 'inputs' / hashlib.sha256(b'docker' * 7).hexdigest()
+        archived.chmod(0o644)
+        with self.assertRaises(Rejected):
+            na.verify_inputs(self.out, [self.case])  # writable
+        archived.write_bytes(b'tampered')
+        archived.chmod(0o444)
+        with self.assertRaises(Rejected):
+            na.verify_inputs(self.out, [self.case])  # altered
+        archived.unlink()
+        with self.assertRaises(Rejected):
+            na.verify_inputs(self.out, [self.case])  # manifest entry without bytes
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -90,7 +90,8 @@ jobs:
         with:
           name: reader-m-native-admission
           path: .reader-m-admission/
-          if-no-files-found: ignore
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
       - name: Validate Cloudflare upload bundle
         run: pnpm exec wrangler deploy --config wrangler.jsonc --dry-run
