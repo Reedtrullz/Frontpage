@@ -54,7 +54,7 @@ class ProfileAdmission(unittest.TestCase):
 
     def build(self, **controls: object) -> dict:
         sources = {str(BRIDGE): file_hash(BRIDGE), str(FIXTURE): file_hash(FIXTURE)}
-        return {'runtime': {'platform': 'Linux-6.8-aarch64'}, 'timeout': 120, 'scratchBytes': 16 * MIB, 'fixtures': {str(FIXTURE): sources[str(FIXTURE)]},
+        return {'shape': {'target': 'do'}, 'runtime': {'platform': 'Linux-6.8-aarch64'}, 'timeout': 120, 'scratchBytes': 16 * MIB, 'fixtures': {str(FIXTURE): sources[str(FIXTURE)]},
                 'harness': {**sources, **write_controls(self.root, **controls)}, 'baseline': {'sources': sources},
                 'executables': {self.docker: file_hash(Path(self.docker))},
                 'commands': {'happy': {'baseline': [self.docker, READER_ENTRY]}, 'failure': {'baseline': [self.docker, READER_ENTRY]}},
@@ -67,6 +67,7 @@ class ProfileAdmission(unittest.TestCase):
     def test_accepts_both_profiles_and_binds_envelopes(self) -> None:
         for name, pids, memory in (('reader-linux-local-v1', 32, 128 * MIB), ('reader-linux-do-v1', 128, 512 * MIB)):
             self.data['container']['profile'] = name
+            self.data['shape'] = {'target': name.split('-')[2]}
             self.assertEqual(validate(self.data, 'baseline')['profile'], name)
             self.assertEqual((READER[name].pids, READER[name].memory), (pids, memory))
         self.assertIn('--permission', READER['reader-linux-local-v1'].node)
@@ -76,6 +77,9 @@ class ProfileAdmission(unittest.TestCase):
     def test_rejects_every_mismatched_binding(self) -> None:
         def host(d): d['runtime']['platform'] = 'macOS-26-arm64'
         def image(d): d['container']['image'] = 'sha256:' + 'b' * 64
+        def profile(d): d['container']['profile'] = 'reader-linux-local-v1'
+        def shape(d): d['shape'] = {'target': 'local'}
+        def no_shape(d): del d['shape']
         def tag(d): d['container']['image'] = 'node:latest'
         def freeze(d): (self.root / 'freeze.json').write_text('{"imageId": "' + IMAGE_ID + '", "manifestSha": "changed", "protocolSha": "p"}')
         def malformed(d): (self.root / 'freeze.json').write_text('{'); d['harness'][str(self.root / 'freeze.json')] = file_hash(self.root / 'freeze.json')
@@ -92,7 +96,7 @@ class ProfileAdmission(unittest.TestCase):
         def image_id(d): (self.root / 'image.id').write_text('sha256:' + 'e' * 64 + '\n'); d['harness'][str(self.root / 'image.id')] = file_hash(self.root / 'image.id')
         def qualification(d): d['harness'] = self.build(qualified=False)['harness']
         def no_bridge(d): del d['baseline']['sources'][str(BRIDGE)]
-        expected = {host: 'actual Linux host', image: 'does not bind the reader image', tag: 'immutable image ID', freeze: 'unbound or stale reader freeze',
+        expected = {host: 'actual Linux host', profile: 'does not match shape.target', shape: 'does not match shape.target', no_shape: 'does not match shape.target', image: 'does not bind the reader image', tag: 'immutable image ID', freeze: 'unbound or stale reader freeze',
                     malformed: '', foreign: 'does not bind the reader image', unbound: 'unbound or stale reader freeze.json', entry: 'entrypoint binding',
                     argv: 'entry binding', scratch: 'namespace reservation', extra: 'container fields', mount: 'no bind mounts', work: 'no bind mounts',
                     manifest: 'does not bind the manifest', bridge_hash: 'differ from committed sources', image_id: 'image.id does not bind',

@@ -82,6 +82,16 @@ jobs:
             .reader-m/variants/*/closure.json
           if-no-files-found: ignore
           retention-days: 7
+      - name: Admit native reader M cases on this host (qualification only, no samples)
+        timeout-minutes: 25
+        run: python3 work/portfolio-performance/tools/native_admission.py --control .reader-m --out .reader-m-admission
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: reader-m-native-admission
+          path: .reader-m-admission/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Validate Cloudflare upload bundle
         run: pnpm exec wrangler deploy --config wrangler.jsonc --dry-run
 

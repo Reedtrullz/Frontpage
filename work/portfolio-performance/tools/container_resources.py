@@ -111,6 +111,8 @@ def validate(data: Record, phase: str) -> Record:
     require(set(spec) == (READER_FIELDS if reader else {'profile', 'image', 'docker', 'mounts', 'scratchBytes'}), 'container fields')
     if reader:
         require(str(record(data['runtime']).get('platform', '')).startswith('Linux'), 'reader profile requires an actual Linux host')
+        # Each target keeps its own frozen guard: a local shape must not run under the 512MiB/no-permission DO profile or vice versa.
+        require(spec['profile'] == 'reader-linux-' + str(record(data.get('shape') or {}).get('target')) + '-v1', 'container profile does not match shape.target')
         require(isinstance(spec['image'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', spec['image']) is not None, 'reader image must be an immutable image ID')
         require(spec['scratchBytes'] == 7 * MIB, 'reader namespace reservation is tmpfs 6MiB + shm 1MiB')
         require(spec['entrypoint'] == READER_ENTRY, 'reader entrypoint binding')

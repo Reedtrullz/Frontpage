@@ -19,6 +19,8 @@ WINDOWS = ('1h', '24h', '7d', '30d')
 VIEWS = ('host', 'workloads')
 SCENARIOS = ('happy', 'failure')
 ARTIFACT_ROOT = EVIDENCE / 'unblocking-20261028/u04'
+# Task 15 is exactly Reedtrullz/Frontpage with the frozen ten-pair native protocol.
+TASK, IDENTITIES, PAIRS = 15, ['Reedtrullz/Frontpage'], 10
 # Native cases are cold fresh-container invocations only; these cohorts are separate and not covered by any case here.
 OUTSTANDING = ({'cohort': 'public-mobile-desktop', 'status': 'OUTSTANDING'}, {'cohort': 'warm-user-session', 'status': 'OUTSTANDING'})
 
@@ -42,6 +44,7 @@ def build_case(*, case_id: str, task: int, identities: list[str], target: str, q
                semantic_digest: str, economics_digest: str, temperature: str, pairs: int = 10) -> Record:
     """baseline/candidate: {'cwd', 'revision', 'tree'} of the task-owned checkouts holding the pinned reader blobs."""
     require(target in METRICS and type(query_index) is int and 0 <= query_index < 8, 'target/query index')
+    require(task == TASK and identities == IDENTITIES and pairs == PAIRS, 'reader cases are Task 15, exactly Reedtrullz/Frontpage, ten pairs')
     require(len(semantic_digest) == 64 and semantic_digest.strip('0123456789abcdef') == '', 'semantic digest must come from the untimed parity step')
     require(sys.platform == 'linux', 'reader cases are authored only on the Linux host that will run them')
     require(temperature == 'cold', 'native reader cases are cold fresh-container invocations; warm cohorts are separate')
@@ -118,6 +121,8 @@ def read_index(path: Path) -> Record:
         require(data['id'] == entry['id'] and data['shape'] == {'target': target, 'queryIndex': query, 'window': entry['window'], 'view': entry['view']}
                 and data['temperature'] == 'cold' and sorted(data['commands']) == sorted(SCENARIOS)
                 and data['artifactRoot'] == index['artifactRoot'], 'indexed case does not match its entry')
+        require((data['task'], data['identities'], data['pairs']) == (TASK, IDENTITIES, PAIRS)
+                and data['container']['profile'] == 'reader-linux-' + target + '-v1', 'indexed case task/identity/pairs/profile attribution')
     require(seen == expected, 'index must list all sixteen native cases')
     return index
 
