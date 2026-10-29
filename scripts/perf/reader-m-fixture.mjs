@@ -92,6 +92,14 @@ export class ReaderDO {
     if (!this.hashes) this.seed(scale);
     const { readSeriesV2 } = await import('@t15/reader');
     const only = url.searchParams.get('q');
+    // Canonical bridge timed dispatch: unpatched Date.parse and plain SQL passthrough, ORIGINAL query index; hash only.
+    if (url.searchParams.get('raw') === '1') {
+      const query = queries[Number(only)];
+      if (!query) return Response.json({ error: 'query index' }, { status: 400 });
+      globalThis[Symbol.for('__cloudflare-context__')] = { env: { FRONTPAGE_SQL: { exec: (...args) => this.sql.exec(...args) } } };
+      process.env.FRONTPAGE_CLOUDFLARE = '1';
+      return Response.json({ hash: createHash('sha256').update(JSON.stringify(readSeriesV2('/cloudflare/metrics-v2/owner', query, new Date(now)))).digest('hex') });
+    }
     if (only === 'fs') {
       try { return Response.json({ read: String(process.getBuiltinModule('node:fs').readFileSync('/etc/passwd')).length }); } catch (error) { return Response.json({ denied: String(error && error.code || error && error.name) }); }
     }
