@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Test-only hosted fixture: freezes before/candidate reader bundles against the installed pnpm graph, builds an immutable
-// image from that graph (no installer phase), and runs guarded one-shot units. Commands: selfcheck | ci | m.
+// image from that graph (no installer phase), and runs guarded one-shot units. Commands: selfcheck | ci.
 // ci prepares + qualifies guards with identical one-row probe units (both variants, both targets); it collects NO portfolio samples.
-// m refuses unless the admitted protocol hash matches AND a passing, re-judged qualification.json is bound to this image/manifest/protocol.
 import assert from 'node:assert/strict';
 import { createHash, X509Certificate } from 'node:crypto';
 import { rootCertificates } from 'node:tls';
@@ -640,16 +639,14 @@ const cmd = process.argv[2];
 const argOf = (k) => { const i = process.argv.indexOf(k); const v = i > 0 ? process.argv[i + 1] : undefined; return v && !v.startsWith('--') ? v : undefined; };
 if (import.meta.url === 'file://' + process.argv[1]) {
   for (const s of ['SIGINT', 'SIGTERM']) process.on(s, () => { cleanup(); process.exit(130); });
-  const usage = () => { console.error('usage: reader-m-prepare.mjs selfcheck | ci --out DIR | m --out DIR --admitted-protocol-sha SHA'); process.exit(2); };
+  const usage = () => { console.error('usage: reader-m-prepare.mjs selfcheck | ci --out DIR'); process.exit(2); };
   const runSelfcheck = async () => [...selfcheck(), ...await selfcheckAsync()];
   if (cmd === 'selfcheck') console.log(JSON.stringify({ selfcheck: await runSelfcheck() }));
-  else if (cmd === 'ci' || cmd === 'm') {
+  else if (cmd === 'ci') {
     if (process.argv.includes('--out') && !argOf('--out')) usage();
-    if (cmd === 'm' && !/^[0-9a-f]{64}$/.test(argOf('--admitted-protocol-sha') ?? '')) usage();
     const out = path.resolve(argOf('--out') ?? '.reader-m');
-    if (cmd === 'm') await runSelfcheck();
     const finishImage = (freeze) => assert.equal(spawnSync('docker', ['image', 'inspect', '--format', '{{.Id}}', freeze.imageId], { encoding: 'utf8' }).stdout.trim(), freeze.imageId, 'image drift');
-    if (cmd === 'ci') {
+    {
       let freeze, bound, error = null; const recs = [];
       try {
         try { await runSelfcheck(); } catch (e) { throw new Error('selfcheck failed before any native work: ' + e.message); }
@@ -662,15 +659,6 @@ if (import.meta.url === 'file://' + process.argv[1]) {
       fs.writeFileSync(path.join(out, 'qualification.json'), JSON.stringify({ pass: error === null, error, protocolSha: protocolSha(), manifestSha: freeze?.manifestSha ?? null, imageId: freeze?.imageId ?? null, freezeSha: bound?.freezeSha ?? null, units: recs }));
       console.log(JSON.stringify({ qualified: error === null, units: recs.length, error, probes: recs.map((r) => r.out?.probes ?? null) }));
       if (error !== null) process.exitCode = 1;
-    } else {
-      assert.equal(argOf('--admitted-protocol-sha'), protocolSha(), 'protocol not admitted');
-      verifyManifest(out); const bound = verifyBinding(out); verifyQualification(out, bound); finishImage(bound.freeze);
-      let i = 0;
-      for (const target of Object.keys(TARGETS)) for (const slot of schedule(target)) {
-        const rec = await runUnit(out, bound.freeze, { variant: slot.variant, target, mode: 'measure', fixture: 'full', slot }, i++);
-        assert.equal(rec.error, null, 'unit ' + (i - 1) + ': ' + rec.error);
-      }
-      console.log(JSON.stringify({ units: i }));
     }
   } else usage();
 }
