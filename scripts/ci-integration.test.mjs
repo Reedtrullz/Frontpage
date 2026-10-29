@@ -11,7 +11,7 @@ const dockerfile = fs.readFileSync(new URL("../Dockerfile", import.meta.url), "u
 
 test("workflow preserves stacked issue branch filters and owner transport regression", () => {
   assert.deepEqual(workflow.on.push.branches, ["main"]);
-  assert.deepEqual(workflow.on.pull_request.branches, ["main", "codex/frontpage-*"]);
+  assert.deepEqual(workflow.on.pull_request.branches, ["main", "codex/frontpage-*", "codex/test-frontpage-full-windows-20261028"]);
   assert.ok(Object.hasOwn(workflow.on, "workflow_dispatch"));
   assert.ok(workflow.jobs.test.steps.some((step) => step.run === "node --test ops/owner-state-transport.test.mjs"));
 });
