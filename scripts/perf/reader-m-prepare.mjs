@@ -22,7 +22,8 @@ export const CA_IMAGE_PATH = '/etc/ssl/certs/ca-certificates.crt';
 // The pinned base has no OpenSSL config and none is added. Node's permission model denies reading the absent default /etc/ssl/openssl.cnf (EACCES), so guarded units point at an absent path under the already readable /image to get the benign ENOENT.
 export const OPENSSL_CONF_ABSENT = '/image/out/openssl.cnf';
 export const CA_OUT_PATH = '/image/out/ca-certificates.crt'; // same bytes as CA_IMAGE_PATH (kept for workerd), readable under --allow-fs-read=/image
-const configAbsentIn = (image) => spawnSync('docker', ['run', '--rm', '--pull', 'missing', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', '1000:1000', '--entrypoint', '/bin/sh', image, '-c', 'test ! -e /etc/ssl/openssl.cnf && test ! -e ' + OPENSSL_CONF_ABSENT], { encoding: 'utf8', timeout: 60000 }).status === 0;
+// Counts decoded bytes seen by the reader's gunzipSync. With {info:true} zlib returns {buffer,engine}; otherwise a Buffer (never read Buffer.buffer, the backing ArrayBuffer). The native result is returned unchanged.
+export const OBSERVER = "import {gunzipSync as g, gzipSync} from 'node:zlib'; export {gzipSync}; export function gunzipSync(...a){const r=g(...a);const c=globalThis.t15Counters;if(c){const n=(a[1]&&a[1].info===true?r.buffer:r).byteLength;if(c.files===1)c.manifest+=n;else c.decoded+=n;}return r;}";
 const PEM = /-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+?-----END CERTIFICATE-----/g;
 export function readPublicCa(file = CA_SOURCE) {
   const st = fs.lstatSync(file);
@@ -467,6 +468,25 @@ async function selfcheckAsync() {
   assert.deepEqual(Object.keys(entry).sort(), ['ReaderDO', 'default']);
   assert.ok(entry.ReaderDO === shared.ReaderDO && entry.default === shared.default && bad(entry).length === 0);
   assert.ok(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').includes("entryPoints: [path.join(here, 'reader-m-worker.mjs')]"), 'worker bundle must use the dedicated entry');
+  const obs = await import('data:text/javascript,' + encodeURIComponent(OBSERVER));
+  const zlib = await import('node:zlib');
+  const text = '\u00e5\u00f8 \u20ac \ud83d\ude00 '.repeat(50), want = Buffer.byteLength(text), gz = zlib.gzipSync(text);
+  const withCounters = (fn) => { globalThis.t15Counters = { files: 1, manifest: 0, decoded: 0 }; try { fn(); const c = globalThis.t15Counters; return c; } finally { delete globalThis.t15Counters; } };
+  let res;
+  assert.equal(withCounters(() => { res = obs.gunzipSync(gz, { info: true }); }).manifest, want);
+  assert.ok(want > text.length && res.buffer.toString() === text && res.engine && typeof res.engine.bytesWritten === 'number', 'info result preserved');
+  let plain;
+  assert.equal(withCounters(() => { plain = obs.gunzipSync(gz); }).manifest, want);
+  assert.ok(Buffer.isBuffer(plain) && plain.toString() === text);
+  globalThis.t15Counters = { files: 2, manifest: 0, decoded: 0 };
+  obs.gunzipSync(gz, { info: true }); obs.gunzipSync(gz);
+  assert.deepEqual(globalThis.t15Counters, { files: 2, manifest: 0, decoded: 2 * want }); delete globalThis.t15Counters;
+  for (const bad of [Buffer.from('not gzip'), gz.subarray(0, gz.length - 8)]) for (const o of [undefined, { info: true }]) {
+    globalThis.t15Counters = { files: 2, manifest: 0, decoded: 0 };
+    assert.throws(() => obs.gunzipSync(bad, o)); assert.equal(globalThis.t15Counters.decoded, 0); delete globalThis.t15Counters;
+  }
+  globalThis.t15Counters = { files: 2, manifest: 0, decoded: 0 };
+  assert.throws(() => obs.gunzipSync(gz, { maxOutputLength: 8 })); assert.equal(globalThis.t15Counters.decoded, 0); delete globalThis.t15Counters;
   const tree = fs.mkdtempSync(path.join(os.tmpdir(), 'readerm-graph-'));
   try { // structural regression only (hand-authored strict-pnpm layout, no installed dependencies); the hosted native stage is the real qualification
     const store = path.join(tree, 'root/node_modules/.pnpm');
@@ -495,7 +515,7 @@ async function selfcheckAsync() {
   assert.ok(cli.status === 1 && cli.stderr.startsWith('HEAD-') && cli.stderr.endsWith('-TAIL') && cli.stderr.length === 2010 && cli.bytes <= MIB, 'full failed output retained');
   assert.match(firstFailure([{ error: 'terminal exit 1', cli }, {}, {}]), /^unit 0: terminal exit 1 \| stderr: z+-TAIL$/);
   assert.equal(dirBytes(path.join(os.tmpdir(), 'readerm-absent-' + process.pid)), 0);
-  return ['worker-entry-boundary', 'transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error', 'failed-unit-output-receipt'];
+  return ['worker-entry-boundary', 'transitive-miniflare-resolution', 'bounded-process-deadline', 'bounded-process-combined-cap', 'bounded-process-spawn-error', 'failed-unit-output-receipt', 'observer-real-gzip'];
 }
 
 const git = (...a) => { const r = spawnSync('git', a, { maxBuffer: 16 * MIB }); assert.equal(r.status, 0, 'git ' + a.join(' ') + ': ' + r.stderr); return r.stdout; };
@@ -517,7 +537,7 @@ async function prepare(out) {
   }
   const resolveDir = path.join(root, path.dirname(READER));
   const common = { bundle: true, platform: 'node', format: 'esm', target: 'es2022', logLevel: 'silent', metafile: true, absWorkingDir: root };
-  const observer = "import {gunzipSync as g, gzipSync} from 'node:zlib'; export {gzipSync}; export function gunzipSync(...a){const b=g(...a);const c=globalThis.t15Counters;if(c){if(c.files===1)c.manifest+=b.byteLength;else c.decoded+=b.byteLength;}return b;}";
+  const observer = OBSERVER;
   for (const v of Object.keys(PINS)) {
     const dir = path.join(out, 'variants', v); fs.mkdirSync(dir, { recursive: true });
     const reader = await esbuild.build({ ...common, stdin: { contents: blobs[v].toString(), loader: 'ts', resolveDir, sourcefile: root + '/' + READER }, packages: 'external', outfile: path.join(dir, 'reader.mjs') });
@@ -535,7 +555,6 @@ async function prepare(out) {
   fs.copyFileSync(path.join(here, 'reader-m-unit.mjs'), path.join(out, 'unit.mjs'));
   fs.writeFileSync(path.join(out, 'ca-certificates.crt'), ca.bytes);
   assert.ok(!fs.existsSync(path.join(out, 'openssl.cnf')), 'openssl.cnf must stay absent from the image context');
-  assert.ok(configAbsentIn(NODE_IMAGE), 'pinned base must have no openssl.cnf');
   fs.writeFileSync(path.join(out, 'protocol.json'), JSON.stringify(PROTOCOL));
   const { miniflare, workerd } = await installedGraph(root);
   const ver = (r, p) => JSON.parse(fs.readFileSync(r.resolve(p + '/package.json'), 'utf8')).version;
@@ -546,7 +565,7 @@ async function prepare(out) {
   const graph = { node: process.version, links, lock: sha(fs.readFileSync(path.join(root, 'pnpm-lock.yaml'))), esbuild: ver(require, 'esbuild'), miniflare: miniflare.version, workerd: workerd.version,
     esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: sha(fs.readFileSync(path.join(workerdBin.dir, 'bin/workerd'))),
     openssl: { conf: 'ABSENT', paths: ['/etc/ssl/openssl.cnf', OPENSSL_CONF_ABSENT] }, ca: { source: ca.source, size: ca.size, sha256: ca.sha256, certificates: ca.certificates, imagePath: CA_IMAGE_PATH } };
-  const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nCOPY --chmod=0444 ' + outRel + '/ca-certificates.crt ' + CA_IMAGE_PATH + '\nUSER 1000:1000\nWORKDIR /image\n',
+  const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nCOPY --chmod=0444 ' + outRel + '/ca-certificates.crt ' + CA_IMAGE_PATH + '\nRUN test ! -e /etc/ssl/openssl.cnf && test ! -e ' + OPENSSL_CONF_ABSENT + '\nUSER 1000:1000\nWORKDIR /image\n',
     'Dockerfile.dockerignore': '*\n!node_modules\n!' + outRel + '\n' + outRel + '/Dockerfile*\n' + outRel + '/image.id\n' + outRel + '/freeze.json\n' + outRel + '/qualification.json\n' + outRel + '/units\n' };
   const files = {};
   for (const f of fs.readdirSync(out, { recursive: true })) if (fs.statSync(path.join(out, f)).isFile()) files[f] = sha(fs.readFileSync(path.join(out, f)));
@@ -558,7 +577,6 @@ async function prepare(out) {
   const built = spawnSync('docker', ['build', '--network', 'none', '-f', path.join(out, 'Dockerfile'), '--iidfile', iid, '.'], { cwd: root, encoding: 'utf8', maxBuffer: 16 * MIB, env: { ...process.env, DOCKER_BUILDKIT: '1' } });
   assert.equal(built.status, 0, String(built.stderr).slice(-2000));
   const imageId = fs.readFileSync(iid, 'utf8').trim();
-  assert.ok(configAbsentIn(imageId), 'built image must have no openssl.cnf');
   const freeze = { imageId, manifestSha: sha(fs.readFileSync(path.join(out, 'manifest.json'))), protocolSha: protocolSha() };
   fs.writeFileSync(path.join(out, 'freeze.json'), JSON.stringify(freeze));
   return freeze;
