@@ -19,6 +19,10 @@ const MIB = 1048576;
 // The Node image ships no CA store, so workerd's outbound TLS setup fails. The hosted runner's public bundle is copied into the image (offline, verification stays on).
 export const CA_SOURCE = '/etc/ssl/certs/ca-certificates.crt';
 export const CA_IMAGE_PATH = '/etc/ssl/certs/ca-certificates.crt';
+// The pinned base has no OpenSSL config and none is added. Node's permission model denies reading the absent default /etc/ssl/openssl.cnf (EACCES), so guarded units point at an absent path under the already readable /image to get the benign ENOENT.
+export const OPENSSL_CONF_ABSENT = '/image/out/openssl.cnf';
+export const CA_OUT_PATH = '/image/out/ca-certificates.crt'; // same bytes as CA_IMAGE_PATH (kept for workerd), readable under --allow-fs-read=/image
+const configAbsentIn = (image) => spawnSync('docker', ['run', '--rm', '--pull', 'missing', '--network', 'none', '--read-only', '--cap-drop', 'ALL', '--user', '1000:1000', '--entrypoint', '/bin/sh', image, '-c', 'test ! -e /etc/ssl/openssl.cnf && test ! -e ' + OPENSSL_CONF_ABSENT], { encoding: 'utf8', timeout: 60000 }).status === 0;
 const PEM = /-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\r\n]+?-----END CERTIFICATE-----/g;
 export function readPublicCa(file = CA_SOURCE) {
   const st = fs.lstatSync(file);
@@ -116,7 +120,7 @@ export function guardArgs(name, image, target, unit) {
   return ['create', '--pull', 'never', '--name', name, '--label', 'portfolio.guard=' + name, '--user', '1000:1000', '--cap-drop', 'ALL',
     '--security-opt', 'no-new-privileges', '--network', 'none', '--read-only', '--init', '--pids-limit', String(t.pids), '--cpus', String(t.cpus),
     '--memory', String(t.memory), '--memory-swap', String(t.memory), '--log-driver', 'none', '--shm-size', String(PROTOCOL.limits.shmBytes),
-    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=' + PROTOCOL.limits.tmpfsBytes + ',mode=1777', '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp', '--env', 'SSL_CERT_FILE=' + CA_IMAGE_PATH,
+    '--tmpfs', '/tmp:rw,nosuid,nodev,noexec,size=' + PROTOCOL.limits.tmpfsBytes + ',mode=1777', '--env', 'HOME=/tmp', '--env', 'TMPDIR=/tmp', '--env', 'SSL_CERT_FILE=' + CA_OUT_PATH, '--env', 'OPENSSL_CONF=' + OPENSSL_CONF_ABSENT,
     '--env', 'UNIT=' + JSON.stringify(unit), '--entrypoint', '/usr/bin/timeout', image, '--signal=KILL', String(PROTOCOL.limits.unitSeconds - 12),
     '/usr/local/bin/node', ...t.node, '/image/out/unit.mjs'];
 }
@@ -298,7 +302,8 @@ function selfcheck() {
   const unit = { variant: 'before', target: 'local', mode: 'probe', fixture: 'one' };
   check('guard-args', () => {
     const a = guardArgs('n', 'sha256:i', 'local', unit).join(' ');
-    for (const f of ['--cap-drop ALL', '--network none', '--read-only', 'no-new-privileges', '--user 1000:1000', '--pids-limit 32', '--memory 134217728', 'size=6291456', '--shm-size 1048576', '--permission', 'SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt']) assert.ok(a.includes(f), f);
+    for (const f of ['--cap-drop ALL', '--network none', '--read-only', 'no-new-privileges', '--user 1000:1000', '--pids-limit 32', '--memory 134217728', 'size=6291456', '--shm-size 1048576', '--permission', 'SSL_CERT_FILE=/image/out/ca-certificates.crt', 'OPENSSL_CONF=/image/out/openssl.cnf']) assert.ok(a.includes(f), f);
+    assert.ok(a.includes('--allow-fs-read=/image') && OPENSSL_CONF_ABSENT.startsWith('/image/') && !a.includes('--allow-fs-read=/etc'));
     assert.ok(!guardArgs('n', 'i', 'do', unit).join(' ').includes('--permission'));
     assert.ok(guardArgs('n', 'i', 'do', unit).includes(String(512 * MIB)));
   });
@@ -529,6 +534,8 @@ async function prepare(out) {
   fs.copyFileSync(path.join(here, 'reader-m-fixture.mjs'), path.join(out, 'fixture.mjs'));
   fs.copyFileSync(path.join(here, 'reader-m-unit.mjs'), path.join(out, 'unit.mjs'));
   fs.writeFileSync(path.join(out, 'ca-certificates.crt'), ca.bytes);
+  assert.ok(!fs.existsSync(path.join(out, 'openssl.cnf')), 'openssl.cnf must stay absent from the image context');
+  assert.ok(configAbsentIn(NODE_IMAGE), 'pinned base must have no openssl.cnf');
   fs.writeFileSync(path.join(out, 'protocol.json'), JSON.stringify(PROTOCOL));
   const { miniflare, workerd } = await installedGraph(root);
   const ver = (r, p) => JSON.parse(fs.readFileSync(r.resolve(p + '/package.json'), 'utf8')).version;
@@ -538,7 +545,7 @@ async function prepare(out) {
   assert.ok(workerdBin, 'workerd binary package not installed');
   const graph = { node: process.version, links, lock: sha(fs.readFileSync(path.join(root, 'pnpm-lock.yaml'))), esbuild: ver(require, 'esbuild'), miniflare: miniflare.version, workerd: workerd.version,
     esbuildBinary: binary(require, 'esbuild', '@esbuild/linux-' + arch + '/bin/esbuild'), workerdBinary: sha(fs.readFileSync(path.join(workerdBin.dir, 'bin/workerd'))),
-    ca: { source: ca.source, size: ca.size, sha256: ca.sha256, certificates: ca.certificates, imagePath: CA_IMAGE_PATH } };
+    openssl: { conf: 'ABSENT', paths: ['/etc/ssl/openssl.cnf', OPENSSL_CONF_ABSENT] }, ca: { source: ca.source, size: ca.size, sha256: ca.sha256, certificates: ca.certificates, imagePath: CA_IMAGE_PATH } };
   const docker = { Dockerfile: 'FROM ' + NODE_IMAGE + '\nCOPY --chmod=0555 node_modules /image/node_modules\nCOPY --chmod=0555 ' + outRel + ' /image/out\nCOPY --chmod=0444 ' + outRel + '/ca-certificates.crt ' + CA_IMAGE_PATH + '\nUSER 1000:1000\nWORKDIR /image\n',
     'Dockerfile.dockerignore': '*\n!node_modules\n!' + outRel + '\n' + outRel + '/Dockerfile*\n' + outRel + '/image.id\n' + outRel + '/freeze.json\n' + outRel + '/qualification.json\n' + outRel + '/units\n' };
   const files = {};
@@ -551,6 +558,7 @@ async function prepare(out) {
   const built = spawnSync('docker', ['build', '--network', 'none', '-f', path.join(out, 'Dockerfile'), '--iidfile', iid, '.'], { cwd: root, encoding: 'utf8', maxBuffer: 16 * MIB, env: { ...process.env, DOCKER_BUILDKIT: '1' } });
   assert.equal(built.status, 0, String(built.stderr).slice(-2000));
   const imageId = fs.readFileSync(iid, 'utf8').trim();
+  assert.ok(configAbsentIn(imageId), 'built image must have no openssl.cnf');
   const freeze = { imageId, manifestSha: sha(fs.readFileSync(path.join(out, 'manifest.json'))), protocolSha: protocolSha() };
   fs.writeFileSync(path.join(out, 'freeze.json'), JSON.stringify(freeze));
   return freeze;
