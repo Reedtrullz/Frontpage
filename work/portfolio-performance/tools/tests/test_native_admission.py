@@ -150,5 +150,75 @@ class InputSnapshots(unittest.TestCase):
             na.verify_inputs(self.out, [self.case])  # manifest entry without bytes
 
 
+def case_data(index: int, temperature: str = 'cold') -> dict:
+    return {'id': f'case-{index:02d}', 'task': 15, 'temperature': temperature, 'pairs': 10, 'artifactRoot': '/evidence/unblocking-20261028/u04'}
+
+
+class FakeBudget:
+    def __init__(self, limit: int = 1 << 40) -> None:
+        self.limit, self.calls = limit, []
+
+    def enforce(self, reserved: int = 0) -> int:
+        self.calls.append(reserved)
+        if len(self.calls) > self.limit:
+            raise Rejected('combined scratch/artifact bound exceeded')
+        return 1000 + len(self.calls)
+
+
+def passing(calls: list):
+    def runner(argv, env, timeout):
+        calls.append(argv)
+        return 0, json.dumps({'status': 'PASS', 'error': None}), ''
+    return runner
+
+
+class OriginalM(unittest.TestCase):
+    def plan(self) -> list[dict]:
+        return na.m_plan('/py', [(f'/cases/c{i:02d}.json', case_data(i)) for i in reversed(range(16))])  # unsorted input
+
+    def test_plan_is_literal_sorted_complete_and_writes_beneath_t15(self) -> None:
+        from protocol import slot
+        plan = self.plan()
+        self.assertEqual((len(plan), len({tuple(u['argv']) for u in plan})), (960, 960))
+        self.assertEqual([u['case'] for u in plan[::60]], [f'case-{i:02d}' for i in range(16)])
+        self.assertEqual(plan[0]['argv'], ['/py', str(na.WORK / 'tools/measure.py'), '--case', '/cases/c00.json', '--phase', 'baseline', '--scenario', 'happy',
+                                           '--sample', '0', '--output', '/evidence/unblocking-20261028/u04/t15'])
+        self.assertEqual([(u['sample'], u['scenario']) for u in plan[:4]], [(0, 'happy'), (0, 'failure'), (1, 'happy'), (1, 'failure')])
+        self.assertTrue(all(u['argv'][-1].endswith('/u04/t15') for u in plan))
+        self.assertEqual([u['phase'] for u in plan[:60:2]], [slot(case_data(0), i)['phase'] for i in range(30)])
+        self.assertEqual(len(na.m_plan('/py', [('/c.json', case_data(0, 'warm'))])), 2 * 34)
+
+    def test_default_cli_does_not_collect_and_flag_is_explicit(self) -> None:
+        self.assertEqual(na.m_output('/u04', 15), '/u04/t15')
+        for flag, expected in (([], False), (['--collect-m'], True)):
+            with patch.object(sys, 'argv', ['na', '--control', 'c', '--out', 'o', *flag]), patch.object(na, 'clean_exec') as clean, patch.object(na, 'execute', return_value=0):
+                na.main()
+            self.assertEqual('--collect-m' in clean.call_args.args[0], expected)
+
+    def test_first_failure_stops_without_retry_or_later_unit(self) -> None:
+        calls, rows = [], []
+        def runner(argv, env, timeout):
+            calls.append(argv)
+            ok = len(calls) != 6
+            return (0 if ok else 2), json.dumps({'status': 'PASS' if ok else 'REJECTED', 'error': None if ok else 'duplicate independent unit'}), ''
+        result = na.run_m(self.plan(), {}, runner, FakeBudget(), 7 << 20, rows)
+        self.assertEqual((result['status'], len(calls), len(rows), rows[-1]['status']), ('ERROR', 6, 6, 'ERROR'))
+        self.assertIn('duplicate independent unit', result['error'])
+
+    def test_all_units_pass_in_frozen_order_with_reservation(self) -> None:
+        calls, rows, budget = [], [], FakeBudget()
+        plan = self.plan()
+        result = na.run_m(plan, {}, passing(calls), budget, 7 << 20, rows)
+        self.assertEqual((result['status'], result['units'], calls), ('PASS', 960, [u['argv'] for u in plan]))
+        self.assertEqual(set(budget.calls), {7 << 20})
+
+    def test_resource_bound_and_deadline_stop(self) -> None:
+        for budget, step in ((FakeBudget(limit=3), 1), (FakeBudget(), na.M_RUN_SECONDS)):
+            calls, rows, ticks = [], [], iter(range(0, 10 ** 7, step))
+            result = na.run_m(self.plan(), {}, passing(calls), budget, 7 << 20, rows, clock=lambda: next(ticks))
+            self.assertEqual(result['status'], 'ERROR')
+            self.assertLess(len(calls), 5)
+
+
 if __name__ == '__main__':
     unittest.main()
