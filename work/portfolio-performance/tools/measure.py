@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from native import invoke
+from native import install_term_handler, invoke
 from protocol import Case, EVIDENCE, ROOT, RUN_TMP, Rejected, bindings, digest, load, owned, require, save, slot
 from resource_limits import ResourceBudget
 
@@ -72,6 +72,7 @@ def main() -> int:
     parser.add_argument('--sample', type=int, default=0)
     parser.add_argument('--output')
     args = parser.parse_args()
+    install_term_handler()
     try:
         return collect(args)
     except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:

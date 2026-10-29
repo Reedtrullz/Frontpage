@@ -362,7 +362,7 @@ class TerminalFailureReceipt(unittest.TestCase):
 
         class Job:
             def __init__(self, *args: object) -> None:
-                self.spec, self.identity = {'scratchBytes': 2 * MIB}, {'cleaned': True}
+                self.spec, self.identity, self.deadline = {'scratchBytes': 2 * MIB}, {'cleaned': True}, 0.0
 
             def prepare(self, argv: list[str], request: str, timeout: float) -> list[str]:
                 return argv

@@ -1,6 +1,7 @@
 """Bounded offline native invocation; metrics come exclusively from native JSON."""
 from __future__ import annotations
 
+import contextlib
 import os
 import selectors
 import shutil
@@ -12,6 +13,30 @@ from pathlib import Path
 
 from protocol import Case, Record, Rejected, RUN_TMP, bindings, finite, owned, record, require, verify_source
 from resource_limits import ResourceBudget, scratch_size
+
+
+CLEANUP_SECONDS = 15  # reserved allowance for ContainerJob.close after the workload deadline or an outer cancellation
+
+
+def install_term_handler() -> None:
+    """The outer runner's SIGTERM becomes a controlled rejection, so invoke's finally reaps the separate workload session and the owned container."""
+    def handler(signum, frame) -> None:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise Rejected('terminated by outer runner')
+    signal.signal(signal.SIGTERM, handler)
+
+
+@contextlib.contextmanager
+def shielded():
+    """Cleanup must not be interrupted by a late SIGTERM; a pending one is discarded, never delivered afterwards."""
+    previous = signal.getsignal(signal.SIGTERM)
+    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        signal.signal(signal.SIGTERM, previous)
 
 
 def invoke(case: Case, request: Record) -> Record:
@@ -88,49 +113,51 @@ def invoke(case: Case, request: Record) -> Record:
     except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         receipt['error'] = str(error)
     finally:
-        if process is not None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                receipt['groupAlreadyExited'] = True
-            except OSError as error:
-                receipt['cleanupError'] = str(error)
-            try:
-                process.wait(timeout=1)
-            except subprocess.TimeoutExpired:
+        with shielded():
+            if process is not None:
                 try:
-                    process.kill()
-                    process.wait(timeout=1)
-                except (OSError, subprocess.TimeoutExpired) as error:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    receipt['groupAlreadyExited'] = True
+                except OSError as error:
                     receipt['cleanupError'] = str(error)
-            if process.stdout:
-                process.stdout.close()
-            if process.stderr:
-                process.stderr.close()
-            receipt['reaped'] = process.returncode is not None
-            if 'cleanupError' in receipt or not receipt['reaped']:
-                receipt['status'] = 'ERROR'
-                receipt.pop('metrics', None)
-        if job is not None:
-            from container_resources import TerminalFailure
-            try:
-                job.close()
-            except TerminalFailure as error:
-                # The container ran and exited abnormally; cleanup itself succeeded, so this is an execution error.
-                receipt.update(status='ERROR', terminalError=str(error))
-                receipt.setdefault('error', str(error))
-                receipt.pop('metrics', None)
-            except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
-                receipt.update(status='ERROR', cleanupError=str(error))
-                receipt.pop('metrics', None)
-        receipt['stdout'] = output[0].decode('utf-8', errors='replace')
-        receipt['stderr'] = output[1].decode('utf-8', errors='replace')
-        receipt['scratchCleaned'] = process is None or receipt.get('reaped') is True
-        if receipt['scratchCleaned']:
-            shutil.rmtree(scratch)
-            budget.clear_parent_caches()
-        receipt['parentScratchCleaned'] = receipt['scratchCleaned']
-        receipt['endedNs'] = time.monotonic_ns()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    try:
+                        process.kill()
+                        process.wait(timeout=1)
+                    except (OSError, subprocess.TimeoutExpired) as error:
+                        receipt['cleanupError'] = str(error)
+                if process.stdout:
+                    process.stdout.close()
+                if process.stderr:
+                    process.stderr.close()
+                receipt['reaped'] = process.returncode is not None
+                if 'cleanupError' in receipt or not receipt['reaped']:
+                    receipt['status'] = 'ERROR'
+                    receipt.pop('metrics', None)
+            if job is not None:
+                from container_resources import TerminalFailure
+                job.deadline = max(job.deadline, time.monotonic() + CLEANUP_SECONDS)
+                try:
+                    job.close()
+                except TerminalFailure as error:
+                    # The container ran and exited abnormally; cleanup itself succeeded, so this is an execution error.
+                    receipt.update(status='ERROR', terminalError=str(error))
+                    receipt.setdefault('error', str(error))
+                    receipt.pop('metrics', None)
+                except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+                    receipt.update(status='ERROR', cleanupError=str(error))
+                    receipt.pop('metrics', None)
+            receipt['stdout'] = output[0].decode('utf-8', errors='replace')
+            receipt['stderr'] = output[1].decode('utf-8', errors='replace')
+            receipt['scratchCleaned'] = process is None or receipt.get('reaped') is True
+            if receipt['scratchCleaned']:
+                shutil.rmtree(scratch)
+                budget.clear_parent_caches()
+            receipt['parentScratchCleaned'] = receipt['scratchCleaned']
+            receipt['endedNs'] = time.monotonic_ns()
     return receipt
 
 

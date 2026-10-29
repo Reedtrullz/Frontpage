@@ -238,28 +238,32 @@ class CollectM(unittest.TestCase):
     """Real collect_m with synthetic injected case/budget readers and a fake measure/compare runner; production Case.read stays the default."""
 
     def setUp(self) -> None:
+        from resource_limits import ResourceBudget
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
         self.tmp = Path(holder.name).resolve()
         self.out, self.u04, self.root = self.tmp / 'out', self.tmp / 'u04', self.tmp / 'root'
+        self.live = self.u04 / 'live'
         (self.out / 'inputs').mkdir(parents=True)
         (self.root / 'native').mkdir(parents=True)
-        (self.out / 'inputs' / 'frozen').write_bytes(b'x' * (20 << 20))  # immutable input bytes alone are excluded
+        (self.out / 'inputs' / 'frozen').write_bytes(b'x' * (20 << 20))  # frozen input bytes live outside the artifact root and are not counted
         self.index = {'artifactRoot': str(self.u04), 'cases': [{'path': f'/cases/c{i:02d}.json'} for i in range(16)]}
+        self.budget = ResourceBudget(16 << 20, self.root, self.root / 'native', self.u04, ())
 
     def collect(self, runner, **kwargs) -> dict:
         from types import SimpleNamespace
-        from resource_limits import ResourceBudget
         def read_case(path):
             n = int(path.stem[1:])
             return SimpleNamespace(data={**case_data(n), 'artifactRoot': str(self.u04)}, sha256=f'h{n}')
-        budget = ResourceBudget(16 << 20, self.root, self.root / 'native', self.u04, ())
-        return na.collect_m(self.out, self.index, '/py', runner, read_case=read_case, read_budget=lambda data: budget, **kwargs)
+        return na.collect_m(self.out, self.index, '/py', runner, read_case=read_case, read_budget=lambda data: self.budget, live=self.live, **kwargs)
 
     def runner(self, fail_call=None, compare_status='PASS', size=6000):
         calls = []
         def run(argv, env, timeout):
             calls.append(argv)
+            if len(calls) == 1:  # the child's own ResourceBudget must already see the protocol/progress metadata
+                self.assertGreaterEqual(self.budget.usage(), (self.live / 'm' / 'protocol.json').stat().st_size)
+                self.assertTrue(self.budget.artifacts.joinpath('live/m/protocol.json').is_file())
             if argv[1].endswith('compare.py'):
                 return 0, json.dumps({'status': compare_status, 'cases': list(range(32))}), ''
             args = dict(zip(argv[2::2], argv[3::2]))
@@ -272,58 +276,74 @@ class CollectM(unittest.TestCase):
         return run
 
     def assert_archived(self, result: dict, files: int) -> list:
-        mdir = self.out / 'm'
-        mapping = json.loads((mdir / 'artifact-map.json').read_text())
-        self.assertEqual((len(mapping), result['archive']['files'], self.u04.joinpath('t15').exists()), (files, files, False))
+        archive = na.archive_live(self.out, self.live, [Path(result['outputRoot'])])
+        mapping = json.loads((self.out / 'live-map.json').read_text())
+        self.assertEqual((len(mapping), self.u04.joinpath('t15').exists(), self.live.exists()), (archive['files'], False, False))
+        raw = [m for m in mapping if '/t15/' in m['archivedPath']]
+        self.assertEqual(len(raw), files)
         for entry in mapping:
             self.assertEqual(hashlib.sha256(Path(entry['archivedPath']).read_bytes()).hexdigest(), entry['sha256'])
-            self.assertTrue(Path(entry['archivedPath']).is_relative_to(mdir / 'artifacts'))
-        self.assertEqual(json.loads((mdir / 'result.json').read_text())['status'], result['status'])
+            self.assertTrue(Path(entry['archivedPath']).is_relative_to(self.out / 'live'))
+        self.assertEqual(json.loads((self.out / 'live' / 'qualification' / 'm' / 'result.json').read_text())['status'], result['status'])
         return mapping
 
     def test_production_case_read_is_the_default(self) -> None:
         self.assertEqual(inspect.signature(na.collect_m).parameters['read_case'].default, na.Case.read)
 
-    def test_success_counts_one_tree_and_moves_raw_units_once(self) -> None:
+    def test_success_counts_one_tree_and_moves_live_outputs_once(self) -> None:
         run = self.runner()
         result = self.collect(run)
         self.assertEqual((result['status'], result['comparisons'], len(run.calls)), ('PASS', 32, 961))
-        self.assert_archived(result, 960)
-        self.assertEqual(len(json.loads((self.out / 'm' / 'units.json').read_text())), 960)
-        self.assertTrue((self.out / 'm' / 'compare.json').is_file())
+        self.assertTrue(self.u04.joinpath('t15').is_dir() and (self.live / 'm' / 'compare.json').is_file())  # nothing moved while workloads could still need it
+        self.assertEqual(len(json.loads((self.live / 'm' / 'units.json').read_text())), 960)
         self.assertLessEqual(result['finalOccupancyBytes'], 16 << 20)
         self.assertGreater(result['finalOccupancyBytes'], 960 * 6000)
+        self.assert_archived(result, 960)
 
     def test_failures_preserve_raw_receipts_on_every_exit(self) -> None:
         for name, kwargs, files, rows in (('first unit', {'fail_call': 1}, 1, 1), ('late unit', {'fail_call': 500}, 500, 500), ('compare', {'compare_status': 'REJECTED'}, 960, 960)):
             with self.subTest(name):
-                self.tearDown_dirs()
+                shutil.rmtree(self.out / 'live', ignore_errors=True)
+                shutil.rmtree(self.u04, ignore_errors=True)
                 result = self.collect(self.runner(**kwargs))
                 self.assertEqual(result['status'], 'ERROR')
+                self.assertEqual(len(json.loads((self.live / 'm' / 'units.json').read_text())), rows)
                 self.assert_archived(result, files)
-                self.assertEqual(len(json.loads((self.out / 'm' / 'units.json').read_text())), rows)
-                self.assertIn('error' if name == 'compare' else 'error', result)
 
-    def tearDown_dirs(self) -> None:
-        shutil.rmtree(self.out / 'm', ignore_errors=True)
-        shutil.rmtree(self.u04, ignore_errors=True)
-
-    def test_mutable_out_bytes_count_but_inputs_do_not(self) -> None:
-        (self.out / 'records').mkdir()
-        (self.out / 'records' / 'q').write_bytes(b'q' * (10 << 20))  # 10MiB + 7MiB reservation > 16MiB
+    def test_live_bytes_under_artifact_root_count_but_inputs_do_not(self) -> None:
+        (self.live / 'records').mkdir(parents=True)
+        (self.live / 'records' / 'q').write_bytes(b'q' * (10 << 20))  # 10MiB + 7MiB reservation > 16MiB
         run = self.runner()
         result = self.collect(run)
         self.assertEqual((result['status'], len(run.calls)), ('ERROR', 0))
         self.assertIn('bound exceeded', result['error'])
-        (self.out / 'records' / 'q').write_bytes(b'q' * (2 << 20))
-        self.tearDown_dirs()
+        (self.live / 'records' / 'q').write_bytes(b'q' * (2 << 20))
+        shutil.rmtree(self.live / 'm')
         self.assertEqual(self.collect(self.runner())['status'], 'PASS')
 
-    def test_deadline_includes_comparison(self) -> None:
+    def test_transient_child_occupancy_is_visible_to_child_budget(self) -> None:
+        # B1 gate signature: 5MiB mutable output + a 15MiB transient under the native root must trip the child's own real budget.
+        (self.live / 'records').mkdir(parents=True)
+        (self.live / 'records' / 'q').write_bytes(b'q' * (5 << 20))
+        transient = self.root / 'native' / 'transient'
+        transient.write_bytes(b't' * (15 << 20))
+        with self.assertRaisesRegex(Rejected, 'bound exceeded'):
+            self.budget.enforce()
+
+    def test_prior_live_tree_is_never_overwritten(self) -> None:
+        (self.u04 / 't15').mkdir(parents=True)
+        (self.u04 / 't15' / 'keep').write_text('prior')
+        result = self.collect(self.runner())
+        self.assertIn('prior M artifacts exist', result['error'])
+        self.assertEqual((self.u04 / 't15' / 'keep').read_text(), 'prior')
+
+    def test_deadline_includes_comparison_and_cleanup_reserve(self) -> None:
         ticks = iter([*[0] * 961, *[na.M_RUN_SECONDS + 1] * 10])
         result = self.collect(self.runner(), clock=lambda: next(ticks))
         self.assertEqual(result['status'], 'ERROR')
-        self.assert_archived(result, result['archive']['files'])
+        self.assert_archived(result, 960)
+        self.assertLess(na.M_RUN_SECONDS - na.M_COMPARE_SECONDS - 2 * na.M_TERM_GRACE, na.M_RUN_SECONDS)
+        self.assertLessEqual(na.QUAL_SECONDS + na.M_COMPARE_SECONDS + 2 * na.M_TERM_GRACE, na.M_RUN_SECONDS)
 
 
 class RunProcess(unittest.TestCase):
@@ -343,6 +363,65 @@ class RunProcess(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 10)
         time.sleep(0.2)
         self.assertNotEqual(subprocess.run(['pgrep', '-f', marker], capture_output=True).returncode, 0)
+
+    def test_sigterm_lets_the_child_run_its_own_cleanup_before_any_kill(self) -> None:
+        import subprocess
+        with tempfile.TemporaryDirectory() as name:
+            marker = Path(name) / 'cleaned'
+            code = ('import signal,sys,time,pathlib\n'
+                    'def h(*a):\n time.sleep(0.5); pathlib.Path(sys.argv[1]).write_text("cleaned"); sys.exit(3)\n'
+                    'signal.signal(signal.SIGTERM,h)\nprint("up",flush=True)\ntime.sleep(60)')
+            with self.assertRaises(subprocess.TimeoutExpired):
+                na.run_process([sys.executable, '-c', code, str(marker)], dict(os.environ), 1)
+            self.assertEqual(marker.read_text(), 'cleaned')
+
+    def test_child_ignoring_sigterm_is_killed_after_the_bounded_grace(self) -> None:
+        import subprocess, time
+        code = 'import signal,time\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\ntime.sleep(60)'
+        start = time.monotonic()
+        with patch.object(na, 'M_TERM_GRACE', 1, create=True), self.assertRaises(subprocess.TimeoutExpired):
+            na.run_process([sys.executable, '-c', code], dict(os.environ), 1)
+        self.assertLess(time.monotonic() - start, 6)
+
+
+HARNESS = r'''
+import sys, types, tempfile, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import native, container_resources
+marker, out = sys.argv[2], Path(sys.argv[3])
+tmp = Path(tempfile.mkdtemp(dir=out))
+class Budget:
+    native_root = tmp / 'native'
+    def enforce(self, reserved=0): return 0
+    def clear_parent_caches(self): pass
+native.ResourceBudget = types.SimpleNamespace(read=lambda data: Budget())
+class Job:  # stands in only for the Docker control client; the cleanup entry under test is native.invoke's own finally
+    def __init__(self, data, phase, scratch, env, deadline):
+        self.spec, self.identity, self.deadline = {'scratchBytes': 0}, {}, deadline
+    def prepare(self, argv, request, timeout): return argv
+    def close(self):
+        (out / 'closed').write_text(str(self.deadline - time.monotonic() > 5))
+container_resources.ContainerJob = Job
+native.install_term_handler()
+data = {'timeout': 60, 'outputBytes': 4096, 'container': {}, 'parentEnvironment': {'PATH': '/usr/bin:/bin'}, 'baseline': {'cwd': str(tmp)},
+        'commands': {'s': {'baseline': [sys.executable, '-c', 'import time; time.sleep(60)', marker]}}}
+receipt = native.invoke(types.SimpleNamespace(data=data), {'phase': 'baseline', 'scenario': 's'})
+(out / 'receipt').write_text(repr((receipt['status'], receipt['error'], receipt['reaped'])))
+'''
+
+
+class NativeCancellation(unittest.TestCase):
+    def test_outer_timeout_runs_native_cleanup_for_the_separate_workload_session(self) -> None:
+        import subprocess, time
+        with tempfile.TemporaryDirectory() as name:
+            marker = f'ponytail-workload-{os.getpid()}-{time.monotonic_ns()}'
+            with self.assertRaises(subprocess.TimeoutExpired):
+                na.run_process([sys.executable, '-c', HARNESS, str(TOOLS), marker, name], dict(os.environ), 2)
+            time.sleep(0.3)
+            self.assertNotEqual(subprocess.run(['pgrep', '-f', marker], capture_output=True).returncode, 0, 'workload session survived the outer timeout')
+            self.assertEqual((Path(name) / 'closed').read_text(), 'True')  # ContainerJob.close ran with its own bounded cleanup allowance
+            self.assertIn("'ERROR', 'terminated by outer runner', True", (Path(name) / 'receipt').read_text())
 
 
 

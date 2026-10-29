@@ -39,6 +39,7 @@ FAILURE_HASH = hashlib.sha256(json.dumps(['failure', 'unavailable'], separators=
 KEYS = ('caseHash', 'phase', 'unit', 'sample', 'scenario', 'revision', 'fixtureDigest', 'harnessDigest', 'shape', 'economicsDigest')
 M_PARENT = 'unblocking-20261028'
 M_UNIT_SECONDS, M_CASE_SECONDS, M_RUN_SECONDS = 120, 1800, 3300  # run bound leaves room inside the 60 minute CI step for compare/copy/teardown
+M_COMPARE_SECONDS, M_TERM_GRACE, QUAL_SECONDS = 600, 30, 1200  # all measured from one stage start: qualification can never reset or extend the M allowance
 
 
 def order() -> list[list[object]]:
@@ -88,6 +89,12 @@ def run_process(argv: list[str], env: dict, timeout: float) -> tuple[int, str, s
                                        + ' stderr head: ' + output[1][:300].decode(errors='replace'))
         process.wait(timeout=max(0.001, deadline - time.monotonic()))
     finally:
+        if process.poll() is None:
+            process.send_signal(signal.SIGTERM)  # measure.py turns it into a rejection and runs native cleanup (separate workload session, ContainerJob)
+            try:
+                process.wait(timeout=M_TERM_GRACE)
+            except subprocess.TimeoutExpired:
+                pass  # shortcut: grace expired, fall through to the group kill; unknown ownership is never pruned globally
         try:
             os.killpg(process.pid, signal.SIGKILL)  # also reaps any owned descendant still holding the group
         except OSError:
@@ -98,52 +105,27 @@ def run_process(argv: list[str], env: dict, timeout: float) -> tuple[int, str, s
     return process.returncode, output[0].decode(errors='replace'), output[1].decode(errors='replace')
 
 
-class Counted:
-    """Budget view that also counts every mutable byte under out/ (qualification records, M metadata, logs, archived raw units).
-    Only the frozen read-only inputs/ byte snapshots are excluded."""
-
-    def __init__(self, budget: ResourceBudget, out: Path) -> None:
-        self.budget, self.out = budget, out
-
-    def __getattr__(self, name: str):
-        return getattr(self.budget, name)
-
-    def mutable(self) -> int:
-        size = 0
-        for path in self.out.rglob('*'):
-            require(not path.is_symlink(), 'output symlink')
-            if path.is_file() and not path.is_relative_to(self.out / 'inputs'):
-                size += path.stat().st_size
-        return size
-
-    def usage(self) -> int:
-        return self.budget.usage() + self.mutable()
-
-    def enforce(self, reserved_bytes: int = 0) -> int:
-        size = self.usage() + reserved_bytes
-        require(size <= self.budget.limit, 'combined scratch/artifact bound exceeded')
-        return size
-
-
-def archive_raw(root: Path, target: Path) -> dict:
-    """Move the live raw-unit tree once into the counted output archive (no second copy), keeping an original-path -> sha256 mapping."""
-    if not root.exists():
-        return {'files': 0}
-    files = sorted(p for p in root.rglob('*') if p.is_file())
-    before = {str(p): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_size) for p in files}
-    shutil.move(root, target)
+def archive_live(out: Path, live: Path, outputs: list[Path]) -> dict:
+    """After no workload remains, move the live mutable trees once into out/live (no second copy) with an original-path -> sha256 map."""
     mapping = []
-    for original, (hash_, size) in before.items():
-        moved = target / Path(original).relative_to(root)
-        require(moved.is_file() and hashlib.sha256(moved.read_bytes()).hexdigest() == hash_, 'archived raw unit missing or altered: ' + original)
-        mapping.append({'originalPath': original, 'archivedPath': str(moved), 'sha256': hash_, 'size': size})
-    save(target.parent / 'artifact-map.json', mapping)
+    for source, target in [(live, out / 'live' / 'qualification'), *[(p, out / 'live' / p.name) for p in outputs]]:
+        if not source.exists():
+            continue
+        before = {p: (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_size) for p in sorted(source.rglob('*')) if p.is_file()}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source, target)
+        for original, (hash_, size) in before.items():
+            moved = target / original.relative_to(source)
+            require(moved.is_file() and hashlib.sha256(moved.read_bytes()).hexdigest() == hash_, 'archived live file missing or altered: ' + str(original))
+            mapping.append({'originalPath': str(original), 'archivedPath': str(moved), 'sha256': hash_, 'size': size})
+    save(out / 'live-map.json', mapping)
     return {'files': len(mapping)}
 
 
-def run_m(plan: list[dict], env: dict, runner, budget: ResourceBudget | Counted, reservation: int, rows: list[dict], clock=time.monotonic, start: float | None = None) -> dict:
+def run_m(plan: list[dict], env: dict, runner, budget: ResourceBudget, reservation: int, rows: list[dict], clock=time.monotonic, start: float | None = None) -> dict:
     """Run the frozen plan strictly in order. The first rejected unit, bound or deadline stops everything: no retry, skip or extra sample."""
     start = clock() if start is None else start
+    limit = M_RUN_SECONDS - M_COMPARE_SECONDS - 2 * M_TERM_GRACE  # units must end early enough for comparison, SIGTERM grace and archive
     case_start, peak = {}, 0
     for n, unit in enumerate(plan):
         now = clock()
@@ -151,9 +133,9 @@ def run_m(plan: list[dict], env: dict, runner, budget: ResourceBudget | Counted,
         row = {'index': n, **{k: unit[k] for k in ('case', 'scenario', 'sample', 'phase')}, 'status': 'ERROR'}
         rows.append(row)
         try:
-            require(now - start < M_RUN_SECONDS and now - case_start[unit['case']] < M_CASE_SECONDS, 'whole-run or case deadline reached')
+            require(now - start < limit and now - case_start[unit['case']] < M_CASE_SECONDS, 'whole-run or case deadline reached')
             peak = max(peak, budget.enforce(reservation))  # namespace reservation for this unit, counted with every retained artifact
-            code, out, err = runner(unit['argv'], env, min(M_UNIT_SECONDS + 15, M_RUN_SECONDS - (now - start)))
+            code, out, err = runner(unit['argv'], env, min(M_UNIT_SECONDS + 15, limit - (now - start)))
             row.update(returncode=code, stdout=out, stderr=err)
             receipt = json.loads(out)
             require(code == 0 and receipt.get('status') == 'PASS' and not receipt.get('error'), 'measure.py rejected unit: ' + (receipt.get('error') or err[-200:] or str(code)))
@@ -165,42 +147,46 @@ def run_m(plan: list[dict], env: dict, runner, budget: ResourceBudget | Counted,
     return {'status': 'PASS', 'units': len(plan), 'maxOccupancyBytes': peak}
 
 
-def collect_m(out: Path, index: Record, py: str, runner=run_process, read_case=Case.read, read_budget=ResourceBudget.read, clock=time.monotonic) -> dict:
+def collect_m(out: Path, index: Record, py: str, runner=run_process, read_case=Case.read, read_budget=ResourceBudget.read, clock=time.monotonic,
+              live: Path | None = None, stage_start: float | None = None) -> dict:
     """Original M on this actual host, after strict Case.read of all sixteen cases and before checkouts/scope/environment are destroyed.
-    Raw units live in the original u04/t15 tree until no workload remains, then move once into out/m/artifacts on every exit. All out/ bytes
-    except inputs/ are counted with the invocation root and u04 against the one 16MiB bound. read_case/read_budget/clock are test injection points."""
-    start, mdir, rows = clock(), out / 'm', []
-    mdir.mkdir()
+    Every mutable byte (qualification records, M protocol/progress/log/result, raw u04/t15 units) lies under the original artifact root, so the
+    child's own ResourceBudget counts it; only inputs/ stays outside. Nothing moves here: execute archives once after no workload remains.
+    read_case/read_budget/clock are test injection points; stage_start anchors the whole-stage allowance shared with qualification."""
+    start = clock() if stage_start is None else stage_start
+    live = Path(index['artifactRoot']) / 'live' if live is None else live
+    mdir, rows = live / 'm', []
+    mdir.mkdir(parents=True)
     result: dict = {'label': 'M_COLLECTION', 'status': 'ERROR'}
-    root: Path | None = None
-    counted: Counted | None = None
+    budget: ResourceBudget | None = None
     try:
         cases = [(e['path'], read_case(Path(e['path']))) for e in index['cases']]
         plan = m_plan(py, [(path, case.data) for path, case in cases])
         require(len(plan) == 960 and len({tuple(u['argv']) for u in plan}) == 960, 'M plan must be 960 unique units')
         data = cases[0][1].data
-        live = Path(m_output(index['artifactRoot'], data['task']))
-        require(not live.exists(), 'prior M artifacts exist')  # never archive (move) a tree this run did not create
-        root = live
+        root = Path(m_output(index['artifactRoot'], data['task']))
+        require(not root.exists(), 'prior M artifacts exist')  # never archive (move) a tree this run did not create
+        result['outputRoot'] = str(root)
         env = dict(os.environ)
         evidence = [py, str(WORK / 'tools/compare.py'), '--task', str(data['task']), *[a for path, _ in sorted(cases, key=lambda c: c[0]) for a in ('--case', path)],
                     '--evidence', index['artifactRoot']]
         save(mdir / 'protocol.json', {'schema': 'native-m-protocol/v1', 'label': 'M_COLLECTION', 'plan': plan, 'compare': evidence, 'outputRoot': str(root),
                                       'caseHashes': {c.data['id']: c.sha256 for _, c in cases}, 'environment': env,
                                       'limits': {'scratchBytes': 16 * MIB, 'unitSeconds': M_UNIT_SECONDS, 'caseSeconds': M_CASE_SECONDS, 'runSeconds': M_RUN_SECONDS,
+                                                 'compareSeconds': M_COMPARE_SECONDS, 'termGraceSeconds': M_TERM_GRACE, 'qualificationSeconds': QUAL_SECONDS,
                                                  'outputBytes': MIB, 'namespaceBytes': 7 * MIB}})
         result['protocolSha'] = sha(mdir / 'protocol.json')
-        budget = counted = Counted(read_budget(data), out)
+        budget = read_budget(data)
         try:
             result.update(run_m(plan, env, runner, budget, 7 * MIB, rows, clock=clock, start=start))
         finally:
             save(mdir / 'units.json', rows)
         if result['status'] == 'PASS':
-            remaining = M_RUN_SECONDS - (clock() - start)
+            remaining = M_RUN_SECONDS - (clock() - start) - M_TERM_GRACE
             require(remaining > 0, 'whole-run deadline reached before comparison')
             compare: dict = {'argv': evidence, 'returncode': None, 'stdout': '', 'stderr': ''}
             try:
-                code, text, err = runner(evidence, env, min(600, remaining))
+                code, text, err = runner(evidence, env, min(M_COMPARE_SECONDS, remaining))
                 compare.update(returncode=code, stdout=text, stderr=err)
                 comparison = json.loads(text)
                 require(code == 0 and comparison.get('status') == 'PASS' and len(comparison['cases']) == 32, 'compare.py did not accept all 32 case-scenario comparisons')
@@ -215,11 +201,9 @@ def collect_m(out: Path, index: Record, py: str, runner=run_process, read_case=C
         result.update(status='ERROR', error=str(error))
     finally:
         try:
-            if root is not None:
-                result['archive'] = archive_raw(root, mdir / 'artifacts')
-                result['finalOccupancyBytes'] = counted.enforce() if counted else None
+            result['finalOccupancyBytes'] = budget.enforce() if budget else None  # while every live byte is still writable and counted
         except (Rejected, OSError, ValueError, KeyError, TypeError) as error:
-            result.update(status='ERROR', archiveError=str(error))
+            result.update(status='ERROR', occupancyError=str(error))
         save(mdir / 'result.json', result)
     return result
 
@@ -334,7 +318,7 @@ def parity(records: list[dict]) -> dict:
     return semantic
 
 
-def run_unit(budget: ResourceBudget | Counted, data: dict, target: str, query: int, phase: str, scenario: str, index: int, protocol_sha: str) -> dict:
+def run_unit(budget: ResourceBudget, data: dict, target: str, query: int, phase: str, scenario: str, index: int, protocol_sha: str) -> dict:
     scratch = Path(tempfile.mkdtemp(prefix='unit-', dir=budget.native_root))
     for sub in ('docker',):
         (scratch / sub).mkdir()
@@ -428,7 +412,9 @@ def projection(index: Record, records: list[dict]) -> Record:
 
 
 def execute(args: argparse.Namespace) -> int:
+    stage_start = time.monotonic()  # one anchor for qualification, M, comparison and archive inside the 60 minute CI step
     out, control = Path(args.out).resolve(), Path(args.control).resolve()
+    live, live_created = reader_m_case.ARTIFACT_ROOT / 'live', False
     root = Path(os.environ['TMPDIR']).parent
     result: dict = {'label': LABEL, 'status': 'ERROR', 'phases': {}}
     checkouts: dict = {}
@@ -437,6 +423,8 @@ def execute(args: argparse.Namespace) -> int:
     out.mkdir(parents=True)
     git_env = {'PATH': CLEAN_PATH, 'HOME': os.environ['HOME'], 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_TERMINAL_PROMPT': '0'}
     try:
+        live.mkdir(parents=True)  # under the original artifact root; an existing tree is never reused or moved
+        live_created = True
         require(sys.platform == 'linux', 'admission runs only on the actual Linux host')
         freeze, manifest = load(control / 'freeze.json'), load(control / 'manifest.json')
         require(load(control / 'qualification.json').get('pass') is True and (control / 'image.id').read_text().strip() == freeze['imageId'], 'reader qualification not passed')
@@ -451,11 +439,11 @@ def execute(args: argparse.Namespace) -> int:
         for p, role in ((str(bridge), 'bridge'), (str(fixture), 'fixture'), (docker, 'docker-control-binary'), (py, 'python-interpreter')):
             archive_input(out, p, role, inputs)
         protocol = frozen_protocol(manifest)
-        save(out / 'protocol.json', protocol)
-        protocol_sha = sha(out / 'protocol.json')
+        save(live / 'protocol.json', protocol)
+        protocol_sha = sha(live / 'protocol.json')
         result['protocolSha'] = protocol_sha
         result['protocolFrozenAtNs'] = time.monotonic_ns()
-        archive_input(out, str(out / 'protocol.json'), 'frozen-protocol', inputs)
+        archive_input(out, str(live / 'protocol.json'), 'frozen-protocol', inputs)
         graph = record(manifest['graph'])
         require(graph['lock'] == sha(ROOT / 'pnpm-lock.yaml'), 'pnpm lock differs from the attested image graph')
         checkouts = make_checkouts(ROOT / '.omo/native-admission/checkouts', manifest['pins'], git_env)
@@ -469,43 +457,44 @@ def execute(args: argparse.Namespace) -> int:
         common = {'task': reader_m_case.TASK, 'identities': reader_m_case.IDENTITIES, 'docker': docker, 'image': freeze['imageId'], 'freeze': str(control / 'freeze.json'),
                   'bridge': str(bridge), 'fixture': str(fixture), 'economics_digest': protocol_sha,
                   'baseline': {k: checkouts['baseline'][k] for k in ('cwd', 'revision', 'tree')}, 'candidate': {k: checkouts['candidate'][k] for k in ('cwd', 'revision', 'tree')}}
-        hashed = {str(p): sha(p) for p in (bridge, fixture, SCOPE, OWNERSHIP, out / 'protocol.json', *(control / n for n in ('freeze.json', 'manifest.json', 'image.id', 'qualification.json')))}
-        save(out / 'before-case-read.json', {'label': LABEL, 'literalBytesHashedBeforeCaseRead': hashed, 'common': common})
+        hashed = {str(p): sha(p) for p in (bridge, fixture, SCOPE, OWNERSHIP, live / 'protocol.json', *(control / n for n in ('freeze.json', 'manifest.json', 'image.id', 'qualification.json')))}
+        save(live / 'before-case-read.json', {'label': LABEL, 'literalBytesHashedBeforeCaseRead': hashed, 'common': common})
         bootstrap_digest = hashlib.sha256((LABEL + ':' + protocol_sha).encode()).hexdigest()
         bootstrap = {}
         for t in TARGETS:
             bootstrap[t] = reader_m_case.build_case(**common, case_id=reader_m_case.make_case_id(t, '1h', 'host', 'cold'), target=t, query_index=0, window='1h', view='host',
                                                     semantic_digest=bootstrap_digest, temperature='cold')
             bootstrap[t]['qualificationOnly'] = True
-        save(out / 'qualification-bootstrap-cases.json', bootstrap)
-        budget = Counted(ResourceBudget.read(bootstrap['local']), out)
+        save(live / 'qualification-bootstrap-cases.json', bootstrap)
+        budget = ResourceBudget.read(bootstrap['local'])
         records: list[dict] = []
-        (out / 'records').mkdir()
+        (live / 'records').mkdir()
         for i, (t, q, p, s) in enumerate(order()):
+            require(time.monotonic() - stage_start < QUAL_SECONDS, 'qualification allowance exhausted')
             rec = run_unit(budget, bootstrap[t], t, q, p, s, i, protocol_sha)
             records.append(rec)
-            save(out / 'records' / f'{i:03d}-{t}-q{q}-{p}-{s}.json.gz', rec, gzip=True)
+            save(live / 'records' / f'{i:03d}-{t}-q{q}-{p}-{s}.json.gz', rec, gzip=True)
             if rec['status'] != 'PASS':
                 raise Rejected(f'qualification unit {i} {t} q{q} {p} {s}: {rec.get("error") or rec.get("terminalError") or rec.get("cleanupError")}')
         semantic = parity(records)
-        save(out / 'semantic-parity.json', {'label': LABEL, 'semantic': semantic})
-        cases = out / 'cases'
+        save(live / 'semantic-parity.json', {'label': LABEL, 'semantic': semantic})
+        cases = live / 'cases'
         cases.mkdir()
         reader_m_case.build_matrix(common=common, semantic=semantic, directory=cases)
         index = reader_m_case.read_index(cases / 'index.json')  # unmocked Case.read on every case, on this host
         require(hashed == {k: sha(Path(k)) for k in hashed}, 'literal common bytes changed during admission')
         result['inputSnapshots'] = verify_inputs(out, [load(Path(e['path'])) for e in index['cases']])
         result['caseRead'] = {'cases': len(index['cases']), 'strictLoad': 'PASS', 'caseDigests': {e['id']: Case.read(Path(e['path'])).sha256 for e in index['cases']}}
-        save(out / 'estimate.json', projection(index, records))
+        save(live / 'estimate.json', projection(index, records))
         slots = [slot(load(Path(index['cases'][0]['path'])), i) for i in range(30)]
-        save(out / 'future-m-protocol.json', {'label': 'FROZEN_NOT_EXECUTED', 'protocolSha': protocol_sha, 'cases': len(index['cases']), 'scenarios': list(SCENARIOS), 'slots': slots,
+        save(live / 'future-m-protocol.json', {'label': 'FROZEN_NOT_EXECUTED', 'protocolSha': protocol_sha, 'cases': len(index['cases']), 'scenarios': list(SCENARIOS), 'slots': slots,
                                               'units': 960, 'artifactRoot': index['artifactRoot'],
                                               'argvTemplate': [py, str(WORK / 'tools/measure.py'), '--case', '<case.path>', '--phase', '<slot.phase>', '--scenario', '<scenario>',
                                                                '--sample', '<slot.sample>', '--output', m_output(index['artifactRoot'], reader_m_case.TASK)],
                                               'outstanding': index['outstanding']})
         result.update(status='PASS', units=len(records), semanticDigests=semantic)
         if args.collect_m:
-            result['measurement'] = collect_m(out, index, py)
+            result['measurement'] = collect_m(out, index, py, live=live, stage_start=stage_start)
     except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         result['error'] = str(error)
     finally:
@@ -514,15 +503,23 @@ def execute(args: argparse.Namespace) -> int:
         td['guardContainersRemaining'] = ps.stdout.split() if ps.returncode == 0 else 'docker ps failed'
         if generated:
             for p in (SCOPE, OWNERSHIP):
-                shutil.copy2(p, out / ('generated-' + p.name))
+                shutil.copy2(p, live / ('generated-' + p.name))
                 p.unlink()
         for c in checkouts.values():
             subprocess.run(['git', 'worktree', 'remove', '--force', c['cwd']], cwd=ROOT, env=git_env, capture_output=True)
         td['checkoutsRemoved'] = [not Path(c['cwd']).exists() for c in checkouts.values()]
         td['runRootBytesBeforeRemoval'] = sum(f.stat().st_size for f in root.rglob('*') if f.is_file())
         result['teardown'] = td
-        save(out / 'result.json', result)
+        if live_created:
+            save(live / 'result.json', result)
         shutil.rmtree(root, ignore_errors=True)
+        try:  # last step: no workload remains, so the live trees move once into the uploaded archive
+            if live_created:
+                output = result.get('measurement', {}).get('outputRoot')
+                result['archive'] = archive_live(out, live, [Path(output)] if output else [])
+        except (Rejected, OSError, ValueError, KeyError, TypeError) as error:
+            result.update(status='ERROR', archiveError=str(error))
+        save(out / 'result.json', result)
     print(json.dumps({k: result.get(k) for k in ('status', 'error', 'units', 'protocolSha')}))
     measured = not args.collect_m or result.get('measurement', {}).get('status') == 'PASS'
     return 0 if result['status'] == 'PASS' and measured and result['teardown']['guardContainersRemaining'] == [] else 1
