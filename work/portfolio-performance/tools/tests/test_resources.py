@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from native import invoke
 from protocol import Case, ROOT, RUN_TMP, Rejected, digest, save, slot
 from selftest_case import definition
@@ -42,6 +43,9 @@ class ResourceTests(unittest.TestCase):
         return Case.read(self.path)
 
     def browser(self) -> None:
+        approval = ROOT / '.omo/operations/portfolio-unblocking-execute-20261028/metis-closure-plan.md'
+        if not approval.exists():  # private owner approval document is never published; the production gate stays unchanged
+            self.skipTest('private browser-envelope approval document absent in this checkout')
         self.case.update(resourceProfile='browser-64m-20261028', modality='browser', scratchBytes=64 * 1024 * 1024,
                          browserProfileApproval={'path': str(ROOT / '.omo/operations/portfolio-unblocking-execute-20261028/metis-closure-plan.md'),
                          'sha256': '781cd061013ec6227385fb3b8b6a29766df50747a867e537c41ab6f9480472c3'})

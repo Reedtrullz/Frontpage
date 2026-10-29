@@ -14,6 +14,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
 from decisions import decide, summary, timing
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from native import normalize, scratch_size
 from protocol import Case, EVIDENCE, RUN_TMP, Record, Rejected, digest, load, save, slot
 from selftest_case import definition

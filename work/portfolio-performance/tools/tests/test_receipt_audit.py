@@ -13,8 +13,9 @@ from typing import TypedDict
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from protocol import Case, ROOT, RUN_TMP, Rejected, digest, file_hash, save, slot
-from receipt_audit import ReceiptArchive
+from receipt_audit import POINTER, ReceiptArchive
 from selftest_case import definition
 
 
@@ -249,6 +250,8 @@ class ReceiptTests(unittest.TestCase):
             self.archive().all()
 
     def test_production_trust_when_index_declares_its_own_checkpoint(self) -> None:
+        if not POINTER.exists():  # private current-run pointer is never published
+            self.skipTest('private current-run pointer absent in this checkout')
         # Given an index naming this fixture's checkpoint, the real CLI trust root rejects it.
         with self.assertRaises(Rejected):
             ReceiptArchive.read(self.index_path)

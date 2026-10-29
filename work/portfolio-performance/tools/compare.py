@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from container_resources import READER, check_guard
 from decisions import decide
 from native import normalize
 from protocol import Case, Record, Rejected, WORK, bindings, digest, file_hash, load, require, save, scope, slot
@@ -24,6 +25,8 @@ def container_accounting(unit: Record, data: Record) -> None:
             and isinstance(identity.get('guardReadback'), dict) and isinstance(state, dict), 'container identity/cleanup/guard')
     require(state.get('ExitCode') == 0 and state.get('OOMKilled') is False and state.get('Running') is False
             and state.get('Pid') == 0 and not identity.get('killedByCleanup'), 'container terminal failure')
+    if spec['profile'] in READER:
+        check_guard(identity['guardReadback'], spec['profile'])
 
 
 def compare_case(case: Case, directory: Path) -> Record:

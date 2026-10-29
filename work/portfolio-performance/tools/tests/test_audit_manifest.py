@@ -11,6 +11,7 @@ import unittest
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from protocol import RUN_TMP, Rejected, file_hash, save, scope
 from build_audit_manifest import produce
 

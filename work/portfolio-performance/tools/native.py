@@ -112,8 +112,14 @@ def invoke(case: Case, request: Record) -> Record:
                 receipt['status'] = 'ERROR'
                 receipt.pop('metrics', None)
         if job is not None:
+            from container_resources import TerminalFailure
             try:
                 job.close()
+            except TerminalFailure as error:
+                # The container ran and exited abnormally; cleanup itself succeeded, so this is an execution error.
+                receipt.update(status='ERROR', terminalError=str(error))
+                receipt.setdefault('error', str(error))
+                receipt.pop('metrics', None)
             except (Rejected, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
                 receipt.update(status='ERROR', cleanupError=str(error))
                 receipt.pop('metrics', None)

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -11,7 +12,7 @@ import sys
 import time
 import uuid
 
-from protocol import Record, file_hash, record, require
+from protocol import Record, Rejected, file_hash, record, require
 from resource_limits import regular_path
 
 IMAGE = 'sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752'
@@ -19,9 +20,15 @@ SOCKET = '/Users/reidar/.colima/default/docker.sock'
 MIB = 1024 * 1024
 LEGACY = 'node22-pidns-v1'
 # Linux reader profiles are frozen before any observation and mirror reader-m-prepare.mjs TARGETS/guardArgs.
-# /work is read-only bound source (bridge + fixture); the image keeps /image and /tmp as in the qualified guard.
+# The bridge and fixture are baked into the immutable image (/image/out); the container has no bind mounts and no /work.
 READER_SOCKET = '/var/run/docker.sock'
-READER_ENTRY = '/work/reader-m-bridge.mjs'
+READER_ENTRY = '/image/out/bridge.mjs'
+# reader-m-prepare.mjs copies the bridge into the image with its fixture import renamed to the image copy.
+SOURCE_IMPORT, IMAGE_IMPORT = b"'./reader-m-fixture.mjs'", b"'./fixture.mjs'"
+
+
+class TerminalFailure(Rejected):
+    """The container ran and exited abnormally (OOM, nonzero, killed); distinct from a failure to clean it up."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,10 +41,68 @@ class Envelope:
 
 READER = {
     'reader-linux-local-v1': Envelope(32, '0.5', 128 * MIB, ('--permission', '--allow-fs-read=/image', '--allow-fs-read=/tmp',
-                                                            '--allow-fs-read=/work', '--allow-fs-write=/tmp')),
+                                                            '--allow-fs-write=/tmp')),
     'reader-linux-do-v1': Envelope(128, '1', 512 * MIB),
 }
 READER_FIELDS = {'profile', 'image', 'docker', 'mounts', 'scratchBytes', 'freeze', 'entrypoint'}
+
+
+def image_bridge_hash(source: Path) -> str:
+    """Hash of the bridge bytes as copied into the image."""
+    raw = source.read_bytes()
+    require(raw.count(SOURCE_IMPORT) == 1, 'bridge fixture import')
+    return hashlib.sha256(raw.replace(SOURCE_IMPORT, IMAGE_IMPORT)).hexdigest()
+
+
+def check_guard(guard: Record, profile: str) -> None:
+    """Mirror of reader-m-prepare.mjs checkInspect for reader profiles; run on the live inspect and again on stored receipts."""
+    env = READER[profile]
+    host = record(guard.get('host'))
+    tmpfs = host.get('Tmpfs') or {}
+    opts = str(tmpfs.get('/tmp', '')).split(',') if isinstance(tmpfs, dict) else []
+    mounts = guard.get('mounts')
+    require(isinstance(mounts, list), 'guard readback mounts')
+    assert isinstance(mounts, list)
+    checks = {
+        'user': guard.get('user') == '1000:1000', 'network': host.get('NetworkMode') == 'none', 'readonly': host.get('ReadonlyRootfs') is True,
+        'privileged': not host.get('Privileged'), 'init': host.get('Init') is True, 'caps': host.get('CapDrop') == ['ALL'] and not host.get('CapAdd'),
+        'no-new-privileges': 'no-new-privileges' in (host.get('SecurityOpt') or []), 'pids': host.get('PidsLimit') == env.pids,
+        'memory': host.get('Memory') == env.memory and host.get('MemorySwap') == env.memory,
+        'cpus': host.get('NanoCpus') == int(float(env.cpus) * 1e9), 'shm': host.get('ShmSize') == MIB,
+        'log': record(host.get('LogConfig') or {}).get('Type') == 'none', 'dns': host.get('Dns') == ['127.0.0.1'],
+        'tmpfs': isinstance(tmpfs, dict) and list(tmpfs) == ['/tmp'] and 'size=' + str(6 * MIB) in opts and all(o in opts for o in ('noexec', 'nosuid', 'nodev')),
+        'binds': not host.get('Binds'),
+        'mounts': all(isinstance(m, dict) and m.get('Type') == 'tmpfs' and m.get('Destination') == '/tmp' for m in mounts),
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    require(not failed, 'guard readback: ' + ','.join(failed))
+
+
+def reader_binding(spec: Record, data: Record) -> None:
+    """Cross-bind freeze, manifest, image ID, qualification and the committed bridge/fixture sources by bytes."""
+    harness, freeze_path = data['harness'], Path(spec['freeze'])
+    require(freeze_path.name == 'freeze.json', 'reader freeze name')
+    parts = {name: freeze_path.parent / name for name in ('freeze.json', 'manifest.json', 'image.id', 'qualification.json')}
+    for name, path in parts.items():
+        require(str(path) in harness and file_hash(path) == harness[str(path)], 'unbound or stale reader ' + name)
+    freeze = record(json.loads(parts['freeze.json'].read_text()))
+    require(freeze.get('imageId') == spec['image'] and all(isinstance(freeze.get(k), str) and freeze[k] for k in ('manifestSha', 'protocolSha')),
+            'freeze does not bind the reader image')
+    require(file_hash(parts['manifest.json']) == freeze['manifestSha'], 'freeze does not bind the manifest')
+    manifest = record(json.loads(parts['manifest.json'].read_text()))
+    require(manifest.get('protocolSha') == freeze['protocolSha'], 'manifest does not bind the protocol')
+    require(parts['image.id'].read_text().strip() == freeze['imageId'], 'image.id does not bind the freeze')
+    qualification = record(json.loads(parts['qualification.json'].read_text()))
+    require(qualification.get('pass') is True and all(qualification.get(k) == freeze[v] for k, v in
+            (('imageId', 'imageId'), ('manifestSha', 'manifestSha'), ('protocolSha', 'protocolSha')))
+            and qualification.get('freezeSha') == file_hash(parts['freeze.json']), 'qualification does not bind the freeze')
+    sources = {Path(p).name: p for p in data['baseline']['sources']}
+    bridge, fixture = sources.get('reader-m-bridge.mjs'), sources.get('reader-m-fixture.mjs')
+    require(bridge is not None and fixture is not None and bridge in harness and fixture in harness, 'bridge/fixture sources not bound')
+    assert bridge is not None and fixture is not None
+    files = record(manifest.get('files'))
+    require(files.get('bridge.mjs') == image_bridge_hash(Path(bridge)) and files.get('fixture.mjs') == file_hash(Path(fixture)),
+            'image bridge/fixture differ from committed sources')
 
 
 def validate(data: Record, phase: str) -> Record:
@@ -48,12 +113,9 @@ def validate(data: Record, phase: str) -> Record:
         require(str(record(data['runtime']).get('platform', '')).startswith('Linux'), 'reader profile requires an actual Linux host')
         require(isinstance(spec['image'], str) and re.fullmatch(r'sha256:[0-9a-f]{64}', spec['image']) is not None, 'reader image must be an immutable image ID')
         require(spec['scratchBytes'] == 7 * MIB, 'reader namespace reservation is tmpfs 6MiB + shm 1MiB')
-        require(spec['entrypoint'] == READER_ENTRY and READER_ENTRY in spec['mounts'].values(), 'reader entrypoint binding')
-        # The freeze must be a hash-bound harness file naming this exact image; it binds manifest/graph/protocol digests.
-        require(spec['freeze'] in data['harness'] and file_hash(Path(spec['freeze'])) == data['harness'][spec['freeze']], 'unbound or stale reader freeze')
-        freeze = record(json.loads(Path(spec['freeze']).read_text()))
-        require(freeze.get('imageId') == spec['image'] and all(isinstance(freeze.get(k), str) and freeze[k] for k in ('manifestSha', 'protocolSha')),
-                'freeze does not bind the reader image')
+        require(spec['entrypoint'] == READER_ENTRY, 'reader entrypoint binding')
+        require(spec['mounts'] == {}, 'reader profile has no bind mounts')
+        reader_binding(spec, data)
     else:
         require(spec['profile'] == LEGACY and spec['image'] == IMAGE, 'unqualified container profile/image')
     require(12 < data['timeout'] <= 120, 'container timeout must include control reserves')
@@ -63,17 +125,19 @@ def validate(data: Record, phase: str) -> Record:
         require(executable in data['executables'] and file_hash(Path(executable)) == data['executables'][executable], 'container control executable binding')
     allowed = {**data['harness'], **data['fixtures'], **data[phase]['sources']}
     mounts = record(spec['mounts'])
-    require(bool(mounts) and set(mounts) <= set(allowed), 'unbound container mount')
-    require(len(set(mounts.values())) == len(mounts), 'duplicate container target')
-    for source, target in mounts.items():
-        regular_path(Path(source))
-        require(Path(source).is_file() and file_hash(Path(source)) == allowed[source], 'stale container mount')
-        path = PurePosixPath(target)
-        require(path.is_relative_to('/work') and len(path.parts) > 2 and '..' not in path.parts
-                and str(path) == target and ',' not in source + target, 'invalid container mount target')
+    if not reader:
+        require(bool(mounts) and set(mounts) <= set(allowed), 'unbound container mount')
+        require(len(set(mounts.values())) == len(mounts), 'duplicate container target')
+        for source, target in mounts.items():
+            regular_path(Path(source))
+            require(Path(source).is_file() and file_hash(Path(source)) == allowed[source], 'stale container mount')
+            path = PurePosixPath(target)
+            require(path.is_relative_to('/work') and len(path.parts) > 2 and '..' not in path.parts
+                    and str(path) == target and ',' not in source + target, 'invalid container mount target')
     for phases in data['commands'].values():
         argv = phases[phase]
-        require(argv[0] == spec['docker'] and len(argv) >= 2 and argv[1] in mounts.values(), 'container entry binding')
+        require(argv[0] == spec['docker'] and len(argv) >= 2 and (argv == [spec['docker'], READER_ENTRY] if reader else argv[1] in mounts.values()),
+                'container entry binding')
     return spec
 
 
@@ -138,16 +202,19 @@ class ContainerJob:
         self.create_acknowledged = True
         info = self.inspect()
         host = info['HostConfig']
-        require(host['NetworkMode'] == 'none' and host['ReadonlyRootfs'] and host['PidsLimit'] == r.pids
-                and host['Memory'] == r.memory and host['MemorySwap'] == r.memory
-                and host['ShmSize'] == MIB and host['Init'] is True and host['CapDrop'] == ['ALL']
-                and 'no-new-privileges' in host['SecurityOpt'] and host['Dns'] == ['127.0.0.1']
-                and host['LogConfig']['Type'] == 'none' and info['Config']['User'] == '1000:1000', 'container guard readback')
-        require(not self.reader or host['NanoCpus'] == int(float(r.cpus) * 1e9), 'container cpu readback')
-        expected = {(p, t) for p, t in self.spec['mounts'].items()}
-        actual = {(m['Source'], m['Destination']) for m in info['Mounts'] if m['Type'] == 'bind' and not m['RW']}
-        require(actual == expected and len(info['Mounts']) == len(expected), 'container mount readback')
-        self.identity['guardReadback'] = {'host': host, 'mounts': info['Mounts'], 'user': info['Config']['User']}
+        guard = {'host': host, 'mounts': info['Mounts'], 'user': info['Config']['User']}
+        if self.reader:
+            check_guard(guard, self.spec['profile'])
+        else:
+            require(host['NetworkMode'] == 'none' and host['ReadonlyRootfs'] and host['PidsLimit'] == r.pids
+                    and host['Memory'] == r.memory and host['MemorySwap'] == r.memory
+                    and host['ShmSize'] == MIB and host['Init'] is True and host['CapDrop'] == ['ALL']
+                    and 'no-new-privileges' in host['SecurityOpt'] and host['Dns'] == ['127.0.0.1']
+                    and host['LogConfig']['Type'] == 'none' and info['Config']['User'] == '1000:1000', 'container guard readback')
+            expected = {(p, t) for p, t in self.spec['mounts'].items()}
+            actual = {(m['Source'], m['Destination']) for m in info['Mounts'] if m['Type'] == 'bind' and not m['RW']}
+            require(actual == expected and len(info['Mounts']) == len(expected), 'container mount readback')
+        self.identity['guardReadback'] = guard
         return [self.spec['docker'], '--host', 'unix://' + self.socket, 'start', '--attach', self.name]
 
     def close(self) -> None:
@@ -172,5 +239,7 @@ class ContainerJob:
         # Report terminal failure only after the exact owned container is gone: the attach client can succeed after OOM/nonzero exit.
         require('terminalState' in self.identity, 'missing container terminal state')
         state = record(self.identity['terminalState'])
-        require(state.get('OOMKilled') is False, 'container OOM killed')
-        require(state.get('ExitCode') == 0 and not self.identity.get('killedByCleanup'), 'container nonzero exit')
+        if state.get('OOMKilled') is not False:
+            raise TerminalFailure('container OOM killed')
+        if state.get('ExitCode') != 0 or self.identity.get('killedByCleanup'):
+            raise TerminalFailure('container nonzero exit')

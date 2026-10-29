@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from protocol import RUN_TMP, Rejected, digest, file_hash, save
 from receipt_audit import ReceiptArchive
 

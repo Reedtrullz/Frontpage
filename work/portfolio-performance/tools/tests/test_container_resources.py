@@ -9,12 +9,13 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
 from resource_limits import ResourceBudget
 from protocol import Rejected
 from protocol import Case, EVIDENCE, Record, WORK, digest, file_hash, save, slot
 from native import invoke
 import test_adapter
-from container_resources import IMAGE, MIB
+from container_resources import IMAGE, MIB, SOCKET
 from container_resources import ContainerJob
 from unittest.mock import patch
 
@@ -43,6 +44,8 @@ class ReservationTests(unittest.TestCase):
                 budget.enforce(7)
 
 
+@unittest.skipUnless(sys.platform == 'darwin' and Path(SOCKET).exists() and Path('/opt/homebrew/bin/docker').exists(),
+                     'legacy node22-pidns-v1 real-image proof runs only on the supported Mac Colima host')
 class ContainerTests(unittest.TestCase):
     root: Path
     path: Path

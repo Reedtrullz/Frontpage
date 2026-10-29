@@ -38,7 +38,7 @@ def record(value: JSON) -> Record:
 
 
 GZIP_MAGIC = b'PPGZ1\n'  # versioned opt-in receipt transport; plain JSON never starts with it
-DECODED_BOUND = 2 * 1024 * 1024
+DECODED_BOUND = 2_000_000  # same bound as plain JSON load
 
 
 def decode(raw: bytes) -> str:
