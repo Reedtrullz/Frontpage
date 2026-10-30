@@ -101,6 +101,45 @@ class PublicEnvelopeTests(ResourceTests):
                 guard.invoke(config, {'phase': 'baseline'})
             launch.assert_not_called()
 
+    def test_failed_invocation_keeps_bounded_redacted_diagnostic(self) -> None:
+        guard = self.guard()
+        cache = self.root / 'source/.next/standalone/.next/cache'
+        cache.mkdir(parents=True)
+        inputs = self.root / 'inputs.json'
+        inputs.write_text('{}')
+        config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': '/node', 'manifest': '/m',
+                  'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
+        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
+        noisy = b'fixture-renderer-cause\nAuthorization: Bearer abc123\nCookie: sid=s3\n/Users/me/private\n\xff\xfe' + b'x' * 20000 + b'\nterminal-error'
+        with patch.object(guard, 'execute', return_value=(result, noisy)):
+            with self.assertRaises(AssertionError) as caught:
+                guard.invoke(config, {'phase': 'baseline'})
+        message = str(caught.exception)
+        self.assertIn("'returncode': 1", message)
+        self.assertLess(len(message), 4096 + 400)
+        self.assertIn('fixture-renderer-cause', message)
+        self.assertIn('terminal-error', message)
+        self.assertIn('omitted', message)
+        wide = guard.diagnostic('\u00e9\u20ac'.encode() * 5000 + b'\xff')
+        self.assertLessEqual(len(wide.encode()), 4096)
+        self.assertIn('omitted', wide)
+        for secret in ('abc123', 's3', '/Users/me'):
+            self.assertNotIn(secret, message)
+        short = guard.diagnostic(b'fixture-renderer-cause\nAuthorization: Bearer abc123\n/Users/me/x\xff')
+        self.assertIn('fixture-renderer-cause', short)
+        self.assertNotIn('abc123', short)
+        self.assertNotIn('/Users/me', short)
+        with patch.object(guard, 'execute', return_value=({**result, 'returncode': 0}, b'{"status":"complete"}')):
+            self.assertEqual(guard.invoke(config, {'phase': 'baseline'})['status'], 'complete')
+
+    def guard(self):
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-linux.py'
+        spec = importlib.util.spec_from_file_location('public_linux_diag_test', path)
+        assert spec and spec.loader
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        return guard
+
     def test_owned_dependency_graph_has_real_hardlinks_and_rejects_escape(self) -> None:
         path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
         spec = importlib.util.spec_from_file_location('public_owned_graph_test', path)

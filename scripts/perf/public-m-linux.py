@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import subprocess
 import sys
@@ -152,6 +153,20 @@ def controls(config):
         canary.unlink()
 
 
+def diagnostic(output, limit=4096):
+    text = output.decode('utf-8', 'replace')
+    text = re.sub(r'(?i)(authorization|cookie|set-cookie|token|secret|password|passwd|api[-_]?key)([^\n]*)', r'\1=[REDACTED]', text)
+    text = re.sub(r'(?i)bearer\s+\S+', 'Bearer [REDACTED]', text)
+    text = re.sub(r'/(?:Users|home|root|run/fpm-)[^\s"\':,]*', '[PATH]', text)
+    data = text.encode()
+    if len(data) <= limit:
+        return text
+    marker = b'\n[...omitted...]\n'
+    half = (limit - len(marker)) // 2  # head keeps the first cause, tail the terminal one
+    # shortcut: regex redaction is best effort; cut multibyte edges are dropped
+    return (data[:half] + marker + data[-half:]).decode('utf-8', 'ignore')
+
+
 def invoke(config, request):
     started = time.monotonic()
     for name, expected in json.loads(Path(config['immutableInputs']).read_bytes()).items():
@@ -162,7 +177,7 @@ def invoke(config, request):
     cache = Path(config['sources'][request['phase']]['cwd']) / '.next/standalone/.next/cache'
     host_cache_unchanged = not any(cache.iterdir())
     assert host_cache_unchanged, 'runtime cache escaped counted namespace'
-    assert clean(result) and result['returncode'] == 0 and not result['overflow'], result
+    assert clean(result) and result['returncode'] == 0 and not result['overflow'], (result, diagnostic(output))
     native = json.loads(output)
     elapsed = time.monotonic() - started
     assert elapsed <= 120, 'whole invocation including immutable-input hashing exceeded120s'
