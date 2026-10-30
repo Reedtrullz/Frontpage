@@ -41,6 +41,7 @@ jobs:
           python3 -m pip install -r ops/requirements-ansible.txt
           ansible-galaxy collection install -r ops/ansible/requirements.yml
       - run: python3 -m unittest discover -s ops/tests
+      - run: python3 -m unittest discover -s work/portfolio-performance/tools/tests
       - run: python3 -m compileall -q ops/frontpage_metrics_v2 ops/frontpage-metrics-collector.py ops/frontpage-metrics-collector-v2.py ops/frontpage-metrics-runtime-map.py ops/frontpage-metrics-shadow-compare.py
       - name: Check Ansible deployment syntax
         run: |
@@ -81,6 +82,31 @@ jobs:
             .reader-m/variants/*/closure.json
           if-no-files-found: ignore
           retention-days: 7
+      - name: Qualify production public browser isolation, then collect only missing public cohorts
+        timeout-minutes: 60
+        run: python3 scripts/perf/public-m-prepare.py --collect-m
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: public-m-native-admission
+          path: |
+            .public-m-setup/manifest.json
+            .public-m-setup/immutable-inputs.json
+            .public-m-setup/protocol.json
+            .public-m-setup/clock.cjs
+            .public-m-setup/build-toolchain.json
+            .public-m-setup/installed-graph.json
+            .public-m-setup/dependency-links.json
+            .public-m-setup/inputs/
+            .public-m-setup/T15-public-*.json
+            .omo/evidence/portfolio-performance/unblocking-20261028/u04-public/
+            scripts/perf/public-m-*
+            scripts/perf/public-linux-guard.json
+            work/portfolio-performance/tools/*.py
+            work/portfolio-performance/tools/fixtures/frontpage-browser-envelope.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate Cloudflare upload bundle
         run: pnpm exec wrangler deploy --config wrangler.jsonc --dry-run
 

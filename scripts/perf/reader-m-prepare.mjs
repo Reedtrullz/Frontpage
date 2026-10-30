@@ -62,6 +62,13 @@ export const PROTOCOL = {
   semantic: 'per-query output hash must be identical before and candidate',
 };
 export const sha = (b) => createHash('sha256').update(b).digest('hex');
+// The bridge is baked into the image as /image/out/bridge.mjs; its fixture import names the image copy. container_resources.py image_bridge_hash mirrors this transform.
+export const IMAGE_BRIDGE_IMPORT = [Buffer.from("'./reader-m-fixture.mjs'"), Buffer.from("'./fixture.mjs'")];
+export function imageBridge(source) {
+  const [from, to] = IMAGE_BRIDGE_IMPORT, text = source.toString('latin1'), needle = from.toString('latin1');
+  assert.equal(text.split(needle).length - 1, 1, 'bridge must import the fixture exactly once');
+  return Buffer.from(text.replace(needle, to.toString('latin1')), 'latin1');
+}
 export const protocolSha = () => sha(JSON.stringify(PROTOCOL));
 export const blobOid = (b) => createHash('sha1').update('blob ' + b.length + '\0').update(b).digest('hex');
 export function assertBlob(bytes, oid) { assert.equal(blobOid(bytes), oid, 'pinned git blob mismatch'); }
@@ -286,6 +293,12 @@ function selfcheck() {
   const throwsFor = (fn) => assert.throws(fn);
   const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'readerm-'));
   check('blob-oid-empty', () => assert.equal(blobOid(Buffer.alloc(0)), 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391'));
+  check('image-bridge-import', () => {
+    const real = imageBridge(fs.readFileSync(path.join(here, 'reader-m-bridge.mjs'))).toString();
+    assert.ok(real.includes("from './fixture.mjs'") && !real.includes('reader-m-fixture.mjs'));
+    throwsFor(() => imageBridge(Buffer.from('no import')));
+    throwsFor(() => imageBridge(Buffer.from("import a from './reader-m-fixture.mjs'; import b from './reader-m-fixture.mjs'")));
+  });
   check('blob-mismatch-rejected', () => throwsFor(() => assertBlob(Buffer.from('model reconstruction'), PINS.before.blob)));
   check('schedule', () => {
     for (const t of Object.keys(TARGETS)) {
@@ -551,6 +564,7 @@ async function prepare(out) {
     fs.writeFileSync(path.join(dir, 'closure.json'), JSON.stringify({ reader: checkClosure(own(reader.metafile), root, pinnedBlob(PINS[v].commit)), worker: checkClosure(own(worker.metafile), root, pinnedBlob(PINS[v].commit)) }));
   }
   fs.copyFileSync(path.join(here, 'reader-m-fixture.mjs'), path.join(out, 'fixture.mjs'));
+  fs.writeFileSync(path.join(out, 'bridge.mjs'), imageBridge(fs.readFileSync(path.join(here, 'reader-m-bridge.mjs'))));
   fs.copyFileSync(path.join(here, 'reader-m-unit.mjs'), path.join(out, 'unit.mjs'));
   fs.writeFileSync(path.join(out, 'ca-certificates.crt'), ca.bytes);
   assert.ok(!fs.existsSync(path.join(out, 'openssl.cnf')), 'openssl.cnf must stay absent from the image context');

@@ -92,6 +92,19 @@ export class ReaderDO {
     if (!this.hashes) this.seed(scale);
     const { readSeriesV2 } = await import('@t15/reader');
     const only = url.searchParams.get('q');
+    // Canonical bridge timed dispatch: unpatched Date.parse and plain SQL passthrough, ORIGINAL query index; hash only.
+    if (url.searchParams.get('raw') === '1') {
+      const query = queries[Number(only)];
+      if (!query) return Response.json({ error: 'query index' }, { status: 400 });
+      globalThis[Symbol.for('__cloudflare-context__')] = { env: { FRONTPAGE_SQL: { exec: (...args) => this.sql.exec(...args) } } };
+      process.env.FRONTPAGE_CLOUDFLARE = '1';
+      if (url.searchParams.get('fail') === 'missing') { // real missing manifest: the reader's own unavailable error at the original index
+        delete this.hashes['owner/manifest.v2.json'];
+        this.sql.exec('UPDATE metrics_v2_active SET files=? WHERE id=1', JSON.stringify(this.hashes));
+        try { readSeriesV2('/cloudflare/metrics-v2/owner', query, new Date(now)); return Response.json({ code: null }); } catch (error) { return Response.json({ code: error.code ?? null }); }
+      }
+      return Response.json({ hash: createHash('sha256').update(JSON.stringify(readSeriesV2('/cloudflare/metrics-v2/owner', query, new Date(now)))).digest('hex') });
+    }
     if (only === 'fs') {
       try { return Response.json({ read: String(process.getBuiltinModule('node:fs').readFileSync('/etc/passwd')).length }); } catch (error) { return Response.json({ denied: String(error && error.code || error && error.name) }); }
     }
@@ -100,6 +113,10 @@ export class ReaderDO {
       try { this.read(readSeriesV2, { range: ['aggregate', 'date'].includes(fault) ? '30d' : '1h', view: 'host', resource: null }); return Response.json({ fault, code: null }); } catch (error) { return Response.json({ fault, code: error.code ?? null }); }
     }
     const selected = only === null ? (scale === 'canary' ? [queries[0]] : queries) : only === 'none' ? [] : [queries[Number(only)]];
+    if (url.searchParams.get('restore') === '1') this.seed(scale);
+    if (url.searchParams.get('fail') === 'missing') { // counter pass over the already missing manifest
+      try { this.read(readSeriesV2, selected[0]); return Response.json([{ code: null }]); } catch (error) { return Response.json([{ code: error.code ?? null, counters: globalThis.t15Counters }]); }
+    }
     return Response.json(selected.map((query) => {
       const { counters, data } = this.read(readSeriesV2, query);
       return { query, counters, hash: createHash('sha256').update(JSON.stringify(data)).digest('hex'), coverage: data.coverage_percent };

@@ -286,7 +286,9 @@ test('built Worker exercises SQL owner state, isolation, collector and proxy, in
     try{
       const context=await browser.newContext();await context.addCookies([{name:'authjs.session-token',value:(await cookie('runtime-owner')).split('=').slice(1).join('='),url:base,httpOnly:true,sameSite:'Lax'}]);
       const first=await context.newPage(),second=await context.newPage();await Promise.all([first.goto(base+'/admin/personal'),second.goto(base+'/admin/personal')]);
+      for(const page of [first,second]){await page.getByRole('button',{name:'Preview',exact:true}).click();await expect(page.getByRole('button',{name:'Hide preview',exact:true})).toBeVisible();}
       const original=await first.getByLabel('Bio').inputValue();await first.getByLabel('Bio').fill(original+' Runtime tab one');await second.getByLabel('Bio').fill(original+' Runtime tab two');
+      assert.equal(await first.getByLabel('Bio').inputValue(),original+' Runtime tab one');assert.equal(await second.getByLabel('Bio').inputValue(),original+' Runtime tab two');
       await first.getByRole('button',{name:'Save draft',exact:true}).click();await expect(first.getByText('Personal draft saved locally. It is not published.')).toBeVisible();
       await second.getByRole('button',{name:'Save draft',exact:true}).click();await expect(second.getByText(/The draft changed/)).toBeVisible();assert.equal(await second.getByLabel('Bio').inputValue(),original+' Runtime tab two');
       const review=await context.newPage();await review.goto(base+'/admin');await expect(review.getByRole('heading',{name:'Review and publish'})).toBeVisible();await review.locator('summary').filter({hasText:'shortDescription'}).first().click();await expect(review.locator('pre').filter({hasText:'PRIVATE SQL RUNTIME DRAFT SENTINEL'})).toBeVisible();await expect(review.getByRole('button',{name:'Publish to GitHub'})).toBeDisabled();
