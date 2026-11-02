@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main, "codex/frontpage-*", "codex/test-frontpage-full-windows-20261028"]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Public browser stage
+        required: true
+        default: collect
+        type: choice
+        options: [capacity, qualify, collect]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -23,12 +30,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Record capacity after checkout
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only checkout
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Enable pnpm via Corepack (version pinned by packageManager)
         run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Record capacity after dependency staging
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only dependency-staging
       - run: pnpm audit --audit-level critical
       - run: pnpm test
       - run: node --test --test-concurrency=1 scripts/*.test.mjs
@@ -51,24 +64,39 @@ jobs:
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-collector.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-proposals-origin.yml --vault-password-file .vault_pass
           ansible-playbook --syntax-check -i inventory/hosts.yml ansible-cloudflare-v2-upload.yml --vault-password-file .vault_pass
+      - name: Record capacity after unit, script, and Ansible checks
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only unit-script-ansible
       - run: pnpm run build
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
+      - name: Record capacity after Next build
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only next-build
       - name: Build Cloudflare Durable Object candidate
         run: pnpm run build:cloudflare
         env:
           CI: true
           AUTH_SECRET: frontpage-ci-build-secret
           VERSION: ci-${{ github.sha }}
+      - name: Record capacity after Cloudflare build
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only cloudflare-build
       - name: Install runtime browser
         run: node scripts/install-browser.mjs
+      - name: Record capacity after browser install
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only browser-install
       - name: Exercise built Worker and Durable Object runtime
         run: pnpm run test:cloudflare
       - name: Qualify native reader M fixture (canaries only, no portfolio samples)
         timeout-minutes: 10
         run: node scripts/perf/reader-m-prepare.mjs ci --out .reader-m
+      - name: Record capacity after reader qualification
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'capacity'
+        run: python3 scripts/perf/public-m-prepare.py --capacity-only reader-qualification
       - uses: actions/upload-artifact@v6
         if: always()
         with:
@@ -82,11 +110,19 @@ jobs:
             .reader-m/variants/*/closure.json
           if-no-files-found: ignore
           retention-days: 7
-      - name: Qualify production public browser isolation, then collect only missing public cohorts
+      - name: Qualify production public browser isolation or collect capacity
         timeout-minutes: 60
-        run: python3 scripts/perf/public-m-prepare.py --collect-m
+        env:
+          PUBLIC_M_MODE: ${{ inputs.mode || 'collect' }}
+        run: |
+          case "$PUBLIC_M_MODE" in
+            capacity) python3 scripts/perf/public-m-prepare.py --capacity-only pre-public ;;
+            qualify) python3 scripts/perf/public-m-prepare.py ;;
+            collect) python3 scripts/perf/public-m-prepare.py --collect-m ;;
+            *) echo "unknown public browser mode: $PUBLIC_M_MODE" >&2; exit 64 ;;
+          esac
       - uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && (inputs.mode || 'collect') != 'capacity'
         with:
           name: public-m-native-admission
           path: |

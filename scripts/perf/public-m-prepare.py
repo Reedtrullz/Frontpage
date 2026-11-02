@@ -29,6 +29,7 @@ SOURCES = ['scripts/perf/public-m-browser.mjs', 'scripts/perf/public-m-linux.py'
            'work/portfolio-performance/tools/protocol.py', 'work/portfolio-performance/tools/resource_limits.py',
            'work/portfolio-performance/tools/native_admission.py', 'work/portfolio-performance/tools/measure.py',
            'work/portfolio-performance/tools/compare.py', 'work/portfolio-performance/tools/decisions.py']
+CAPACITY_FLOOR_BYTES = 30 * 1024 ** 3
 
 
 def owned_graph(source: Path, target: Path) -> dict[str, str]:
@@ -75,9 +76,14 @@ def case_for(config, viewport, temperature, semantic) -> dict[str, Any]:
             'allowlist': [argv], 'executables': {p: file_hash(Path(p)) for p in (argv[0], config['node'])}, 'receiptEncoding': 'gzip-v1'}
 
 
-def main(collect):
+def main(collect=False, capacity_only=None):
     assert sys.platform == 'linux' and os.getuid() != 0, 'hosted unprivileged Linux only'
-    assert shutil.disk_usage(ROOT).free >= 30 * 1024 ** 3, '30GiB build admission floor'
+    disk = shutil.disk_usage(ROOT)
+    print(json.dumps({'stage': capacity_only or 'pre-public', 'root': str(ROOT), 'device': ROOT.stat().st_dev,
+                      'freeBytes': disk.free, 'floorBytes': CAPACITY_FLOOR_BYTES}, sort_keys=True), flush=True)
+    assert disk.free >= CAPACITY_FLOOR_BYTES, '30GiB build admission floor'
+    if capacity_only is not None:
+        return
     setup = ROOT / '.public-m-setup'
     setup.mkdir()
     node_path = shutil.which('node')
@@ -191,5 +197,9 @@ def main(collect):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--collect-m', action='store_true')
-    main(parser.parse_args().collect_m)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--collect-m', action='store_true')
+    mode.add_argument('--capacity-only', nargs='?', const='pre-public', metavar='STAGE',
+                      help='record capacity at STAGE and exit before preparation')
+    args = parser.parse_args()
+    main(args.collect_m, args.capacity_only)

@@ -1,9 +1,12 @@
 """Public browser envelope fails closed before a workload can start."""
 import copy
+import io
 import sys
 import unittest
 import importlib.util
 import json
+from contextlib import redirect_stdout
+from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
@@ -161,6 +164,48 @@ class PublicEnvelopeTests(ResourceTests):
         with self.assertRaisesRegex(AssertionError, 'escapes owned graph'):
             producer.owned_graph(source, self.root / 'rejected')
         self.assertEqual(foreign.read_bytes(), b'authored foreign canary')
+
+    def test_capacity_below_floor_fails_before_setup(self) -> None:
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+        spec = importlib.util.spec_from_file_location('public_capacity_failure_test', path)
+        assert spec and spec.loader
+        producer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(producer)
+        disk = SimpleNamespace(free=producer.CAPACITY_FLOOR_BYTES - 1)
+        with patch.object(producer, 'ROOT', self.root), patch.object(producer.shutil, 'disk_usage', return_value=disk), \
+             patch.object(producer.sys, 'platform', 'linux'), patch.object(producer.os, 'getuid', return_value=1000), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(AssertionError, '30GiB'):
+                producer.main(capacity_only='pre-public')
+        self.assertFalse((self.root / '.public-m-setup').exists())
+
+    def test_capacity_only_logs_and_exits_before_preparation(self) -> None:
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+        spec = importlib.util.spec_from_file_location('public_capacity_success_test', path)
+        assert spec and spec.loader
+        producer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(producer)
+        disk = SimpleNamespace(free=producer.CAPACITY_FLOOR_BYTES)
+        output = io.StringIO()
+        with patch.object(producer, 'ROOT', self.root), patch.object(producer.shutil, 'disk_usage', return_value=disk), \
+             patch.object(producer.sys, 'platform', 'linux'), patch.object(producer.os, 'getuid', return_value=1000), \
+             patch.object(producer, 'make_checkouts') as preparation, redirect_stdout(output):
+            producer.main(capacity_only='pre-public')
+        observed = json.loads(output.getvalue())
+        self.assertEqual(observed['stage'], 'pre-public')
+        self.assertEqual(observed['root'], str(self.root))
+        self.assertEqual(observed['device'], self.root.stat().st_dev)
+        self.assertEqual(observed['freeBytes'], producer.CAPACITY_FLOOR_BYTES)
+        self.assertEqual(observed['floorBytes'], producer.CAPACITY_FLOOR_BYTES)
+        preparation.assert_not_called()
+        self.assertFalse((self.root / '.public-m-setup').exists())
+
+    def test_capacity_and_collect_flags_are_incompatible(self) -> None:
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+        result = __import__('subprocess').run(
+            [sys.executable, str(path), '--collect-m', '--capacity-only'], text=True, capture_output=True, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('not allowed with argument', result.stderr)
 
 
 if __name__ == '__main__':
