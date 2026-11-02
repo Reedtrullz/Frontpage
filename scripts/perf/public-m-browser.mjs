@@ -13,6 +13,27 @@ export const CLOCK = 1793203200000;
 const base = 'http://127.0.0.1:3100';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+export function failureOutput(error, logFile, limit = 65536) {
+  const head = JSON.stringify({ status: 'ERROR', type: error.name, message: error.message.slice(0, 500) });
+  let tail = Buffer.alloc(0);
+  if (logFile) {
+    try {
+      const fd = fs.openSync(logFile, 'r');
+      try {
+        const size = fs.fstatSync(fd).size, start = Math.max(0, size - limit);
+        tail = Buffer.alloc(size - start);
+        fs.readSync(fd, tail, 0, tail.length, start);
+        if (start) tail = tail.includes(10) ? tail.subarray(tail.indexOf(10) + 1) : Buffer.alloc(0);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      tail = Buffer.alloc(0);
+    }
+  }
+  return Buffer.concat([Buffer.from(head + '\n'), tail.length ? Buffer.from('[server.log tail]\n') : Buffer.alloc(0), tail]);
+}
+
 function encoded(route) {
   return new Promise((resolve, reject) => {
     const request = http.get(base + route, { headers: { 'Accept-Encoding': 'gzip' }, timeout: 10000 }, response => {
@@ -98,5 +119,9 @@ export async function run(config, request) {
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   try { console.log(JSON.stringify(await run(config, JSON.parse(process.env.MEASURE_REQUEST)))); }
-  catch (error) { console.error(JSON.stringify({ status: 'ERROR', type: error.name, message: error.message.slice(0, 500) })); process.exitCode = 1; }
+  catch (error) {
+    const log = process.env.TMPDIR ? path.join(process.env.TMPDIR, 'server.log') : null;
+    process.stderr.write(failureOutput(error, log));
+    process.exitCode = 1;
+  }
 }

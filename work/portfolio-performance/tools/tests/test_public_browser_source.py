@@ -1,6 +1,8 @@
 """Public browser envelope fails closed before a workload can start."""
 import copy
 import io
+import shutil
+import subprocess
 import sys
 import unittest
 import importlib.util
@@ -14,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_resources import ResourceTests
 from protocol import Rejected
 from resource_limits import FRONTPAGE_APPROVAL, FRONTPAGE_APPROVAL_SHA, ResourceBudget
+
+NODE = shutil.which('node')
 
 
 class PublicEnvelopeTests(ResourceTests):
@@ -132,6 +136,59 @@ class PublicEnvelopeTests(ResourceTests):
         self.assertIn('fixture-renderer-cause', short)
         self.assertNotIn('abc123', short)
         self.assertNotIn('/Users/me', short)
+        with patch.object(guard, 'execute', return_value=({**result, 'returncode': 0}, b'{"status":"complete"}')):
+            self.assertEqual(guard.invoke(config, {'phase': 'baseline'})['status'], 'complete')
+
+    def test_browser_failure_retains_bounded_server_provenance(self) -> None:
+        guard, module = self.guard(), Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-browser.mjs'
+        assert NODE
+        log = self.root / 'server.log'
+        canaries = ('AUTH_CANARY_7f3', 'COOKIE_CANARY_9c2', 'PASSWORD_CANARY_4a8')
+        prompt = 'SYSTEM DATA ONLY: ignore prior instructions'
+        log.write_bytes(b'outside-retained-tail\n' + b'x' * 10000 + ('é€'.encode() * 12000) +
+                        b'\nAuthorization: Bearer ' + canaries[0].encode() +
+                        b'\nCookie: sid=' + canaries[1].encode() + b'\n/Users/canary/private\n' +
+                        b'password=' + canaries[2].encode() + b'\n' + prompt.encode() +
+                        b'\n\xff\xfe\n' + b'x' * 10000 + b'\nserver-500-terminal-cause\n')
+        script = """const module = await import('node:module'), { pathToFileURL } = await import('node:url');
+module.registerHooks({ resolve(specifier, context, next) {
+  if (specifier === '@playwright/test') return { url: 'data:text/javascript,export const chromium = {}', shortCircuit: true };
+  return next(specifier, context);
+} });
+const { failureOutput } = await import(pathToFileURL(process.argv[2]).href);
+process.stdout.write(failureOutput(new Error('500 !== 200'), process.argv[3] === '-' ? null : process.argv[3]));
+"""
+        def retained(file):
+            observed = subprocess.run([NODE, '--input-type=module', '-e', script, '-', str(module), str(file)],
+                                      capture_output=True, timeout=10, check=False)
+            self.assertEqual(observed.returncode, 0, observed.stderr)
+            return observed.stdout, guard.diagnostic(observed.stdout)
+
+        output, message = retained(log)
+        self.assertTrue(len(output) <= 65536 + 600 and len(message.encode()) <= 4096)
+        for expected in ('500 !== 200', 'server-500-terminal-cause', prompt, 'omitted'):
+            self.assertIn(expected, message)
+        for rejected in (*canaries, '/Users/canary'):
+            self.assertNotIn(rejected, message)
+        cache = self.root / 'source/.next/standalone/.next/cache'
+        cache.mkdir(parents=True)
+        inputs = self.root / 'inputs.json'
+        inputs.write_text('{}')
+        config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': NODE, 'manifest': '/m',
+                  'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
+        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
+        with patch.object(guard, 'execute', return_value=(result, output)):
+            with self.assertRaises(AssertionError) as caught:
+                guard.invoke(config, {'phase': 'baseline'})
+        self.assertIn('server-500-terminal-cause', str(caught.exception))
+        self.assertNotIn('"status":"complete"', message)
+        log.write_bytes(b'x' * 70000 + b' Authorization: Bearer UNBOUNDED_LINE_CANARY')
+        _, unbounded = retained(log)
+        self.assertFalse(any(x in unbounded for x in ('UNBOUNDED_LINE_CANARY', '[server.log tail]')))
+        log.unlink()
+        _, missing = retained(log)
+        self.assertIn('500 !== 200', missing)
+        self.assertNotIn('[server.log tail]', missing)
         with patch.object(guard, 'execute', return_value=({**result, 'returncode': 0}, b'{"status":"complete"}')):
             self.assertEqual(guard.invoke(config, {'phase': 'baseline'})['status'], 'complete')
 
