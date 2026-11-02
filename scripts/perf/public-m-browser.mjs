@@ -13,6 +13,36 @@ export const CLOCK = 1793203200000;
 const base = 'http://127.0.0.1:3100';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+export function installDate(clock) {
+  const Original = globalThis.Date;
+  function FrozenDate(...args) { return new.target ? Reflect.construct(Original, args.length ? args : [clock], new.target) : new Original(clock).toString(); }
+  for (const key of ['parse', 'UTC']) Object.defineProperty(FrozenDate, key, Object.getOwnPropertyDescriptor(Original, key));
+  Object.defineProperty(FrozenDate, 'now', { ...Object.getOwnPropertyDescriptor(Original, 'now'), value: () => clock });
+  Object.setPrototypeOf(FrozenDate.prototype, Original.prototype);
+  globalThis.Date = FrozenDate;
+}
+
+export function failureOutput(error, logFile, limit = 65536) {
+  const head = JSON.stringify({ status: 'ERROR', type: error.name, message: error.message.slice(0, 500) });
+  let tail = Buffer.alloc(0);
+  if (logFile) {
+    try {
+      const fd = fs.openSync(logFile, 'r');
+      try {
+        const size = fs.fstatSync(fd).size, start = Math.max(0, size - limit);
+        tail = Buffer.alloc(size - start);
+        fs.readSync(fd, tail, 0, tail.length, start);
+        if (start) tail = tail.includes(10) ? tail.subarray(tail.indexOf(10) + 1) : Buffer.alloc(0);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      tail = Buffer.alloc(0);
+    }
+  }
+  return Buffer.concat([Buffer.from(head + '\n'), tail.length ? Buffer.from('[server.log tail]\n') : Buffer.alloc(0), tail]);
+}
+
 function encoded(route) {
   return new Promise((resolve, reject) => {
     const request = http.get(base + route, { headers: { 'Accept-Encoding': 'gzip' }, timeout: 10000 }, response => {
@@ -49,7 +79,7 @@ export async function run(config, request) {
     assert.ok(ready, 'production server failed to start');
     browser = await chromium.launch({ headless: true, args: [`--disk-cache-dir=${path.join(work, 'cache')}`] });
     const context = await browser.newContext({ viewport: request.shape.viewport, serviceWorkers: 'block' });
-    await context.addInitScript(({ clock }) => { const Original = Date; globalThis.Date = class extends Original { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }; }, { clock: CLOCK });
+    await context.addInitScript(installDate, CLOCK);
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.name));
     const visit = async () => {
@@ -98,5 +128,9 @@ export async function run(config, request) {
 if (process.argv[1] === new URL(import.meta.url).pathname) {
   const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   try { console.log(JSON.stringify(await run(config, JSON.parse(process.env.MEASURE_REQUEST)))); }
-  catch (error) { console.error(JSON.stringify({ status: 'ERROR', type: error.name, message: error.message.slice(0, 500) })); process.exitCode = 1; }
+  catch (error) {
+    const log = process.env.TMPDIR ? path.join(process.env.TMPDIR, 'server.log') : null;
+    process.stderr.write(failureOutput(error, log));
+    process.exitCode = 1;
+  }
 }
