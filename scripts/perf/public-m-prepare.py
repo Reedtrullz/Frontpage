@@ -33,7 +33,7 @@ CAPACITY_FLOOR_BYTES = 30 * 1024 ** 3
 
 
 def clock_source() -> str:
-    return """const D=Date;function C(...a){return new.target?Reflect.construct(D,a.length?a:[1793203200000],new.target):D()}
+    return """const D=Date;function C(...a){return new.target?Reflect.construct(D,a.length?a:[1793203200000],new.target):new D(1793203200000).toString()}
 for(const k of['parse','UTC'])Object.defineProperty(C,k,Object.getOwnPropertyDescriptor(D,k));
 Object.defineProperty(C,'now',{...Object.getOwnPropertyDescriptor(D,'now'),value:()=>1793203200000});
 Object.setPrototypeOf(C.prototype,D.prototype);global.Date=C;

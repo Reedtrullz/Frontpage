@@ -15,7 +15,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export function installDate(clock) {
   const Original = globalThis.Date;
-  function FrozenDate(...args) { return new.target ? Reflect.construct(Original, args.length ? args : [clock], new.target) : Original(); }
+  function FrozenDate(...args) { return new.target ? Reflect.construct(Original, args.length ? args : [clock], new.target) : new Original(clock).toString(); }
   for (const key of ['parse', 'UTC']) Object.defineProperty(FrozenDate, key, Object.getOwnPropertyDescriptor(Original, key));
   Object.defineProperty(FrozenDate, 'now', { ...Object.getOwnPropertyDescriptor(Original, 'now'), value: () => clock });
   Object.setPrototypeOf(FrozenDate.prototype, Original.prototype);

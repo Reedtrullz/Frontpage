@@ -218,12 +218,16 @@ function rewrap(source) {
   Object.defineProperty(source.prototype, 'constructor', { value: fresh });
   return fresh;
 }
-function verify() {
+ const fixedCall = new original(1793203200000).toString();
+ function verify() {
   assert.equal(typeof Date.parse, 'function');
   assert.equal(Date.parse('1970-01-01T00:00:00.000Z'), 0);
   assert.equal(Date.UTC(1970, 0, 1), 0);
   assert.ok(Number.isNaN(Date.parse('invalid')));
-  assert.equal(typeof Date(), 'string');
+  assert.equal(Date(), fixedCall);
+  assert.equal(Date(42), fixedCall);
+  assert.equal(Date.call(null, 'ignored'), fixedCall);
+  assert.equal(Date.apply(null, ['ignored', 42]), fixedCall);
   assert.equal(new Date().getTime(), 1793203200000);
   assert.equal(Date.now(), 1793203200000);
   assert.equal(new Date(42).getTime(), 42);
