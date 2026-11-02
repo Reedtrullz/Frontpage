@@ -1,6 +1,7 @@
 """Public browser envelope fails closed before a workload can start."""
 import copy
 import io
+import os
 import shutil
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from test_resources import ResourceTests
 from protocol import Rejected
 from resource_limits import FRONTPAGE_APPROVAL, FRONTPAGE_APPROVAL_SHA, ResourceBudget
 
-NODE = shutil.which('node')
+NODE = os.environ.get('NODE') or shutil.which('node')
 
 
 class PublicEnvelopeTests(ResourceTests):
@@ -191,6 +192,63 @@ process.stdout.write(failureOutput(new Error('500 !== 200'), process.argv[3] ===
         self.assertNotIn('[server.log tail]', missing)
         with patch.object(guard, 'execute', return_value=({**result, 'returncode': 0}, b'{"status":"complete"}')):
             self.assertEqual(guard.invoke(config, {'phase': 'baseline'})['status'], 'complete')
+
+    def test_frozen_date_survives_framework_rewrap_for_server_and_browser(self) -> None:
+        path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+        spec = importlib.util.spec_from_file_location('public_clock_source_test', path)
+        assert spec and spec.loader and NODE
+        producer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(producer)
+        clock = self.root / 'clock.cjs'
+        clock.write_text(producer.clock_source())
+        module = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-browser.mjs'
+        script = """const module = await import('node:module'), { createRequire } = module,
+  { pathToFileURL } = await import('node:url'), assert = (await import('node:assert/strict')).default;
+module.registerHooks({ resolve(specifier, context, next) {
+  if (specifier === '@playwright/test') return { url: 'data:text/javascript,export const chromium = {}', shortCircuit: true };
+  return next(specifier, context);
+} });
+const original = Date;
+function rewrap(source) {
+  const properties = Object.getOwnPropertyDescriptors(source);
+  properties.now.value = () => source.now();
+  const fresh = Object.defineProperties(function Date() {
+    return new.target === undefined ? Reflect.apply(source, undefined, arguments) : Reflect.construct(source, arguments, new.target);
+  }, properties);
+  Object.defineProperty(source.prototype, 'constructor', { value: fresh });
+  return fresh;
+}
+function verify() {
+  assert.equal(typeof Date.parse, 'function');
+  assert.equal(Date.parse('1970-01-01T00:00:00.000Z'), 0);
+  assert.equal(Date.UTC(1970, 0, 1), 0);
+  assert.ok(Number.isNaN(Date.parse('invalid')));
+  assert.equal(typeof Date(), 'string');
+  assert.equal(new Date().getTime(), 1793203200000);
+  assert.equal(Date.now(), 1793203200000);
+  assert.equal(new Date(42).getTime(), 42);
+  assert.ok(Number.isNaN(new Date(undefined).getTime()));
+  assert.ok(Number.isNaN(new Date('invalid').getTime()));
+  assert.ok(new Date() instanceof Date);
+  class ChildDate extends Date {}
+  const child = new ChildDate(7);
+  assert.equal(child.getTime(), 7);
+  assert.ok(child instanceof ChildDate && child instanceof Date);
+}
+createRequire(import.meta.url)(process.argv[3]);
+Date = rewrap(Date);
+verify();
+Date = original;
+const browser = await import(pathToFileURL(process.argv[2]).href);
+browser.installDate(browser.CLOCK);
+Date = rewrap(Date);
+verify();
+process.stdout.write('server+browser frozen Date contract PASS\\n');
+"""
+        result = subprocess.run([NODE, '--input-type=module', '-e', script, '-', str(module), str(clock)],
+                                text=True, capture_output=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'server+browser frozen Date contract PASS\n')
 
     def guard(self):
         path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-linux.py'

@@ -32,6 +32,14 @@ SOURCES = ['scripts/perf/public-m-browser.mjs', 'scripts/perf/public-m-linux.py'
 CAPACITY_FLOOR_BYTES = 30 * 1024 ** 3
 
 
+def clock_source() -> str:
+    return """const D=Date;function C(...a){return new.target?Reflect.construct(D,a.length?a:[1793203200000],new.target):D()}
+for(const k of['parse','UTC'])Object.defineProperty(C,k,Object.getOwnPropertyDescriptor(D,k));
+Object.defineProperty(C,'now',{...Object.getOwnPropertyDescriptor(D,'now'),value:()=>1793203200000});
+Object.setPrototypeOf(C.prototype,D.prototype);global.Date=C;
+"""
+
+
 def owned_graph(source: Path, target: Path) -> dict[str, str]:
     shutil.copytree(source, target, symlinks=True, copy_function=os.link)
     links = {}
@@ -99,7 +107,7 @@ def main(collect=False, capacity_only=None):
     checkouts = make_checkouts(setup, PINS, clean)
     write_scope_and_ownership(checkouts)
     clock = setup / 'clock.cjs'
-    clock.write_text('const D=Date;global.Date=class extends D{constructor(...a){super(...(a.length?a:[1793203200000]))}static now(){return 1793203200000}};\n')
+    clock.write_text(clock_source())
     fixtures, links = {}, {}
     installed = {str(p.relative_to(ROOT / 'node_modules')): file_hash(p) for p in (ROOT / 'node_modules').rglob('*') if p.is_file() and not p.is_symlink()}
     save(setup / 'installed-graph.json', installed)

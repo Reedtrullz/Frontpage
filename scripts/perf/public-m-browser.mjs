@@ -13,6 +13,15 @@ export const CLOCK = 1793203200000;
 const base = 'http://127.0.0.1:3100';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+export function installDate(clock) {
+  const Original = globalThis.Date;
+  function FrozenDate(...args) { return new.target ? Reflect.construct(Original, args.length ? args : [clock], new.target) : Original(); }
+  for (const key of ['parse', 'UTC']) Object.defineProperty(FrozenDate, key, Object.getOwnPropertyDescriptor(Original, key));
+  Object.defineProperty(FrozenDate, 'now', { ...Object.getOwnPropertyDescriptor(Original, 'now'), value: () => clock });
+  Object.setPrototypeOf(FrozenDate.prototype, Original.prototype);
+  globalThis.Date = FrozenDate;
+}
+
 export function failureOutput(error, logFile, limit = 65536) {
   const head = JSON.stringify({ status: 'ERROR', type: error.name, message: error.message.slice(0, 500) });
   let tail = Buffer.alloc(0);
@@ -70,7 +79,7 @@ export async function run(config, request) {
     assert.ok(ready, 'production server failed to start');
     browser = await chromium.launch({ headless: true, args: [`--disk-cache-dir=${path.join(work, 'cache')}`] });
     const context = await browser.newContext({ viewport: request.shape.viewport, serviceWorkers: 'block' });
-    await context.addInitScript(({ clock }) => { const Original = Date; globalThis.Date = class extends Original { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }; }, { clock: CLOCK });
+    await context.addInitScript(installDate, CLOCK);
     const page = await context.newPage(), errors = [];
     page.on('pageerror', error => errors.push(error.name));
     const visit = async () => {
