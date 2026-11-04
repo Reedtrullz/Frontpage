@@ -53,6 +53,14 @@ def compare_case(case: Case, directory: Path) -> Record:
             if 'container' in data:
                 require(unit.get('parentScratchCleaned') is True, 'missing parent resource observations')
                 container_accounting(unit, data)
+            elif (data.get('resourceProfile') == 'browser-64m-20261028' and data.get('modality') == 'browser'
+                  and 'namespaceReservationBytes' in data):
+                reservation, cap = data['namespaceReservationBytes'], data.get('scratchBytes')
+                bound = unit.get('combinedScratchUpperBoundBytes')
+                require(type(reservation) is int and reservation == 48 * 1024 ** 2
+                        and type(cap) is int and cap == 64 * 1024 ** 2
+                        and unit.get('parentScratchCleaned') is True and type(bound) is int
+                        and reservation <= bound <= cap, 'missing/unbounded browser accounting')
             else:
                 require(unit.get('parentScratchCleaned') is True and unit.get('combinedScratchPeakBytes', -1) >= 0
                         and unit['combinedScratchPeakBytes'] <= data['scratchBytes'], 'missing parent resource observations')

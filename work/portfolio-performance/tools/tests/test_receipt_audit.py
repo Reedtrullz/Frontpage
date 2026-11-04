@@ -1,6 +1,7 @@
 """Authored foreign-host wire fixtures test the auditor, never product execution."""
 from __future__ import annotations
 
+import importlib
 import json
 import os
 from pathlib import Path
@@ -14,9 +15,11 @@ from typing import TypedDict
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
 import synthetic_inputs  # noqa: F401  (synthetic scope only when the private one is absent)
-from protocol import Case, ROOT, RUN_TMP, Rejected, digest, file_hash, save, slot
+from protocol import Case, ROOT, RUN_TMP, Record, Rejected, digest, file_hash, save, slot
 from receipt_audit import POINTER, ReceiptArchive
 from selftest_case import definition
+
+compare_case = importlib.import_module('compare').compare_case
 
 
 class Reference(TypedDict):
@@ -113,6 +116,85 @@ class ReceiptTests(unittest.TestCase):
 
     def archive(self) -> ReceiptArchive:
         return ReceiptArchive.read(self.index_path, self.pointer)
+
+    def accounting_case(self, data_changes: Record, unit_changes: Record) -> tuple[Case, Path]:
+        """Reuse serialized synthetic slots without invoking their foreign-host commands."""
+        data = json.loads(self.case_path.read_text())
+        data.update(data_changes)
+        data = {key: value for key, value in data.items() if value is not None}
+        case_hash = digest(data)
+        directory = self.root / 'accounting/happy'
+        for original in (self.root / 'happy').glob('*.json'):
+            unit = json.loads(original.read_text())
+            unit.update(unit_changes)
+            unit = {key: value for key, value in unit.items() if value is not None}
+            unit.update(definition=data, caseHash=case_hash)
+            unit['request']['caseHash'] = case_hash
+            unit['native']['caseHash'] = case_hash
+            unit['stdout'] = json.dumps(unit['native'])
+            save(directory / original.name, unit)
+        return Case(self.case_path, data, case_hash), directory
+
+    def test_approved_browser_upper_bound_is_accepted_without_peak(self) -> None:
+        for bound in (48 * 1024 ** 2, 50714431, 52625628, 64 * 1024 ** 2):
+            with self.subTest(bound=bound):
+                case, directory = self.accounting_case(
+                    {'resourceProfile': 'browser-64m-20261028', 'modality': 'browser',
+                     'namespaceReservationBytes': 48 * 1024 ** 2, 'scratchBytes': 64 * 1024 ** 2},
+                    {'combinedScratchPeakBytes': None, 'combinedScratchUpperBoundBytes': bound})
+                before = (directory / '000.json').read_bytes()
+                result = compare_case(case, directory)
+                self.assertEqual(result['outcome'], 'VERIFIED_GAIN')
+                self.assertTrue(result['selftestOnly'])
+                self.assertEqual((directory / '000.json').read_bytes(), before)
+                self.assertNotIn('combinedScratchPeakBytes', json.loads(before))
+
+    def test_browser_accounting_rejects_malformed_or_unbound_metadata(self) -> None:
+        data = {'resourceProfile': 'browser-64m-20261028', 'modality': 'browser',
+                'namespaceReservationBytes': 48 * 1024 ** 2, 'scratchBytes': 64 * 1024 ** 2}
+        unit = {'combinedScratchPeakBytes': None, 'combinedScratchUpperBoundBytes': 52 * 1024 ** 2}
+        changes = [({key: value}, {}) for key, values in (
+            ('namespaceReservationBytes', (None, True, 48.0 * 1024 ** 2, 0, 47 * 1024 ** 2, 49 * 1024 ** 2)),
+            ('scratchBytes', (None, True, 64.0 * 1024 ** 2, 63 * 1024 ** 2, 65 * 1024 ** 2)),
+            ('resourceProfile', (None, 'default', 'unapproved')),
+            ('modality', (None, 'cli')))
+            for value in values]
+        changes += [({}, {key: value}) for key, values in (
+            ('combinedScratchUpperBoundBytes', (None, True, 52.0 * 1024 ** 2, -1, 48 * 1024 ** 2 - 1, 64 * 1024 ** 2 + 1)),
+            ('parentScratchCleaned', (None, False, 0, 1, 'true')))
+            for value in values]
+        changes.append(({}, {'combinedScratchUpperBoundBytes': None, 'combinedScratchPeakBytes': 1024}))
+        for data_change, unit_change in changes:
+            with self.subTest(data=data_change, unit=unit_change):
+                case, directory = self.accounting_case({**data, **data_change}, {**unit, **unit_change})
+                with self.assertRaises(Rejected):
+                    compare_case(case, directory)
+
+    def test_default_parent_still_requires_peak_and_cleanup(self) -> None:
+        for peak in (0, 16 * 1024 ** 2):
+            case, directory = self.accounting_case({}, {'combinedScratchPeakBytes': peak})
+            self.assertEqual(compare_case(case, directory)['outcome'], 'VERIFIED_GAIN')
+        for change in ({'combinedScratchPeakBytes': None, 'combinedScratchUpperBoundBytes': 1024},
+                       {'combinedScratchPeakBytes': -1}, {'combinedScratchPeakBytes': 16 * 1024 ** 2 + 1},
+                       {'parentScratchCleaned': False}):
+            with self.subTest(change=change):
+                case, directory = self.accounting_case({}, change)
+                with self.assertRaisesRegex(Rejected, 'missing parent resource observations'):
+                    compare_case(case, directory)
+
+    def test_container_parent_keeps_its_own_upper_bound_contract(self) -> None:
+        unit, data = importlib.import_module('test_reader_profiles').Accounting().unit()
+        unit['combinedScratchPeakBytes'] = None
+        case, directory = self.accounting_case(data, unit)
+        self.assertEqual(compare_case(case, directory)['outcome'], 'VERIFIED_GAIN')
+        for change in ({'combinedScratchUpperBoundBytes': None}, {'combinedScratchUpperBoundBytes': True},
+                       {'combinedScratchUpperBoundBytes': 8.0 * 1024 ** 2},
+                       {'combinedScratchUpperBoundBytes': 7 * 1024 ** 2 - 1},
+                       {'combinedScratchUpperBoundBytes': 16 * 1024 ** 2 + 1}, {'parentScratchCleaned': False}):
+            with self.subTest(change=change):
+                case, directory = self.accounting_case(data, {**unit, **change})
+                with self.assertRaises(Rejected):
+                    compare_case(case, directory)
 
     def authored_native_wire(self) -> ReceiptArchive:
         """A serialized admission fixture, never a production CLI trust root."""
