@@ -401,6 +401,7 @@ process.stdout.write('server+browser frozen Date contract PASS\\n');
         stack.enter_context(patch.object(Path, 'mkdir', mkdir))
         stack.enter_context(patch.object(Path, 'write_text', write))
         stack.enter_context(patch.object(Path, 'stat', stat))
+        stack.enter_context(patch.object(Path, 'lstat', lambda path: stat(path, follow_symlinks=False)))
         stack.enter_context(patch.object(Path, 'rmdir', rmdir))
         stack.enter_context(patch.object(guard.subprocess, 'Popen', launch))
         stack.enter_context(patch.object(guard.subprocess, 'run', return_value=SimpleNamespace(returncode=0)))
@@ -443,18 +444,68 @@ process.stdout.write('server+browser frozen Date contract PASS\\n');
         self.assertTrue(guard.clean(result))
         self.assertEqual(output, b'{"status":"complete"}')
 
+    def test_memory_fixture_supports_direct_lstat_dispatch(self) -> None:
+        def direct_lstat(path, *, follow_symlinks=False):
+            return os.lstat(path)
+
+        with patch.object(Path, 'lstat', direct_lstat):
+            guard = self.guard()
+            config, nonce, leaf, state = self.memory_fixture(guard)
+            result, _ = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+            self.assertTrue(guard.clean(result))
+            self.assertTrue(state['joined'] and state['removed'])
+            parent = leaf.parent
+            original = os.lstat(parent)
+            observed = parent.lstat()
+            self.assertEqual((observed.st_mode, observed.st_dev, observed.st_ino),
+                             (original.st_mode, original.st_dev, original.st_ino))
+            link = parent / 'link'
+            link.symlink_to(parent, target_is_directory=True)
+            with self.assertRaisesRegex(AssertionError, 'root-owned nondelegated'):
+                guard.MemoryCgroup.root_owned(link)
+
+    def test_memory_rows_cleanup_after_unexpected_exception(self) -> None:
+        original_fixture, original_guard = self.memory_fixture.__func__, self.guard.__func__
+        for method, count in (('test_memory_unavailable_or_malformed_parent_fails_closed', 8),
+                              ('test_memory_cleanup_handles_spawn_timeout_cancel_and_oom', 4)):
+            with self.subTest(method=method):
+                clean_rows = []
+
+                def fixture(case, guard, failure=''):
+                    clean_rows.append(not (case.root / 'cgroup').exists())
+                    return original_fixture(case, guard, failure)
+
+                def guard_for_row(case):
+                    guard = original_guard(case)
+                    if not clean_rows:
+                        def unexpected(*args, **kwargs):
+                            raise RuntimeError('authored unexpected row exception')
+                        guard.execute = unexpected
+                    return guard
+
+                result = unittest.TestResult()
+                with patch.object(PublicEnvelopeTests, 'memory_fixture', fixture), \
+                     patch.object(PublicEnvelopeTests, 'guard', guard_for_row):
+                    PublicEnvelopeTests(method).run(result)
+                self.assertEqual(len(result.errors), 1, result.errors)
+                self.assertIn('authored unexpected row exception', result.errors[0][1])
+                self.assertEqual(result.failures, [])
+                self.assertEqual(clean_rows, [True] * count)
+
     def test_memory_unavailable_or_malformed_parent_fails_closed(self) -> None:
         for failure in ('controller', 'owner', 'path', 'primitive', 'readback', 'ambient', 'stale', 'unknown'):
             with self.subTest(failure=failure):
-                guard = self.guard()
-                config, nonce, leaf, state = self.memory_fixture(guard, failure)
-                with self.assertRaises((AssertionError, OSError)):
-                    guard.execute(config, ['/never-executed'], {}, nonce=nonce)
-                self.assertFalse(state['launched'])
-                self.assertFalse(leaf.exists())
-                self.doCleanups()
-                # Each row owns its own filesystem and patches.
-                shutil.rmtree(self.root / 'cgroup')
+                try:
+                    guard = self.guard()
+                    config, nonce, leaf, state = self.memory_fixture(guard, failure)
+                    with self.assertRaises((AssertionError, OSError)):
+                        guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                    self.assertFalse(state['launched'])
+                    self.assertFalse(leaf.exists())
+                finally:
+                    self.doCleanups()
+                    if (self.root / 'cgroup').exists():
+                        shutil.rmtree(self.root / 'cgroup')
 
     def test_memory_safe_active_ancestor_preserves_neutral_ambient(self) -> None:
         guard = self.guard()
@@ -570,22 +621,25 @@ process.stdout.write('server+browser frozen Date contract PASS\\n');
     def test_memory_cleanup_handles_spawn_timeout_cancel_and_oom(self) -> None:
         for failure in ('spawn', 'timeout', 'cancel', 'oom'):
             with self.subTest(failure=failure):
-                guard = self.guard()
-                config, nonce, leaf, state = self.memory_fixture(guard, failure)
-                if failure in ('spawn', 'cancel'):
-                    with self.assertRaises((OSError, KeyboardInterrupt)):
-                        guard.execute(config, ['/never-executed'], {}, nonce=nonce)
-                else:
-                    result, _ = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
-                    self.assertEqual(result['late'], failure == 'timeout')
-                    if failure == 'oom':
-                        self.assertEqual(result['memory']['events']['oom_kill'], 1)
-                        self.assertGreater(result['memory']['peak'], result['memory']['max'])
-                        self.assertFalse(guard.clean(result))
-                self.assertTrue(state['killed'] and state['removed'])
-                self.assertFalse(leaf.exists())
-                self.doCleanups()
-                shutil.rmtree(self.root / 'cgroup')
+                try:
+                    guard = self.guard()
+                    config, nonce, leaf, state = self.memory_fixture(guard, failure)
+                    if failure in ('spawn', 'cancel'):
+                        with self.assertRaises((OSError, KeyboardInterrupt)):
+                            guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                    else:
+                        result, _ = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                        self.assertEqual(result['late'], failure == 'timeout')
+                        if failure == 'oom':
+                            self.assertEqual(result['memory']['events']['oom_kill'], 1)
+                            self.assertGreater(result['memory']['peak'], result['memory']['max'])
+                            self.assertFalse(guard.clean(result))
+                    self.assertTrue(state['killed'] and state['removed'])
+                    self.assertFalse(leaf.exists())
+                finally:
+                    self.doCleanups()
+                    if (self.root / 'cgroup').exists():
+                        shutil.rmtree(self.root / 'cgroup')
 
     def test_owned_dependency_graph_has_real_hardlinks_and_rejects_escape(self) -> None:
         path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
