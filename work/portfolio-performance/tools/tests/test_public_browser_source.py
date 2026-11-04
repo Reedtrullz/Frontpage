@@ -8,10 +8,14 @@ import sys
 import unittest
 import importlib.util
 import json
+import errno
+import shlex
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from typing import TypedDict
 from unittest.mock import patch
 from pathlib import Path
+from contextlib import ExitStack
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_resources import ResourceTests
@@ -19,6 +23,18 @@ from protocol import Rejected
 from resource_limits import FRONTPAGE_APPROVAL, FRONTPAGE_APPROVAL_SHA, ResourceBudget
 
 NODE = os.environ.get('NODE') or shutil.which('node')
+CONTAINED_MEMORY = {'max': 536870912, 'swapMax': 0, 'oomGroup': 1, 'peak': 4194304,
+                    'events': {'oom_kill': 0}, 'populated': 0, 'procs': [], 'leaf': '/mock-cgroup/fpm-fixture'}
+
+
+class MemoryFixtureState(TypedDict):
+    launched: bool
+    joined: bool
+    killed: bool
+    waited: bool
+    removed: bool
+    membership: str
+    writes: list[tuple[str, str]]
 
 
 class PublicEnvelopeTests(ResourceTests):
@@ -99,7 +115,8 @@ class PublicEnvelopeTests(ResourceTests):
         inputs.write_text('{}')
         config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': '/node', 'manifest': '/fixture-manifest',
                   'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
-        result = {'returncode': 0, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
+        result = {'returncode': 0, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True,
+                  'memory': copy.deepcopy(CONTAINED_MEMORY)}
         with patch.object(guard, 'execute', return_value=(result, b'{"status":"complete"}')), patch.object(guard.time, 'monotonic', side_effect=[0, 121]):
             with self.assertRaisesRegex(AssertionError, 'including immutable-input hashing'):
                 guard.invoke(config, {'phase': 'baseline'})
@@ -117,7 +134,8 @@ class PublicEnvelopeTests(ResourceTests):
         inputs.write_text('{}')
         config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': '/node', 'manifest': '/m',
                   'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
-        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
+        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True,
+                  'memory': copy.deepcopy(CONTAINED_MEMORY)}
         noisy = b'fixture-renderer-cause\nAuthorization: Bearer abc123\nCookie: sid=s3\n/Users/me/private\n\xff\xfe' + b'x' * 20000 + b'\nterminal-error'
         with patch.object(guard, 'execute', return_value=(result, noisy)):
             with self.assertRaises(AssertionError) as caught:
@@ -177,7 +195,8 @@ process.stdout.write(failureOutput(new Error('500 !== 200'), process.argv[3] ===
         inputs.write_text('{}')
         config = {'immutableInputs': str(inputs), 'dependencyLinks': str(inputs), 'node': NODE, 'manifest': '/m',
                   'sources': {'baseline': {'cwd': str(self.root / 'source')}}}
-        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True}
+        result = {'returncode': 1, 'overflow': False, 'late': False, 'survivors': [], 'scratchRemoved': True,
+                  'memory': copy.deepcopy(CONTAINED_MEMORY)}
         with patch.object(guard, 'execute', return_value=(result, output)):
             with self.assertRaises(AssertionError) as caught:
                 guard.invoke(config, {'phase': 'baseline'})
@@ -261,6 +280,312 @@ process.stdout.write('server+browser frozen Date contract PASS\\n');
         guard = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(guard)
         return guard
+
+    def memory_fixture(self, guard, failure=''):
+        """Fake only cgroup filesystem/process syscalls, never the admission owner."""
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        root = self.root / 'cgroup'
+        parent = root / 'worker'
+        parent.mkdir(parents=True)
+        (parent / 'cgroup.subtree_control').write_text('memory pids')
+        (parent / 'cgroup.type').write_text('domain')
+        nonce = 'a' * 32
+        leaf = parent / ('fpm-' + nonce)
+        state: MemoryFixtureState = {'launched': False, 'joined': False, 'killed': False, 'waited': False,
+                 'removed': False, 'membership': '/worker', 'writes': []}
+        real_mkdir, real_write, real_stat, real_rmdir = Path.mkdir, Path.write_text, Path.stat, Path.rmdir
+        primitives = {'memory.max': 'max', 'memory.swap.max': 'max', 'memory.oom.group': '0',
+                      'memory.events': 'low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n',
+                      'memory.peak': '0', 'cgroup.events': 'populated 0\nfrozen 0\n',
+                      'cgroup.procs': '', 'cgroup.kill': ''}
+
+        def mkdir(path, *args, **kwargs):
+            real_mkdir(path, *args, **kwargs)
+            if path == leaf:
+                for name, value in primitives.items():
+                    real_write(path / name, value)
+                if failure == 'primitive':
+                    (path / 'memory.peak').unlink()
+
+        def write(path, value, *args, **kwargs):
+            if path.is_relative_to(root):
+                state['writes'].append((path.name, value))
+                if failure == 'readback' and path.name == 'memory.max':
+                    return real_write(path, 'max')
+                if path == leaf / 'cgroup.procs':
+                    self.assertEqual(value.strip(), '0')
+                    state['membership'] = '/worker/fpm-' + nonce
+                    state['joined'] = True
+                    real_write(leaf / 'cgroup.events', 'populated 1\nfrozen 0\n')
+                if path == leaf / 'cgroup.kill':
+                    state['killed'] = True
+                    if failure != 'populated':
+                        real_write(leaf / 'cgroup.procs', '')
+                        real_write(leaf / 'cgroup.events', 'populated 0\nfrozen 0\n')
+            return real_write(path, value, *args, **kwargs)
+
+        def read(path):
+            if str(path) == '/proc/self/cgroup':
+                return '0::' + state['membership']
+            if str(path) == '/proc/self/mountinfo':
+                return f'1 0 0:1 / {root} rw - cgroup2 cgroup rw\n'
+            with path.open() as handle:
+                value = handle.read(8193)
+            assert len(value) <= 8192, 'bounded cgroup read'
+            return value.strip()
+
+        def stat(path, *args, **kwargs):
+            value = real_stat(path, *args, **kwargs)
+            if path.is_relative_to(root):
+                return SimpleNamespace(st_uid=1000 if failure == 'owner' and path == parent else 0,
+                                       st_mode=value.st_mode, st_dev=value.st_dev, st_ino=value.st_ino)
+            return value
+
+        def rmdir(path):
+            if path == leaf:
+                self.assertTrue(state['killed'], 'owned leaf must be killed before removal')
+                self.assertEqual((leaf / 'cgroup.procs').read_text(), '')
+                self.assertIn('populated 0', (leaf / 'cgroup.events').read_text())
+                if state['launched']:
+                    self.assertTrue(state['waited'], 'launcher must be joined before removal')
+                for item in leaf.iterdir():
+                    item.unlink()
+                state['removed'] = True
+            return real_rmdir(path)
+
+        class Process:
+            stdout = SimpleNamespace(fileno=lambda: 99, close=lambda: None)
+            returncode = 137 if failure == 'oom' else 0
+            def wait(self, timeout):
+                state['waited'] = True
+                return self.returncode
+            def terminate(self):
+                self.returncode = -15
+            def kill(self):
+                self.returncode = -9
+
+        def launch(argv, **kwargs):
+            self.assertTrue(leaf.exists(), 'kernel memory cap must exist before application launch')
+            self.assertEqual(leaf.stat().st_mode & 0o777, 0o755, 'nonroot proof requires traversal without delegation')
+            self.assertEqual((leaf / 'memory.max').read_text(), '536870912')
+            self.assertEqual((leaf / 'memory.swap.max').read_text(), '0')
+            self.assertEqual((leaf / 'memory.oom.group').read_text(), '1')
+            self.assertIn('preexec_fn', kwargs, 'launcher must join before exec/fork')
+            if failure == 'stale':
+                state['membership'] = '/worker/other'
+            kwargs['preexec_fn']()
+            self.assertTrue(state['joined'])
+            if failure == 'spawn':
+                raise OSError('authored spawn failure')
+            state['launched'] = True
+            if failure == 'oom':
+                real_write(leaf / 'memory.events', 'max 5\noom 1\noom_kill 1\n')
+                real_write(leaf / 'memory.peak', str(536870912 + 4096))
+            else:
+                real_write(leaf / 'memory.peak', '4194304')
+            return Process()
+
+        class Selector:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def register(self, *args): pass
+            def select(self, timeout):
+                if failure == 'cancel': raise KeyboardInterrupt('authored cancellation')
+                return [True]
+
+        stack.enter_context(patch.object(guard, 'CGROUP_ROOT', root, create=True))
+        stack.enter_context(patch.object(guard, 'cgroup_read', read, create=True))
+        stack.enter_context(patch.object(guard.os, 'geteuid', return_value=0))
+        stack.enter_context(patch.object(guard.signal if hasattr(guard, 'signal') else __import__('signal'), 'signal'))
+        stack.enter_context(patch.object(Path, 'mkdir', mkdir))
+        stack.enter_context(patch.object(Path, 'write_text', write))
+        stack.enter_context(patch.object(Path, 'stat', stat))
+        stack.enter_context(patch.object(Path, 'rmdir', rmdir))
+        stack.enter_context(patch.object(guard.subprocess, 'Popen', launch))
+        stack.enter_context(patch.object(guard.subprocess, 'run', return_value=SimpleNamespace(returncode=0)))
+        stack.enter_context(patch.object(guard.selectors, 'DefaultSelector', Selector))
+        chunks = iter([b'{"status":"complete"}', b''])
+        stack.enter_context(patch.object(guard.os, 'read', side_effect=lambda fd, size: next(chunks)))
+        if failure == 'timeout':
+            ticks = iter([0, 0, 116, 116, 116, 116, 116, 116])
+            stack.enter_context(patch.object(guard.time, 'monotonic', side_effect=lambda: next(ticks, 116)))
+        if failure == 'controller':
+            (parent / 'cgroup.subtree_control').write_text('pids')
+        if failure == 'path':
+            state['membership'] = '/worker/../escape'
+        if failure in ('ancestor', 'ambient', 'unknown'):
+            current = parent / 'current'
+            current.mkdir()
+            for name, value in {'cgroup.subtree_control': '', 'cgroup.controllers': 'memory pids',
+                                'cgroup.type': 'domain', 'memory.max': 'max', 'pids.max': 'max'}.items():
+                (current / name).write_text(value)
+            if failure == 'ambient':
+                (current / 'memory.max').write_text('268435456')
+            if failure == 'unknown':
+                (current / 'cgroup.controllers').write_text('memory pids unknown')
+            state['membership'] = '/worker/current'
+        config = {'node': '/python', 'root': '/fixture', 'hostHome': '/fixture-home', 'browsers': '/browsers',
+                  '_fixtureUid': 1000, '_fixtureGid': 1000,
+                  'sources': {p: {'cwd': '/source/' + p} for p in ('baseline', 'candidate')}}
+        return config, nonce, leaf, state
+
+    def test_memory_cap_precedes_application_and_reaps_normal_exit(self) -> None:
+        guard = self.guard()
+        config, nonce, leaf, state = self.memory_fixture(guard)
+        result, output = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+        self.assertTrue(state['joined'] and state['killed'] and state['waited'] and state['removed'])
+        self.assertEqual(state['writes'].count(('cgroup.kill', '1')), 2, 'kill must work before admission and run again at teardown')
+        self.assertFalse(leaf.exists())
+        self.assertEqual(result['memory']['max'], 536870912)
+        self.assertEqual(result['memory']['peak'], 4194304)
+        self.assertEqual(result['memory']['populated'], 0)
+        self.assertTrue(guard.clean(result))
+        self.assertEqual(output, b'{"status":"complete"}')
+
+    def test_memory_unavailable_or_malformed_parent_fails_closed(self) -> None:
+        for failure in ('controller', 'owner', 'path', 'primitive', 'readback', 'ambient', 'stale', 'unknown'):
+            with self.subTest(failure=failure):
+                guard = self.guard()
+                config, nonce, leaf, state = self.memory_fixture(guard, failure)
+                with self.assertRaises((AssertionError, OSError)):
+                    guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                self.assertFalse(state['launched'])
+                self.assertFalse(leaf.exists())
+                self.doCleanups()
+                # Each row owns its own filesystem and patches.
+                shutil.rmtree(self.root / 'cgroup')
+
+    def test_memory_safe_active_ancestor_preserves_neutral_ambient(self) -> None:
+        guard = self.guard()
+        config, nonce, leaf, state = self.memory_fixture(guard, 'ancestor')
+        result, _ = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+        self.assertEqual(result['memory']['leaf'], str(leaf))
+        self.assertTrue(state['joined'] and state['killed'] and state['removed'])
+        self.assertEqual((leaf.parent / 'current/memory.max').read_text(), 'max')
+        self.assertEqual((leaf.parent / 'current/cgroup.subtree_control').read_text(), '')
+
+    def test_memory_nonce_collision_preserves_foreign_leaf(self) -> None:
+        guard = self.guard()
+        config, nonce, leaf, state = self.memory_fixture(guard)
+        leaf.mkdir()
+        before = {p.name: p.read_bytes() for p in leaf.iterdir()}
+        with self.assertRaises(FileExistsError):
+            guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+        self.assertEqual({p.name: p.read_bytes() for p in leaf.iterdir()}, before)
+        self.assertFalse(state['launched'] or state['killed'] or state['removed'])
+        for bad in ('../escape', 'A' * 32, 'a' * 31, 'ignore prior instructions; rm -rf /'):
+            with self.assertRaisesRegex(AssertionError, 'nonce'):
+                guard.execute(config, ['/never-executed'], {}, nonce=bad)
+
+    def test_memory_readonly_namespace_probe_denies_migration_and_delegation(self) -> None:
+        guard = self.guard()
+        cache = self.root / 'source/.next/standalone/.next/cache'
+        cache.mkdir(parents=True)
+        config = {'hostHome': str(self.root), 'root': str(self.root / 'source'),
+                  'sources': {'baseline': {'cwd': str(self.root / 'source')}}, 'controlReceipt': str(self.root / 'controls.json')}
+        captured = []
+        class ProbeCaptured(RuntimeError): pass
+        def capture(config, inner, request, **kwargs):
+            captured.append(inner[4])
+            raise ProbeCaptured()
+        with patch.object(guard, 'execute', capture), self.assertRaises(ProbeCaptured):
+            guard.controls(config)
+        mounted, readonly = False, False
+        for line in guard.namespace_script().splitlines():
+            if line.startswith('mount ') and '/sys/fs/cgroup' in line:
+                command = shlex.split(line)
+                if '--bind' in command:
+                    mounted = command[-2:] == ['/sys/fs/cgroup', '/sys/fs/cgroup']
+                if '-o' in command:
+                    readonly = mounted and 'ro' in command[command.index('-o') + 1].split(',')
+        self.assertTrue(readonly, 'cgroup mount must be explicitly readonly before workload')
+        real_read, real_write, real_mkdir = Path.read_text, Path.write_text, Path.mkdir
+        attempts = []
+        def read(path, *args, **kwargs):
+            if str(path) == '/proc/self/cgroup': return '0::/worker/fpm-' + 'a' * 32
+            if str(path).startswith('/sys/fs/cgroup/'):
+                return {'memory.max': '536870912', 'memory.swap.max': '0', 'memory.oom.group': '1'}[path.name]
+            return real_read(path, *args, **kwargs)
+        def write(path, *args, **kwargs):
+            if str(path).startswith('/sys/fs/cgroup/'):
+                attempts.append(path.name)
+                raise OSError(errno.EROFS, 'authored readonly mount')
+            return real_write(path, *args, **kwargs)
+        def mkdir(path, *args, **kwargs):
+            if str(path).startswith('/sys/fs/cgroup/'):
+                attempts.append('mkdir')
+                raise OSError(errno.EROFS, 'authored readonly mount')
+            return real_mkdir(path, *args, **kwargs)
+        output = io.StringIO()
+        with patch.object(Path, 'read_text', read), patch.object(Path, 'write_text', write), \
+             patch.object(Path, 'mkdir', mkdir), patch.object(sys, 'argv', ['probe', str(cache)]), redirect_stdout(output):
+            exec(compile(captured[0], '<actual-positive-control>', 'exec'), {})
+        self.assertEqual(json.loads(output.getvalue()), {'sameFilesystem': True, 'writable': True})
+        self.assertEqual(attempts, ['memory.max', 'memory.swap.max', 'memory.oom.group', 'cgroup.procs', 'cgroup.procs', 'cgroup.subtree_control', 'mkdir'])
+
+    def test_supervisor_bounds_both_streams_and_joins_cancel_or_forced_terminal(self) -> None:
+        for failure in ('normal', 'stdout', 'stderr', 'cancel', 'forced'):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                guard = self.guard()
+                state = {'terminal': False, 'terminated': False, 'killed': False, 'waits': 0}
+                class Pipe(io.BytesIO):
+                    def __init__(self, fd, data):
+                        super().__init__(data)
+                        self.fd = fd
+                    def fileno(self): return self.fd
+                class Process:
+                    stdout = Pipe(81, b'x' * (1048577 if failure == 'stdout' else 3))
+                    stderr = Pipe(82, b'x' * (1048577 if failure == 'stderr' else 2))
+                    def poll(self): return 0 if state['terminal'] else None
+                    def terminate(self): state['terminated'] = True
+                    def kill(self): state['killed'] = True
+                    def wait(self, timeout):
+                        state['waits'] += 1
+                        if failure == 'forced' and state['waits'] == 1:
+                            raise subprocess.TimeoutExpired('authored', timeout)
+                        state['terminal'] = True
+                        return 0
+                class Selector:
+                    keys: dict[int, SimpleNamespace] = {}
+                    def __enter__(self): return self
+                    def __exit__(self, *args): return False
+                    def register(self, pipe, event):
+                        self.keys[pipe.fd] = SimpleNamespace(fd=pipe.fd, fileobj=pipe)
+                    def unregister(self, pipe): del self.keys[pipe.fd]
+                    def select(self, timeout):
+                        if failure == 'cancel': raise KeyboardInterrupt('authored cancel')
+                        return [(key, 1) for key in self.keys.values()]
+                process = Process()
+                stack.enter_context(patch.object(guard.selectors, 'DefaultSelector', Selector))
+                stack.enter_context(patch.object(guard.os, 'read', side_effect=lambda fd, size: {81: process.stdout, 82: process.stderr}[fd].read(size)))
+                if failure == 'normal':
+                    self.assertEqual(guard.supervisor_output(process, 110), (b'xxx', b'xx'))
+                else:
+                    with self.assertRaises((AssertionError, KeyboardInterrupt)):
+                        guard.supervisor_output(process, 110)
+                self.assertTrue(state['terminal'] and process.stdout.closed and process.stderr.closed)
+                if failure == 'forced': self.assertTrue(state['killed'] and state['waits'] == 2)
+
+    def test_memory_cleanup_handles_spawn_timeout_cancel_and_oom(self) -> None:
+        for failure in ('spawn', 'timeout', 'cancel', 'oom'):
+            with self.subTest(failure=failure):
+                guard = self.guard()
+                config, nonce, leaf, state = self.memory_fixture(guard, failure)
+                if failure in ('spawn', 'cancel'):
+                    with self.assertRaises((OSError, KeyboardInterrupt)):
+                        guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                else:
+                    result, _ = guard.execute(config, ['/never-executed'], {}, nonce=nonce)
+                    self.assertEqual(result['late'], failure == 'timeout')
+                    if failure == 'oom':
+                        self.assertEqual(result['memory']['events']['oom_kill'], 1)
+                        self.assertGreater(result['memory']['peak'], result['memory']['max'])
+                        self.assertFalse(guard.clean(result))
+                self.assertTrue(state['killed'] and state['removed'])
+                self.assertFalse(leaf.exists())
+                self.doCleanups()
+                shutil.rmtree(self.root / 'cgroup')
 
     def test_owned_dependency_graph_has_real_hardlinks_and_rejects_escape(self) -> None:
         path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
