@@ -32,6 +32,476 @@ SOURCES = ['scripts/perf/public-m-browser.mjs', 'scripts/perf/public-m-linux.py'
 CAPACITY_FLOOR_BYTES = 30 * 1024 ** 3
 
 
+# Root runs this literal with python -I -B. It must not import the repository.
+OBSERVER_LIB = r'''
+import os
+import stat
+MEMBERSHIP = '/proc/self/cgroup'
+MOUNTINFO = '/proc/self/mountinfo'
+ROOT = '/sys/fs/cgroup'
+ORDINARY = 8192
+MOUNT_BYTES = 65536
+CONTEXT_BYTES = 1048576
+MAX_READS = 128
+MAX_ANCESTORS = 8
+DEADLINE = 5
+KNOWN = {'memory', 'cpu', 'cpuset', 'pids', 'io'}
+STRUCTURAL = {'cgroup.controllers', 'cgroup.subtree_control', 'cgroup.type'}
+NAMES = (
+    'cgroup.controllers', 'cgroup.subtree_control', 'cgroup.type', 'cgroup.freeze',
+    'cgroup.max.depth', 'cgroup.max.descendants', 'memory.max', 'memory.high', 'memory.low',
+    'memory.min', 'memory.swap.max', 'memory.swap.high', 'memory.oom.group', 'memory.zswap.max',
+    'memory.zswap.writeback', 'pids.max', 'cpu.max', 'cpu.weight', 'cpu.weight.nice',
+    'cpu.max.burst', 'cpu.idle', 'cpu.uclamp.min', 'cpu.uclamp.max', 'cpuset.cpus', 'cpuset.mems',
+    'cpuset.cpus.exclusive', 'cpuset.cpus.partition', 'io.max', 'io.weight', 'io.latency', 'io.prio.class')
+
+
+def _once(items, reason):
+    if reason not in items:
+        items.append(reason)
+
+
+def _cgroup_path(path):
+    if path == ROOT:
+        return True
+    prefix = ROOT + '/'
+    if not path.startswith(prefix):
+        return False
+    return all(part not in ('', '.', '..') for part in path[len(prefix):].split('/'))
+
+
+def _named_file(path):
+    return _cgroup_path(path) and path.rsplit('/', 1)[-1] in NAMES
+
+
+class Real:
+    def uid(self):
+        return os.getuid()
+
+    def pid(self):
+        return os.getpid()
+
+    def lstat(self, path):
+        if not _cgroup_path(path):
+            raise PermissionError(path)
+        return os.lstat(path)
+
+    def read(self, path, limit):
+        if path not in (MEMBERSHIP, MOUNTINFO) and not _named_file(path):
+            raise PermissionError(path)
+        flags = os.O_RDONLY | os.O_NONBLOCK
+        if hasattr(os, 'O_NOFOLLOW'):
+            flags |= os.O_NOFOLLOW
+        handle = os.open(path, flags)
+        try:
+            info = os.fstat(handle)
+            if not stat.S_ISREG(info.st_mode):
+                return b'', info
+            return os.read(handle, limit + 1), info
+        finally:
+            os.close(handle)
+
+
+def _relative(membership):
+    if chr(10) in membership or not membership.startswith('0::/'):
+        return None
+    relative = membership[3:]
+    if relative == '/':
+        return relative
+    parts = relative.split('/')
+    if parts[0] != '' or any(part in ('', '.', '..') for part in parts[1:]):
+        return None
+    return relative
+
+
+def _mount(text):
+    chosen = []
+    nested = False
+    for line in text.splitlines():
+        row = line.split()
+        if len(row) < 6:
+            continue
+        if row[4].startswith(ROOT + '/'):
+            nested = True
+        if row[4] == ROOT:
+            chosen.append(row)
+    if nested:
+        return None, 'nested cgroup mount'
+    if len(chosen) != 1 or '-' not in chosen[0]:
+        return None, 'cgroup2 mount'
+    row = chosen[0]
+    marker = row.index('-')
+    if row[3] != '/' or marker + 1 >= len(row) or row[marker + 1] != 'cgroup2':
+        return None, 'cgroup2 mount'
+    source = row[marker + 2] if marker + 2 < len(row) else ''
+    return {'mountpoint': ROOT, 'root': row[3], 'fstype': row[marker + 1], 'source': source}, None
+
+
+def inventory(io, clock):
+    start = clock()
+    unresolved = []
+    reads = 0
+    total = 0
+
+    def room():
+        nonlocal reads
+        if clock() - start > DEADLINE:
+            _once(unresolved, 'deadline')
+            return False
+        if reads >= MAX_READS:
+            _once(unresolved, 'file bound')
+            return False
+        reads += 1
+        return True
+
+    def take(path, limit, expected=None):
+        nonlocal total
+        if not room():
+            return 'stop', b'', None
+        try:
+            opened = io.read(path, limit)
+        except FileNotFoundError:
+            return 'missing', b'', None
+        except PermissionError:
+            return 'denied', b'', None
+        if isinstance(opened, tuple):
+            data, info = opened
+        else:
+            data, info = opened, None
+        if info is None or not stat.S_ISREG(info.st_mode):
+            return 'special', b'', info
+        if expected is not None and (info.st_uid != expected.st_uid or (info.st_dev, info.st_ino) != (expected.st_dev, expected.st_ino) or info.st_mode & 0o022):
+            return 'changed', b'', info
+        if len(data) > limit:
+            return 'oversized', b'', info
+        total += len(data)
+        if total > CONTEXT_BYTES:
+            _once(unresolved, 'byte bound')
+            return 'stop', b'', info
+        return 'ok', data, info
+
+    def look(path):
+        if not room():
+            return 'stop', None
+        try:
+            return 'ok', io.lstat(path)
+        except FileNotFoundError:
+            return 'missing', None
+        except PermissionError:
+            return 'denied', None
+
+    membership = None
+    relative = None
+    state, data, fd = take(MEMBERSHIP, ORDINARY)
+    if state == 'ok':
+        membership = data.decode('utf-8', 'replace').strip()
+        relative = _relative(membership)
+        if relative is None:
+            unresolved.append('malformed membership')
+    elif state == 'missing':
+        unresolved.append('missing:' + MEMBERSHIP)
+    elif state == 'denied':
+        unresolved.append('denied:' + MEMBERSHIP)
+    elif state == 'oversized':
+        unresolved.append('oversized:' + MEMBERSHIP)
+    elif state == 'special':
+        unresolved.append('special file')
+    mount = None
+    mount_ok = False
+    state, data, fd = take(MOUNTINFO, MOUNT_BYTES)
+    if state == 'ok':
+        mount, problem = _mount(data.decode('utf-8', 'replace'))
+        if problem:
+            unresolved.append(problem)
+        else:
+            mount_ok = True
+    elif state == 'missing':
+        unresolved.append('missing:' + MOUNTINFO)
+    elif state == 'denied':
+        unresolved.append('denied:' + MOUNTINFO)
+    elif state == 'oversized':
+        unresolved.append('oversized:' + MOUNTINFO)
+    elif state == 'special':
+        unresolved.append('special file')
+    ancestors = []
+    identity = None
+    leaf = None
+    if relative is not None and mount_ok:
+        path = ROOT if relative == '/' else ROOT + relative
+        leaf = path
+        while True:
+            if len(ancestors) >= MAX_ANCESTORS:
+                _once(unresolved, 'ancestor bound')
+                break
+            state, info = look(path)
+            if state == 'stop':
+                break
+            if state == 'missing':
+                unresolved.append('missing:' + path)
+                break
+            if state == 'denied':
+                unresolved.append('denied:' + path)
+                break
+            if stat.S_ISLNK(info.st_mode):
+                unresolved.append('symlink')
+                ancestors.append({'path': path, 'state': 'symlink'})
+                break
+            if info.st_uid != 0:
+                unresolved.append('nonroot')
+                ancestors.append({'path': path, 'state': 'nonroot'})
+                break
+            if info.st_mode & 0o022:
+                unresolved.append('delegated mode')
+                ancestors.append({'path': path, 'state': 'delegated'})
+                break
+            if path == leaf:
+                identity = (info.st_dev, info.st_ino)
+            ancestors.append({'path': path, 'uid': info.st_uid, 'dev': info.st_dev, 'ino': info.st_ino, 'files': {}})
+            if path == ROOT:
+                break
+            path = path.rsplit('/', 1)[0]
+    def ident(info):
+        if info is None:
+            return None
+        return {'uid': info.st_uid, 'mode': info.st_mode, 'dev': info.st_dev, 'ino': info.st_ino}
+
+    def read_named(names):
+        stopped = False
+        for row in ancestors:
+            if stopped or 'files' not in row:
+                continue
+            for name in names:
+                target = row['path'] + '/' + name
+                state, info = look(target)
+                if state == 'stop':
+                    stopped = True
+                    break
+                if state == 'missing':
+                    row['files'][name] = {'state': 'missing'}
+                    if name in STRUCTURAL:
+                        unresolved.append('missing:' + target)
+                    continue
+                if state == 'denied':
+                    row['files'][name] = {'state': 'denied'}
+                    unresolved.append('denied:' + target)
+                    continue
+                if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+                    row['files'][name] = {'state': 'rejected', 'lstat': ident(info)}
+                    unresolved.append('symlink' if stat.S_ISLNK(info.st_mode) else 'nonroot' if info.st_uid != 0 else 'delegated mode')
+                    continue
+                state, data, fd = take(target, ORDINARY, info)
+                if state == 'stop':
+                    stopped = True
+                    break
+                if state == 'special':
+                    row['files'][name] = {'state': 'special', 'lstat': ident(info), 'fd': ident(fd)}
+                    unresolved.append('special file')
+                    continue
+                if state == 'changed':
+                    row['files'][name] = {'state': 'changed', 'lstat': ident(info), 'fd': ident(fd)}
+                    unresolved.append('changed identity')
+                    continue
+                if state != 'ok':
+                    row['files'][name] = {'state': state, 'lstat': ident(info), 'fd': ident(fd)}
+                    unresolved.append(state + ':' + target)
+                    continue
+                value = data.decode('utf-8', 'replace').strip()
+                row['files'][name] = {'state': 'read', 'value': value}
+                if name == 'cgroup.controllers':
+                    row['controllers'] = value.split()
+                    for control in row['controllers']:
+                        if control not in KNOWN:
+                            unresolved.append('unknown ambient controller: ' + control)
+                elif name == 'cgroup.subtree_control':
+                    row['subtree'] = value.split()
+                elif name == 'cgroup.type':
+                    row['type'] = value
+            if stopped:
+                break
+        return stopped
+
+    if not read_named(('cgroup.controllers', 'cgroup.subtree_control', 'cgroup.type')):
+        read_named(tuple(name for name in NAMES if name not in STRUCTURAL))
+    if identity is not None and 'deadline' not in unresolved and 'file bound' not in unresolved:
+        state, info = look(leaf)
+        if state == 'ok' and (info.st_dev, info.st_ino) != identity:
+            unresolved.append('stale identity')
+    return {'uid': io.uid(), 'pid': io.pid(), 'membership': membership, 'mount': mount, 'ancestors': ancestors,
+            'unresolved': unresolved, 'reads': reads, 'bytes': total, 'complete': not unresolved}
+'''
+
+OBSERVER_RUNNER = """
+import json,sys,time
+json.dump(inventory(Real(), time.monotonic), sys.stdout, sort_keys=True)
+sys.stdout.write(chr(10))
+"""
+
+
+def host_cgroup_io():
+    namespace = {}
+    exec(OBSERVER_LIB, namespace)
+    return namespace['Real']()
+
+
+def host_cgroup_spawn(argv, timeout):
+    return subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
+
+
+def _cgroup_supervisor_path(path: object) -> bool:
+    root = '/sys/fs/cgroup'
+    if not isinstance(path, str) or chr(10) in path:
+        return False
+    if path == root:
+        return True
+    prefix = root + '/'
+    if not path.startswith(prefix):
+        return False
+    return all(part not in ('', '.', '..') for part in path[len(prefix):].split('/'))
+
+
+def _supervisor_chain(membership: object, ancestors: object) -> bool:
+    root = '/sys/fs/cgroup'
+    if not isinstance(membership, str) or not membership.startswith('0::/') or chr(10) in membership:
+        return False
+    relative = membership[3:]
+    if relative != '/' and any(part in ('', '.', '..') for part in relative.split('/')[1:]):
+        return False
+    leaf = root if relative == '/' else root + relative
+    if not _cgroup_supervisor_path(leaf):
+        return False
+    expected: list[str] = []
+    path = leaf
+    while True:
+        expected.append(path)
+        if len(expected) > 8:
+            return False
+        if path == root:
+            break
+        path = path.rsplit('/', 1)[0]
+    if not isinstance(ancestors, list) or [row.get('path') if isinstance(row, dict) else None for row in ancestors] != expected:
+        return False
+    return True
+
+
+def _structural_readback(row: dict[str, Any]) -> bool:
+    files = row.get('files')
+    if not isinstance(files, dict):
+        return False
+    for name in ('cgroup.controllers', 'cgroup.subtree_control', 'cgroup.type'):
+        item = files.get(name)
+        if not isinstance(item, dict) or item.get('state') != 'read' or not isinstance(item.get('value'), str):
+            return False
+    for item in files.values():
+        if not isinstance(item, dict):
+            return False
+        if item.get('state') == 'missing':
+            continue
+        if item.get('state') != 'read' or not isinstance(item.get('value'), str):
+            return False
+    return True
+
+
+def _complete_supervisor_readback(parsed: dict[str, Any]) -> bool:
+    mount = parsed.get('mount')
+    ancestors = parsed.get('ancestors')
+    if not isinstance(mount, dict) or not isinstance(ancestors, list) or not 1 <= len(ancestors) <= 8:
+        return False
+    source = mount.get('source')
+    if mount.get('mountpoint') != '/sys/fs/cgroup' or mount.get('root') != '/' or mount.get('fstype') != 'cgroup2':
+        return False
+    if not isinstance(source, str) or chr(10) in source:
+        return False
+    if not _supervisor_chain(parsed.get('membership'), ancestors):
+        return False
+    for row in ancestors:
+        if not isinstance(row, dict) or row.get('state') in ('symlink', 'nonroot', 'delegated'):
+            return False
+        if type(row.get('uid')) is not int or row.get('uid') != 0:
+            return False
+        if type(row.get('dev')) is not int or type(row.get('ino')) is not int or row['ino'] <= 0:
+            return False
+        if not _structural_readback(row):
+            return False
+    return True
+
+
+def _supervisor_schema(parsed: dict[str, Any]) -> list[str]:
+    required = ('uid', 'pid', 'membership', 'reads', 'bytes', 'complete', 'unresolved', 'ancestors', 'mount')
+    if any(key not in parsed for key in required):
+        return ['supervisor schema']
+    reasons: list[str] = []
+    uid, pid, reads, nbytes = parsed['uid'], parsed['pid'], parsed['reads'], parsed['bytes']
+    membership = parsed['membership']
+    if type(uid) is not int or uid < 0 or type(pid) is not int or pid <= 0:
+        reasons.append('supervisor schema')
+    elif uid != 0:
+        reasons.append('ordinary uid is not the supervisor context')
+    if not isinstance(membership, str) or chr(10) in membership or not membership.startswith('0::/'):
+        reasons.append('supervisor schema')
+    if type(reads) is not int or reads < 0 or reads > 128 or type(nbytes) is not int or nbytes < 0 or nbytes > 1048576:
+        reasons.append('supervisor schema')
+    reported = parsed['unresolved']
+    if type(parsed['complete']) is not bool or not isinstance(reported, list) or not isinstance(parsed['ancestors'], list):
+        reasons.append('supervisor schema')
+    elif any(not isinstance(item, str) for item in reported):
+        reasons.append('supervisor schema')
+    if parsed['mount'] is not None and not isinstance(parsed['mount'], dict):
+        reasons.append('supervisor schema')
+    if parsed['complete'] is True and (not isinstance(membership, str) or not membership.strip() or not _complete_supervisor_readback(parsed)):
+        reasons.append('supervisor schema')
+    return list(dict.fromkeys(reasons))
+
+
+def checkout_cgroup_inventory(stage, io, spawn, clock, python):
+    if stage != 'checkout':
+        return {'stage': stage, 'disposition': 'not_applicable', 'allowed': False, 'contexts': [], 'reads': 0}
+    namespace = {}
+    exec(OBSERVER_LIB, namespace)
+    invoking = namespace['inventory'](io, clock)
+    invoking['context'] = 'invoking'
+    argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=1', '10', python, '-I', '-B', '-c', OBSERVER_LIB + OBSERVER_RUNNER]
+    reasons: list[str] = []
+    supervisor: dict[str, Any] = {'context': 'supervisor', 'complete': False}
+    try:
+        done = spawn(argv, 10)
+    except subprocess.TimeoutExpired:
+        reasons.append('deadline')
+        done = None
+    if done is not None and done.returncode != 0:
+        reasons.append('supervisor exit %s' % done.returncode)
+    elif done is not None:
+        raw = done.stdout if isinstance(done.stdout, bytes) else str(done.stdout).encode()
+        if len(raw) > 1048576:
+            reasons.append('oversized supervisor output')
+            parsed = None
+        else:
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, TypeError, UnicodeError):
+                parsed = None
+        if parsed is None:
+            if 'oversized supervisor output' not in reasons:
+                reasons.append('malformed supervisor output')
+        elif not isinstance(parsed, dict):
+            reasons.append('malformed supervisor output')
+        else:
+            supervisor.update(parsed)
+            supervisor['context'] = 'supervisor'
+            reasons.extend(_supervisor_schema(parsed))
+            reported = parsed.get('unresolved')
+            if isinstance(reported, list):
+                for item in reported:
+                    if isinstance(item, str) and item not in reasons:
+                        reasons.append(item)
+    supervisor['unresolved'] = reasons
+    if reasons:
+        supervisor['complete'] = False
+    ready = invoking.get('complete') is True and not invoking.get('unresolved') and supervisor.get('complete') is True and supervisor.get('uid') == 0 and not supervisor.get('unresolved')
+    return {'stage': 'checkout', 'disposition': 'read' if ready else 'unresolved', 'allowed': False,
+            'sameMembership': invoking.get('membership') == supervisor.get('membership'), 'reads': invoking.get('reads', 0),
+            'contexts': [invoking, supervisor]}
+
+
 def clock_source() -> str:
     return """const D=Date;function C(...a){return new.target?Reflect.construct(D,a.length?a:[1793203200000],new.target):new D(1793203200000).toString()}
 for(const k of['parse','UTC'])Object.defineProperty(C,k,Object.getOwnPropertyDescriptor(D,k));
@@ -90,6 +560,8 @@ def main(collect=False, capacity_only=None):
     print(json.dumps({'stage': capacity_only or 'pre-public', 'root': str(ROOT), 'device': ROOT.stat().st_dev,
                       'freeBytes': disk.free, 'floorBytes': CAPACITY_FLOOR_BYTES}, sort_keys=True), flush=True)
     assert disk.free >= CAPACITY_FLOOR_BYTES, '30GiB build admission floor'
+    if capacity_only == 'checkout':
+        print(json.dumps(checkout_cgroup_inventory('checkout', host_cgroup_io(), host_cgroup_spawn, time.monotonic, sys.executable), sort_keys=True), flush=True)
     if capacity_only is not None:
         return
     setup = ROOT / '.public-m-setup'

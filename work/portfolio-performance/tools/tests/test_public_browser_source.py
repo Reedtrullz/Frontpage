@@ -10,6 +10,7 @@ import importlib.util
 import json
 import errno
 import shlex
+import stat
 from contextlib import redirect_stdout
 from types import SimpleNamespace
 from typing import TypedDict
@@ -705,6 +706,498 @@ process.stdout.write('server+browser frozen Date contract PASS\\n');
         self.assertEqual(result.returncode, 2)
         self.assertIn('not allowed with argument', result.stderr)
 
+    def test_checkout_cgroup_readback_reports_membership_mount_and_controllers(self) -> None:
+        producer = _load_prepare('cgroup_valid_readback')
+        observed = _observe(producer, _valid_io(), _root_supervisor())
+        self.assertFalse(observed['allowed'])
+        self.assertEqual(observed['disposition'], 'read')
+        self.assertEqual(observed['sameMembership'], True)
+        invoking = observed['contexts'][0]
+        self.assertEqual(invoking['context'], 'invoking')
+        self.assertEqual(invoking['membership'], '0::/system.slice/runner')
+        self.assertEqual(invoking['mount']['fstype'], 'cgroup2')
+        self.assertEqual(invoking['mount']['root'], '/')
+        self.assertEqual(invoking['ancestors'][0]['controllers'], ['memory'])
+        self.assertEqual(invoking['ancestors'][0]['files']['memory.max']['value'], 'max')
+        self.assertEqual(observed['contexts'][1]['uid'], 0)
+        self.assertEqual(invoking['writes'], 0)
+
+    def test_cgroup_inventory_runs_only_at_checkout_stage(self) -> None:
+        producer = _load_prepare('cgroup_stage_gate')
+        for stage in ('pre-public', 'dependency-staging', None):
+            with self.subTest(stage=stage):
+                observed = producer.checkout_cgroup_inventory(stage, _ExplodingIO(), _ExplodingSpawn(), lambda: 0, '/usr/bin/python3.12')
+                self.assertEqual(observed['disposition'], 'not_applicable')
+                self.assertFalse(observed['allowed'])
+                self.assertEqual(observed['reads'], 0)
+                self.assertEqual(observed['contexts'], [])
+
+    def test_cgroup_inventory_rejects_malformed_membership_without_traversal(self) -> None:
+        producer = _load_prepare('cgroup_malformed_membership')
+        io = _valid_io()
+        io.files['/proc/self/cgroup'] = b'0::/system.slice/../../etc/passwd\n'
+        observed = _observe(producer, io, _root_supervisor())
+        self.assertEqual(observed['disposition'], 'unresolved')
+        self.assertFalse(observed['allowed'])
+        self.assertIn('malformed membership', observed['contexts'][0]['unresolved'])
+        self.assertFalse(any(path == '/etc/passwd' or '..' in str(path) for path in io.paths))
+        bad_mount = _valid_io()
+        bad_mount.files['/proc/self/mountinfo'] = b'36 25 0:30 / /mnt rw - tmpfs tmpfs rw' + bytes([10])
+        bad_mount_result = _observe(producer, bad_mount, _root_supervisor())
+        self.assertFalse(any(str(path).startswith('/sys/fs/cgroup') for path in bad_mount.paths))
+        self.assertIn('cgroup2 mount', bad_mount_result['contexts'][0]['unresolved'])
+        self.assertEqual(bad_mount_result['disposition'], 'unresolved')
+
+    def test_cgroup_inventory_stops_on_symlink_or_nonroot_owner(self) -> None:
+        producer = _load_prepare('cgroup_ownership')
+        linked = _valid_io()
+        leaf = '/sys/fs/cgroup/system.slice/runner'
+        linked.stats[leaf] = SimpleNamespace(st_uid=0, st_mode=stat.S_IFLNK | 0o777, st_dev=1, st_ino=4)
+        linked_result = _observe(producer, linked, _root_supervisor())
+        self.assertIn('symlink', linked_result['contexts'][0]['unresolved'])
+        self.assertFalse(any(str(path).startswith(leaf + '/') for path in linked.paths))
+        owned = _valid_io()
+        owned.stats[leaf] = SimpleNamespace(st_uid=1000, st_mode=stat.S_IFDIR | 0o755, st_dev=1, st_ino=4)
+        owned_result = _observe(producer, owned, _root_supervisor())
+        self.assertIn('nonroot', owned_result['contexts'][0]['unresolved'])
+        self.assertFalse(owned_result['allowed'])
+        changed = _valid_io()
+        target = '/sys/fs/cgroup/system.slice/runner/memory.max'
+        changed.read_identity[target] = SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o444, st_dev=1, st_ino=changed.stats[target].st_ino + 9)
+        changed_result = _observe(producer, changed, _root_supervisor())
+        record = changed_result['contexts'][0]['ancestors'][0]['files']['memory.max']
+        self.assertEqual(record['state'], 'changed')
+        self.assertNotEqual(record['lstat']['ino'], record['fd']['ino'])
+        self.assertIn('changed identity', changed_result['contexts'][0]['unresolved'])
+        special = _valid_io()
+        special.files[target] = b'x' * 1000000
+        special.read_identity[target] = SimpleNamespace(st_uid=0, st_mode=stat.S_IFIFO | 0o444, st_dev=1, st_ino=3)
+        special_result = _observe(producer, special, _root_supervisor())
+        special_record = special_result['contexts'][0]['ancestors'][0]['files']['memory.max']
+        self.assertEqual(special_record['state'], 'special')
+        self.assertTrue(stat.S_ISFIFO(special_record['fd']['mode']))
+        self.assertLess(special_result['contexts'][0]['bytes'], 1000000)
+        self.assertIn('special file', special_result['contexts'][0]['unresolved'])
+        self.assertFalse(special_result['allowed'])
+
+    def test_cgroup_inventory_records_missing_denied_and_unknown_controller(self) -> None:
+        producer = _load_prepare('cgroup_unknown')
+        missing = _valid_io()
+        missing.files['/proc/self/cgroup'] = FileNotFoundError('/proc/self/cgroup')
+        missing_result = _observe(producer, missing, _root_supervisor())
+        self.assertIn('missing:/proc/self/cgroup', missing_result['contexts'][0]['unresolved'])
+        denied = _valid_io()
+        denied.stats['/sys/fs/cgroup/system.slice/runner'] = PermissionError('/sys/fs/cgroup/system.slice/runner')
+        denied_result = _observe(producer, denied, _root_supervisor())
+        self.assertTrue(any(item.startswith('denied:') for item in denied_result['contexts'][0]['unresolved']))
+        unknown = _valid_io()
+        leaf = '/sys/fs/cgroup/system.slice/runner/cgroup.controllers'
+        unknown.files[leaf] = b'memory hugetlb $(reboot)\n'
+        unknown_result = _observe(producer, unknown, _root_supervisor())
+        unresolved = unknown_result['contexts'][0]['unresolved']
+        self.assertIn('unknown ambient controller: hugetlb', unresolved)
+        self.assertIn('unknown ambient controller: $(reboot)', unresolved)
+        self.assertEqual(unknown.writes, 0)
+        self.assertFalse(unknown_result['allowed'])
+        self.assertEqual(len(unknown_result['spawn'].calls), 1)
+
+    def test_cgroup_inventory_stops_at_ancestor_file_byte_and_deadline_bounds(self) -> None:
+        producer = _load_prepare('cgroup_bounds')
+        deep = _deep_io()
+        bounded = _observe(producer, deep, _root_supervisor())
+        invoking = bounded['contexts'][0]
+        self.assertLessEqual(len(invoking['ancestors']), 8)
+        self.assertLessEqual(invoking['reads'], 128)
+        self.assertLessEqual(invoking['bytes'], 1048576)
+        self.assertIn('ancestor bound', invoking['unresolved'])
+        self.assertIn('file bound', invoking['unresolved'])
+        huge = _valid_io()
+        huge.files['/proc/self/mountinfo'] = b'x' * 65537
+        huge_result = _observe(producer, huge, _root_supervisor())
+        self.assertTrue(any(item.startswith('oversized:') for item in huge_result['contexts'][0]['unresolved']))
+        self.assertLessEqual(huge_result['contexts'][0]['bytes'], 1048576)
+        late = _valid_io()
+        late_result = _observe(producer, late, _root_supervisor(), clock=_clock([0, 0, 9]))
+        self.assertIn('deadline', late_result['contexts'][0]['unresolved'])
+        self.assertLess(len(late.paths), 20)
+
+    def test_cgroup_inventory_records_stale_identity(self) -> None:
+        producer = _load_prepare('cgroup_stale_identity')
+        io = _valid_io()
+        leaf = '/sys/fs/cgroup/system.slice/runner'
+        first = io.stats[leaf]
+        io.stats[leaf] = [first, SimpleNamespace(st_uid=0, st_mode=first.st_mode, st_dev=1, st_ino=first.st_ino + 1)]
+        observed = _observe(producer, io, _root_supervisor())
+        self.assertIn('stale identity', observed['contexts'][0]['unresolved'])
+        self.assertEqual(observed['disposition'], 'unresolved')
+        self.assertFalse(observed['allowed'])
+
+    def test_supervisor_context_rejects_ordinary_uid_partial_output_and_timeout(self) -> None:
+        producer = _load_prepare('cgroup_supervisor_context')
+        ordinary = _observe(producer, _valid_io(), _supervisor_result(uid=1000))
+        self.assertEqual(ordinary['disposition'], 'unresolved')
+        self.assertFalse(ordinary['allowed'])
+        self.assertTrue(any('ordinary uid' in item for item in ordinary['contexts'][1]['unresolved']))
+        partial = _Spawn(SimpleNamespace(returncode=1, stdout=json.dumps({'uid': 0, 'complete': True, 'unresolved': [], 'membership': '0::/system.slice/runner'}).encode(), stderr=b''))
+        misleading = _observe(producer, _valid_io(), partial)
+        self.assertEqual(misleading['disposition'], 'unresolved')
+        self.assertFalse(misleading['allowed'])
+        self.assertTrue(any(item.startswith('supervisor exit') for item in misleading['contexts'][1]['unresolved']))
+        expired = _observe(producer, _valid_io(), _Spawn(subprocess.TimeoutExpired(cmd='sudo', timeout=10)))
+        self.assertIn('deadline', expired['contexts'][1]['unresolved'])
+        self.assertEqual(len(expired['spawn'].calls), 1)
+        incomplete = _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps({'complete': True, 'uid': 0}).encode(), stderr=b''))
+        incomplete_result = _observe(producer, _valid_io(), incomplete)
+        self.assertEqual(incomplete_result['disposition'], 'unresolved')
+        self.assertIn('supervisor schema', incomplete_result['contexts'][1]['unresolved'])
+        self.assertFalse(incomplete_result['allowed'])
+        invalid = json.loads(_supervisor_result().result.stdout)
+        invalid['reads'] = 10 ** 9
+        invalid_result = _observe(producer, _valid_io(), _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(invalid).encode(), stderr=b'')))
+        self.assertIn('supervisor schema', invalid_result['contexts'][1]['unresolved'])
+        self.assertNotEqual(invalid_result['disposition'], 'read')
+        oversized = _Spawn(SimpleNamespace(returncode=0, stdout=b'{"complete": true}' + b' ' * 1048576, stderr=b''))
+        oversized_result = _observe(producer, _valid_io(), oversized)
+        self.assertIn('oversized supervisor output', oversized_result['contexts'][1]['unresolved'])
+        self.assertFalse(oversized_result['allowed'])
+        null_unresolved = json.loads(_supervisor_result().result.stdout)
+        null_unresolved['unresolved'] = None
+        null_result = _observe(producer, _valid_io(), _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(null_unresolved).encode(), stderr=b'')))
+        self.assertIn('supervisor schema', null_result['contexts'][1]['unresolved'])
+        self.assertNotEqual(null_result['disposition'], 'read')
+        empty_mount = json.loads(_supervisor_result().result.stdout)
+        empty_mount['mount'] = {}
+        empty_result = _observe(producer, _valid_io(), _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(empty_mount).encode(), stderr=b'')))
+        self.assertIn('supervisor schema', empty_result['contexts'][1]['unresolved'])
+        self.assertFalse(empty_result['allowed'])
+        namespace = {}
+        exec(producer.OBSERVER_LIB, namespace)
+        seen = []
+
+        class Gate:
+            O_RDONLY = os.O_RDONLY
+            O_NONBLOCK = os.O_NONBLOCK
+            O_NOFOLLOW = getattr(os, 'O_NOFOLLOW', 0)
+
+            def open(self, path, flags):
+                seen.append(flags)
+                return 3
+
+            def fstat(self, fd):
+                return SimpleNamespace(st_mode=stat.S_IFIFO | 0o444, st_uid=0, st_dev=1, st_ino=9)
+
+            def read(self, fd, count):
+                raise AssertionError('special file was read')
+
+            def close(self, fd):
+                return None
+
+        namespace['os'] = Gate()
+        factory = namespace['Real']
+        if not isinstance(factory, type):
+            raise AssertionError('observer Real is not a class')
+        opened = factory()
+        data, info = opened.read('/proc/self/cgroup', 32)
+        self.assertEqual(data, b'')
+        self.assertTrue(stat.S_ISFIFO(info.st_mode))
+        self.assertTrue(seen and seen[0] & os.O_NONBLOCK)
+        argv, timeout = ordinary['spawn'].calls[0]
+        self.assertEqual(argv[:10], ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=1', '10', '/usr/bin/python3.12', '-I', '-B', '-c'])
+        self.assertNotIn('public-m-', argv[10])
+        self.assertNotIn('importlib', argv[10])
+        self.assertEqual(timeout, 10)
+        namespace: dict[str, object] = {}
+        exec(producer.OBSERVER_LIB, namespace)
+        factory = namespace['Real']
+        if not isinstance(factory, type):
+            raise AssertionError('observer Real is not a class')
+        real = factory()
+        with self.assertRaises(PermissionError):
+            real.read('/etc/passwd', 32)
+        with self.assertRaises(PermissionError):
+            real.lstat('/proc/self/environ')
+
+    def test_supervisor_complete_rejects_empty_ancestry_and_arbitrary_mount(self) -> None:
+        producer = _load_prepare('cgroup_incomplete_supervisor')
+        payload = {'uid': 0, 'pid': 1, 'membership': '0::/system.slice/runner', 'mount': {'unexpected': True},
+                   'ancestors': [], 'unresolved': [], 'reads': 1, 'bytes': 1, 'complete': True}
+        observed = _observe(producer, _valid_io(), _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(payload).encode(), stderr=b'')))
+        supervisor = observed['contexts'][1]
+        self.assertEqual(observed['disposition'], 'unresolved')
+        self.assertFalse(observed['allowed'])
+        self.assertFalse(supervisor['complete'])
+        self.assertIn('supervisor schema', supervisor['unresolved'])
+
+    def test_supervisor_preserves_reported_unresolved_reasons(self) -> None:
+        producer = _load_prepare('cgroup_reported_unresolved')
+        payload = {'uid': 0, 'pid': 1, 'membership': '0::/system.slice/runner',
+                   'mount': {'mountpoint': '/sys/fs/cgroup', 'root': '/', 'fstype': 'cgroup2', 'source': 'cgroup2'},
+                   'ancestors': [
+                       {'path': '/sys/fs/cgroup', 'uid': 0, 'dev': 1, 'ino': 1, 'files': {}},
+                       {'path': '/sys/fs/cgroup/system.slice/runner', 'uid': 0, 'dev': 1, 'ino': 2, 'files': {}},
+                   ],
+                   'unresolved': ['unknown ambient controller: hugetlb', 'deadline'], 'reads': 1, 'bytes': 1, 'complete': True}
+        observed = _observe(producer, _valid_io(), _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(payload).encode(), stderr=b'')))
+        supervisor = observed['contexts'][1]
+        self.assertIn('unknown ambient controller: hugetlb', supervisor['unresolved'])
+        self.assertIn('deadline', supervisor['unresolved'])
+        self.assertFalse(supervisor['complete'])
+        self.assertEqual(observed['disposition'], 'unresolved')
+        self.assertFalse(observed['allowed'])
+
+    def test_supervisor_complete_requires_structural_readback_and_contiguous_leaf(self) -> None:
+        producer = _load_prepare('cgroup_structural_readback')
+
+        def row(path, ino, files):
+            return {'path': path, 'uid': 0, 'dev': 1, 'ino': ino, 'files': files}
+
+        def structural(extra=None):
+            files = {
+                'cgroup.controllers': {'state': 'read', 'value': 'memory'},
+                'cgroup.subtree_control': {'state': 'read', 'value': 'memory'},
+                'cgroup.type': {'state': 'read', 'value': 'domain'},
+            }
+            if extra:
+                files.update(extra)
+            return files
+
+        def payload(ancestors):
+            body = {'uid': 0, 'pid': 1, 'membership': '0::/system.slice/runner',
+                    'mount': {'mountpoint': '/sys/fs/cgroup', 'root': '/', 'fstype': 'cgroup2', 'source': 'cgroup2'},
+                    'ancestors': ancestors, 'unresolved': [], 'reads': 4, 'bytes': 32, 'complete': True}
+            return _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(body).encode(), stderr=b''))
+
+        empty = _observe(producer, _valid_io(), payload([
+            row('/sys/fs/cgroup/system.slice/runner', 3, {}),
+            row('/sys/fs/cgroup/system.slice', 2, {}),
+            row('/sys/fs/cgroup', 1, {}),
+        ]))
+        self.assertEqual(empty['disposition'], 'unresolved')
+        self.assertFalse(empty['allowed'])
+        self.assertFalse(empty['contexts'][1]['complete'])
+        self.assertIn('supervisor schema', empty['contexts'][1]['unresolved'])
+        gap = _observe(producer, _valid_io(), payload([
+            row('/sys/fs/cgroup/system.slice/runner', 3, structural()),
+            row('/sys/fs/cgroup', 1, structural()),
+        ]))
+        self.assertEqual(gap['disposition'], 'unresolved')
+        self.assertIn('supervisor schema', gap['contexts'][1]['unresolved'])
+        optional = _observe(producer, _valid_io(), payload([
+            row('/sys/fs/cgroup/system.slice/runner', 3, structural({'memory.max': {'state': 'missing'}})),
+            row('/sys/fs/cgroup/system.slice', 2, structural()),
+            row('/sys/fs/cgroup', 1, structural()),
+        ]))
+        self.assertEqual(optional['disposition'], 'read')
+        self.assertFalse(optional['allowed'])
+        self.assertTrue(optional['contexts'][1]['complete'])
+
+    def test_checkout_main_prints_inventory_without_preparation(self) -> None:
+        producer = _load_prepare('cgroup_checkout_main')
+        io = _valid_io()
+        spawn = _root_supervisor()
+        disk = SimpleNamespace(free=producer.CAPACITY_FLOOR_BYTES)
+        output = io_buffer()
+        with patch.object(producer, 'ROOT', self.root), patch.object(producer.shutil, 'disk_usage', return_value=disk), \
+             patch.object(producer.sys, 'platform', 'linux'), patch.object(producer.os, 'getuid', return_value=1000), \
+             patch.object(producer, 'host_cgroup_io', return_value=io), patch.object(producer, 'host_cgroup_spawn', spawn), \
+             patch.object(producer, 'make_checkouts') as preparation, redirect_stdout(output):
+            producer.main(capacity_only='checkout')
+        lines = output.getvalue().splitlines()
+        self.assertEqual(json.loads(lines[0])['freeBytes'], producer.CAPACITY_FLOOR_BYTES)
+        self.assertEqual(json.loads(lines[0])['floorBytes'], producer.CAPACITY_FLOOR_BYTES)
+        body = json.loads(lines[1])
+        self.assertEqual(body['stage'], 'checkout')
+        self.assertFalse(body['allowed'])
+        self.assertEqual(body['disposition'], 'read')
+        preparation.assert_not_called()
+        self.assertFalse((self.root / '.public-m-setup').exists())
+
+    def test_cgroup_inventory_captures_unknown_root_controller_within_read_cap(self) -> None:
+        producer = _load_prepare('cgroup_root_controller')
+        relative = '/' + '/'.join('level%d' % index for index in range(6))
+        files, stats = _tree(relative, b'memory' + bytes([10]), b'memory hugetlb' + bytes([10]))
+        observed = _observe(producer, _CgroupIO(files, stats), _root_supervisor())
+        invoking = observed['contexts'][0]
+        root = next(row for row in invoking['ancestors'] if row['path'] == '/sys/fs/cgroup')
+        self.assertIn('hugetlb', root['controllers'])
+        self.assertIn('unknown ambient controller: hugetlb', invoking['unresolved'])
+        self.assertLessEqual(invoking['reads'], 128)
+        self.assertLessEqual(len(invoking['ancestors']), 8)
+        self.assertFalse(observed['allowed'])
+
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def io_buffer():
+    return io.StringIO()
+
+
+def _load_prepare(name):
+    path = Path(__file__).resolve().parents[4] / 'scripts/perf/public-m-prepare.py'
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _clock(values):
+    remaining = iter(values)
+    last = values[-1]
+
+    def clock():
+        nonlocal last
+        last = next(remaining, last)
+        return last
+
+    return clock
+
+
+class _CgroupIO:
+    def __init__(self, files, stats, uid=1000, pid=9):
+        self.files = dict(files)
+        self.stats = dict(stats)
+        self.uid_value = uid
+        self.pid_value = pid
+        self.paths = []
+        self.writes = 0
+        self.read_identity = {}
+
+    def uid(self):
+        return self.uid_value
+
+    def pid(self):
+        return self.pid_value
+
+    def lstat(self, path):
+        self.paths.append(path)
+        item = self.stats.get(path, FileNotFoundError(path))
+        if isinstance(item, list):
+            item = item.pop(0)
+        if isinstance(item, OSError):
+            raise item
+        return item
+
+    def read(self, path, limit):
+        self.paths.append(path)
+        item = self.files.get(path, FileNotFoundError(path))
+        if isinstance(item, OSError):
+            raise item
+        info = self.read_identity.get(path)
+        if info is None:
+            current = self.stats.get(path)
+            info = current[-1] if isinstance(current, list) and current else current
+            if isinstance(info, OSError):
+                info = None
+        if not hasattr(info, 'st_mode'):
+            info = SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG | 0o444, st_dev=1, st_ino=1)
+        return item, info
+
+
+class _ExplodingIO:
+    def uid(self):
+        raise AssertionError('non-checkout inventory read uid')
+
+    def pid(self):
+        raise AssertionError('non-checkout inventory read pid')
+
+    def lstat(self, path):
+        raise AssertionError('non-checkout inventory lstat')
+
+    def read(self, path, limit):
+        raise AssertionError('non-checkout inventory read')
+
+
+class _Spawn:
+    def __init__(self, result):
+        self.result = result
+        self.calls = []
+
+    def __call__(self, argv, timeout):
+        self.calls.append((argv, timeout))
+        if isinstance(self.result, BaseException):
+            raise self.result
+        return self.result
+
+
+class _ExplodingSpawn:
+    def __call__(self, argv, timeout):
+        raise AssertionError('non-checkout supervisor spawn')
+
+
+def _node(kind, mode, ino, uid=0):
+    flag = {'dir': stat.S_IFDIR, 'file': stat.S_IFREG}[kind]
+    return SimpleNamespace(st_uid=uid, st_mode=flag | mode, st_dev=1, st_ino=ino)
+
+
+def _tree(relative, controllers, root_controllers=None):
+    files = {
+        '/proc/self/cgroup': ('0::' + relative + '\n').encode(),
+        '/proc/self/mountinfo': b'36 25 0:30 / /sys/fs/cgroup rw shared:9 - cgroup2 cgroup2 rw\n',
+    }
+    stats = {}
+    current = '/sys/fs/cgroup'
+    ino = 1
+    parts = [part for part in relative.split('/') if part]
+    for part in [''] + parts:
+        if part:
+            current += '/' + part
+        stats[current] = _node('dir', 0o555, ino)
+        ino += 1
+        chosen = root_controllers if part == '' and root_controllers is not None else controllers
+        for name, value in (
+            ('cgroup.controllers', chosen),
+            ('cgroup.subtree_control', b'memory\n'),
+            ('cgroup.type', b'domain\n'),
+            ('memory.max', b'max\n'),
+        ):
+            path = current + '/' + name
+            files[path] = value
+            stats[path] = _node('file', 0o444, ino)
+            ino += 1
+    return files, stats
+
+
+def _valid_io():
+    files, stats = _tree('/system.slice/runner', b'memory\n')
+    return _CgroupIO(files, stats)
+
+
+def _deep_io():
+    relative = '/' + '/'.join('level%d' % index for index in range(9))
+    files, stats = _tree(relative, b'memory\n')
+    return _CgroupIO(files, stats)
+
+
+def _supervisor_result(uid=0):
+    payload = {'uid': uid, 'pid': 1, 'membership': '0::/system.slice/runner',
+               'mount': {'mountpoint': '/sys/fs/cgroup', 'root': '/', 'fstype': 'cgroup2', 'source': 'cgroup2'},
+               'ancestors': [
+                   {'path': '/sys/fs/cgroup/system.slice/runner', 'uid': 0, 'dev': 1, 'ino': 3, 'files': _structural_files()},
+                   {'path': '/sys/fs/cgroup/system.slice', 'uid': 0, 'dev': 1, 'ino': 2, 'files': _structural_files()},
+                   {'path': '/sys/fs/cgroup', 'uid': 0, 'dev': 1, 'ino': 1, 'files': _structural_files()},
+               ],
+               'unresolved': [], 'reads': 1, 'bytes': 1, 'complete': True}
+    return _Spawn(SimpleNamespace(returncode=0, stdout=json.dumps(payload).encode(), stderr=b''))
+
+
+def _structural_files():
+    return {
+        'cgroup.controllers': {'state': 'read', 'value': 'memory'},
+        'cgroup.subtree_control': {'state': 'read', 'value': 'memory'},
+        'cgroup.type': {'state': 'read', 'value': 'domain'},
+        'memory.max': {'state': 'read', 'value': 'max'},
+    }
+
+
+def _root_supervisor():
+    return _supervisor_result(0)
+
+
+def _observe(producer, io, spawn, clock=None):
+    observed = producer.checkout_cgroup_inventory('checkout', io, spawn, clock or (lambda: 0), '/usr/bin/python3.12')
+    observed['spawn'] = spawn
+    observed['contexts'][0]['writes'] = io.writes
+    return observed
