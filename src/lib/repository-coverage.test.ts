@@ -77,17 +77,19 @@ describe("repository coverage", () => {
     );
   });
 
-  it("promotes Bunkerkartet and includes NAVigator alongside the five fork records", () => {
+  it("promotes Bunkerkartet and includes NAVigator alongside the seven fork records", () => {
     const bunkerkartet = getCanonicalProject("bunkerkartet");
     expect(bunkerkartet?.liveUrl).toBe("https://bunker.reidar.tech");
     expect(getCanonicalProjects().filter((project) => project.repoUrl?.endsWith("/Bunkerkartet"))).toHaveLength(1);
     const repositories = getCanonicalPublicRepositories();
-    expect(repositories).toHaveLength(6);
-    expect(repositories.filter((repository) => repository.fork)).toHaveLength(5);
+    expect(repositories).toHaveLength(8);
+    expect(repositories.filter((repository) => repository.fork)).toHaveLength(7);
     expect(repositories.map((repository) => repository.slug)).toEqual([
       "navigator",
+      "agent-scripts",
       "flip-smart-runelite-plugin",
       "homebrew-cask",
+      "oh-my-openagent",
       "opencodex",
       "osrs-fliphub-plugin-public",
       "tcecosystem-guide",
