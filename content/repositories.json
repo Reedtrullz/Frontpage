@@ -8,6 +8,19 @@
     "reviewedAt": "2026-09-28T14:45:00Z"
   },
   {
+    "slug": "agent-scripts",
+    "name": "agent-scripts",
+    "description": "Fork of steipete/agent-scripts, a shared collection of agent helper scripts reused across repositories; the upstream repository remains the source of ownership.",
+    "repoUrl": "https://github.com/Reedtrullz/agent-scripts",
+    "homepageUrl": "https://steipete.me",
+    "fork": true,
+    "upstream": {
+      "name": "steipete/agent-scripts",
+      "repoUrl": "https://github.com/steipete/agent-scripts"
+    },
+    "reviewedAt": "2026-11-16T00:00:00Z"
+  },
+  {
     "slug": "flip-smart-runelite-plugin",
     "name": "FlipSmart RuneLite Plugin",
     "description": "Fork of Flip-Smart's RuneLite plugin for Grand Exchange flipping, with account-backed recommendations and progress tracking described in the upstream README.",
@@ -31,6 +44,18 @@
       "repoUrl": "https://github.com/Homebrew/homebrew-cask"
     },
     "reviewedAt": "2026-09-15T07:00:00Z"
+  },
+  {
+    "slug": "oh-my-openagent",
+    "name": "oh-my-openagent",
+    "description": "Fork of code-yeongyu/oh-my-openagent, a Codex plugin distribution for agent workflow orchestration; the upstream repository remains the source of ownership.",
+    "repoUrl": "https://github.com/Reedtrullz/oh-my-openagent",
+    "fork": true,
+    "upstream": {
+      "name": "code-yeongyu/oh-my-openagent",
+      "repoUrl": "https://github.com/code-yeongyu/oh-my-openagent"
+    },
+    "reviewedAt": "2026-11-16T00:00:00Z"
   },
   {
     "slug": "opencodex",
