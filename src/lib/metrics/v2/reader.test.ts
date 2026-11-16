@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { gzipSync } from "node:zlib";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ProjectionReadError,
   getOwnerMetricsRootV2,
@@ -13,6 +14,26 @@ import {
   readSeriesV2,
 } from "./reader";
 import { parseOwnerMetricsQuery } from "./queries";
+
+const cloudflare = vi.hoisted(() => ({ env: {} as Record<string, unknown> }));
+vi.mock("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => cloudflare }));
+// Emulates workerd: ERR_BUFFER_TOO_LARGE is only exposed on the info:true path; the rest is real zlib.
+vi.mock("node:zlib", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:zlib")>();
+  return {
+    ...actual,
+    gunzipSync: ((data: Parameters<typeof actual.gunzipSync>[0], options?: { info?: boolean }) => {
+      try {
+        return actual.gunzipSync(data, options as never);
+      } catch (error) {
+        if (!options?.info && (error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
+          throw new RangeError("Memory limit would be exceeded");
+        }
+        throw error;
+      }
+    }) as typeof actual.gunzipSync,
+  };
+});
 
 const fixtureRoot = path.resolve("ops/tests/fixtures/observability-v2");
 const temporaryRoots: string[] = [];
@@ -215,6 +236,48 @@ describe("observability v2 latest readers", () => {
     );
   });
 });
+
+describe("observability v2 Cloudflare compressed reads", () => {
+  const root = "/cloudflare/metrics-v2/owner";
+  const files = Array.from({ length: 10 }, (_, index) => `host/quarter-hour/2026-07-${String(index + 1).padStart(2, "0")}.v2.json`);
+
+  function configure(member: () => Buffer) {
+    const manifest = gzipSync(JSON.stringify({ schema_version: 2, files }));
+    cloudflare.env = {
+      FRONTPAGE_SQL: {
+        exec: (sql: string, name?: string) => ({
+          toArray: () => (sql.includes("SELECT enabled") ? [{ enabled: 1 }] : [{ data: String(name).includes("manifest.v2.json") ? manifest : member() }]),
+        }),
+      },
+    };
+    vi.stubEnv("FRONTPAGE_CLOUDFLARE", "1");
+  }
+  const readCode = () => {
+    try {
+      readSeriesV2(root, { range: "30d", view: "host", resource: null }, new Date("2026-07-31T00:00:00Z"));
+    } catch (error) {
+      return (error as ProjectionReadError).code;
+    }
+    return "none";
+  };
+  afterEach(() => {
+    cloudflare.env = {};
+    vi.unstubAllEnvs();
+  });
+
+  it("maps an over-cap member and an over-budget aggregate to too_large", () => {
+    configure(() => gzipSync(JSON.stringify({ padding: "x".repeat(4 * 1024 * 1024) })));
+    expect(readCode()).toBe("too_large");
+    configure(() => gzipSync(JSON.stringify({ padding: "x".repeat(3_500_000) })));
+    expect(readCode()).toBe("too_large");
+  });
+
+  it("keeps corrupt gzip invalid", () => {
+    configure(() => Buffer.from("not gzip"));
+    expect(readCode()).toBe("invalid");
+  });
+});
+
 
 describe("observability v2 series reader", () => {
   it("merges daily chunks in timestamp order and de-duplicates overlap inside the requested window", () => {

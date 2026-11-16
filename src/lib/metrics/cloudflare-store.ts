@@ -79,7 +79,8 @@ export function readCloudflareProjectionV2(
   if (maxOutputLength <= 0) throw new CloudflareMetricsTooLargeError();
   let decoded: Buffer;
   try {
-    decoded = gunzipSync(row.data as Uint8Array, { maxOutputLength });
+    // workerd only attaches ERR_BUFFER_TOO_LARGE on the public info:true path; @types/node types it as Buffer.
+    ({ buffer: decoded } = gunzipSync(row.data as Uint8Array, { maxOutputLength, info: true }) as unknown as { buffer: Buffer });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE") {
       throw new CloudflareMetricsTooLargeError();
